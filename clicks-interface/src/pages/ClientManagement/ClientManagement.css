@@ -1,0 +1,128 @@
+﻿.client-management-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-lg);
+}
+
+.client-management-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-lg);
+}
+
+.client-management-title {
+  font-family: var(--font-main);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 28px;
+  color: var(--color-text-primary);
+}
+
+/* Client ID cell */
+.client-id-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* Client user cell */
+.client-user-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.client-user-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.client-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.client-user-name {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.client-user-email {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+/* Phone number cell */
+.client-phone-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-primary);
+}
+
+/* Client status toggle */
+.client-activation-toggle {
+  position: relative;
+  width: 48px;
+  height: 24px;
+  background: #F0F0F0;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.client-activation-toggle.active {
+  background: var(--color-primary);
+}
+
+.client-activation-toggle-dot {
+  position: absolute;
+  top: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--color-bg-white);
+  border-radius: 50%;
+  transition: left 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Client actions */
+.client-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.client-action-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease;
+  padding: 0;
+}
+
+.client-action-btn:hover {
+  opacity: 0.7;
+}
+
+.client-action-btn img {
+  width: 20px;
+  height: 20px;
+}

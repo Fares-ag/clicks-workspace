@@ -1,0 +1,17 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+COPY clicks-shared ./clicks-shared
+COPY clicks-admin-api ./clicks-admin-api
+
+WORKDIR /app/clicks-shared
+RUN npm install --omit=dev
+
+WORKDIR /app/clicks-admin-api
+RUN npm install --omit=dev
+
+ENV NODE_ENV=production
+EXPOSE 5000
+
+CMD ["npm", "start"]

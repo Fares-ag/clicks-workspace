@@ -1,0 +1,111 @@
+﻿.performance-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-lg);
+}
+
+.performance-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-lg);
+}
+
+.performance-title {
+  font-family: var(--font-main);
+  font-size: var(--font-size-page-title);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* Performance name cell */
+.performance-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.performance-name-cell:hover {
+  opacity: 0.7;
+}
+
+.performance-name-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.performance-name-text {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance earnings cell */
+.performance-earnings-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance jobs cell */
+.performance-jobs-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance hours cell */
+.performance-hours-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance ongoing jobs cell */
+.performance-ongoing-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance balance cell */
+.performance-balance-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance profit cell */
+.performance-profit-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Performance cancellation rate badge */
+.performance-cancellation-badge {
+  display: inline-block;
+  padding: 8px;
+  background: var(--color-text-secondary);
+  color: var(--color-bg-white);
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 10px;
+}

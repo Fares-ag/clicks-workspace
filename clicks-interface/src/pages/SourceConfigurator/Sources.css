@@ -1,0 +1,306 @@
+﻿.sources-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-lg);
+  background: var(--color-bg-page);
+}
+
+/* Header */
+.sources-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-lg);
+}
+
+.sources-title {
+  font-family: var(--font-main);
+  font-size: var(--font-size-page-title);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.sources-header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Search */
+.sources-search {
+  position: relative;
+  width: 300px;
+}
+
+.sources-search-input {
+  width: 100%;
+  height: 44px;
+  padding: 10px 16px 10px 44px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: var(--font-weight-regular);
+  line-height: 20px;
+  color: var(--color-text-primary);
+}
+
+.sources-search-input::placeholder {
+  color: var(--color-text-placeholder);
+}
+
+.sources-search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.sources-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+/* Add Button */
+.sources-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  background: var(--color-primary);
+  border: none;
+  border-radius: 10px;
+  color: var(--color-bg-white);
+  font-family: var(--font-main);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(152, 31, 31, 0.25);
+}
+
+.sources-add-btn:hover {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(152, 31, 31, 0.3);
+}
+
+.sources-add-icon {
+  font-size: 20px;
+  font-weight: 400;
+}
+
+/* Table Container */
+.sources-table {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Table Header */
+.sources-table-header {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+}
+
+.sources-table-header-cell {
+  padding: 8px 16px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--color-text-muted);
+  height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.sources-list-column {
+  flex: 1;
+  border-right: 1px solid var(--color-border);
+}
+
+.sources-action-column {
+  width: 130px;
+  justify-content: center;
+}
+
+/* Table Body */
+.sources-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.sources-loading,
+.sources-empty {
+  padding: 40px 24px;
+  text-align: center;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--color-text-placeholder);
+}
+
+.sources-table-row {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  min-height: 64px;
+}
+
+.sources-table-row.last {
+  background: var(--color-bg-page);
+}
+
+.sources-table-row.last .sources-action-btn {
+  opacity: 1;
+}
+
+
+
+
+.sources-table-cell {
+  padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+}
+
+/* List Content Container */
+.sources-list-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 8px;
+}
+
+/* Expand Button */
+.sources-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-main);
+  text-align: left;
+}
+
+.sources-main-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: var(--color-text-primary);
+}
+
+.sources-expand-icon {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.2s ease;
+}
+
+.sources-expand-icon.expanded {
+  transform: rotate(180deg);
+}
+
+/* Sub-sources */
+.sources-subsources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 30px;
+  padding-right: 0;
+  padding-bottom: 4px;
+  width: 100%;
+}
+
+.sources-subsource-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-bg-white);
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.sources-subsource-item:hover {
+  background: var(--color-bg-page);
+}
+
+.sources-subsource-name {
+  flex: 1;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: var(--color-text-muted);
+  text-align: left;
+  min-width: 0;
+}
+
+.sources-subsource-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.sources-subsource-delete img {
+  width: 20px;
+  height: 20px;
+}
+
+/* Action Buttons */
+.sources-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin: 0 4px;
+}
+
+.sources-action-btn img {
+  width: 20px;
+  height: 20px;
+}
+
+.sources-delete-btn img {
+  filter: brightness(0) saturate(100%) invert(56%) sepia(9%) saturate(629%) hue-rotate(182deg) brightness(92%) contrast(87%);
+}
+
+.sources-edit-btn img {
+  filter: brightness(0) saturate(100%) invert(56%) sepia(9%) saturate(629%) hue-rotate(182deg) brightness(92%) contrast(87%);
+}
+
+.sources-action-btn:hover img {
+  filter: brightness(0) saturate(100%) invert(8%) sepia(0%) saturate(0%) hue-rotate(174deg) brightness(99%) contrast(90%);
+}

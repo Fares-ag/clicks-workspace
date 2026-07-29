@@ -1,0 +1,66 @@
+# Deploy staging VPS (provider-agnostic)
+#
+# Full runbook: STAGING_DEPLOY.md
+# Secrets (any SSH VPS — names kept for compatibility):
+#   AZURE_VM_HOST / AZURE_VM_USERNAME / AZURE_VM_SSH_KEY / AZURE_VM_PORT
+# Server: CLICKS_API_ROOT defaults to $HOME/clicks-api
+# Soft launch: do NOT set REDIS_URL or TECH_API_INSTANCES>1 until STAGING_E2E.md is green.
+# .env on server is gitignored; git clean -fd will not remove it (avoid -fdx).
+
+name: Deploy Staging VPS
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "18.x"
+
+jobs:
+  deploy:
+    name: Deploy to staging VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH and restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USERNAME }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          port: ${{ secrets.AZURE_VM_PORT || 22 }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+            APP_ROOT="${CLICKS_API_ROOT:-$HOME/clicks-api}"
+            cd "$APP_ROOT"
+
+            git fetch origin
+            git reset --hard origin/staging
+            git clean -fd
+
+            echo "--- Installing dependencies for admin API ---"
+            cd clicks-admin-api && npm install --only=production
+
+            echo "--- Installing dependencies for customer-tech API ---"
+            cd ../clicks-customer-tech-api && npm install --only=production
+
+            echo "--- Installing dependencies for shared models ---"
+            cd ../clicks-shared && npm install --only=production
+
+            cd "$APP_ROOT"
+            export CLICKS_API_ROOT="$APP_ROOT"
+
+            echo "--- Restarting application with PM2 ---"
+            pm2 startOrRestart ecosystem.config.js
+            pm2 save
+
+            sudo env PATH=$PATH:$NVM_DIR/versions/node/$(nvm version)/bin pm2 startup systemd -u ${{ secrets.AZURE_VM_USERNAME }} --hp /home/${{ secrets.AZURE_VM_USERNAME }}
+
+            echo "--- Deployment successful ---"
+            pm2 status

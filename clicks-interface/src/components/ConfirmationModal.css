@@ -1,0 +1,121 @@
+.confirmation-modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.2);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.confirmation-modal {
+  width: 580px;
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 40px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmation-modal-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirmation-modal-icon {
+  width: 90px;
+  height: 90px;
+  margin: 0 auto;
+  display: block;
+}
+
+.confirmation-modal-title {
+  margin-top: 28px;
+  font-size: 30px;
+  font-weight: 500;
+  color: #252525;
+  text-align: center;
+  max-width: 400px;
+}
+
+.confirmation-modal-message {
+  margin-top: 12px;
+  font-size: 16px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  max-width: 450px;
+  line-height: 1.5;
+}
+
+.confirmation-modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.confirmation-modal-cancel,
+.confirmation-modal-confirm {
+  flex: 1;
+  height: 48px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  outline: none;
+}
+
+.confirmation-modal-cancel {
+  background: var(--color-secondary);
+  color: var(--color-text-primary);
+}
+
+.confirmation-modal-cancel:hover {
+  background: var(--color-secondary-hover);
+}
+
+.confirmation-modal-confirm {
+  background: var(--color-pending);
+  color: white;
+}
+
+.confirmation-modal-confirm:hover {
+  opacity: 0.9;
+}
+
+.confirmation-modal-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.confirmation-modal-close:hover {
+  background: var(--color-bg-hover);
+}
+
+.confirmation-modal-close-x {
+  font-size: 18px;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}

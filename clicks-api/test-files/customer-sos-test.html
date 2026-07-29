@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer SOS Test - Clicks Roadside</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 { text-align: center; color: #333; margin-bottom: 10px; }
+    .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 14px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
+    input, select {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+    input:focus, select:focus { outline: none; border-color: #667eea; }
+    .config-section {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .config-section h3 { margin-bottom: 15px; color: #333; }
+    .btn {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 10px;
+    }
+    .btn-login { background: #28a745; color: white; }
+    .btn-login:hover { background: #218838; }
+    .btn-logout { background: #dc3545; color: white; width: auto; padding: 8px 20px; }
+    .btn-connect { background: #667eea; color: white; }
+    .btn-connect:hover { background: #5a6fd6; }
+    .btn-connect:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-sos {
+      background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+      color: white;
+      font-size: 24px;
+      padding: 25px;
+    }
+    .btn-sos:hover { transform: scale(1.02); box-shadow: 0 10px 30px rgba(255, 65, 108, 0.4); }
+    .btn-sos:disabled { background: #ccc; transform: none; box-shadow: none; cursor: not-allowed; }
+    .btn-cancel { background: #6c757d; color: white; }
+    .btn-rate { background: #ffc107; color: #333; }
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: 600;
+    }
+    .status-disconnected { background: #ffe0e0; color: #d63031; }
+    .status-connected { background: #d4edda; color: #155724; }
+    .status-logged-in { background: #cce5ff; color: #004085; }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; }
+    .status-dot.red { background: #d63031; }
+    .status-dot.green { background: #00b894; animation: pulse 1.5s infinite; }
+    .status-dot.blue { background: #0984e3; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .messages {
+      background: #1a1a2e;
+      border-radius: 10px;
+      padding: 15px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    .messages h3 { color: #fff; margin-bottom: 10px; }
+    .message {
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .message.sent { background: #2d3436; color: #74b9ff; border-left: 3px solid #74b9ff; }
+    .message.received { background: #2d3436; color: #55efc4; border-left: 3px solid #55efc4; }
+    .message.error { background: #2d3436; color: #ff7675; border-left: 3px solid #ff7675; }
+    .message.info { background: #2d3436; color: #fdcb6e; border-left: 3px solid #fdcb6e; }
+    .sos-active {
+      text-align: center;
+      padding: 30px;
+      background: #fff3cd;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .sos-active h2 { color: #856404; margin-bottom: 10px; }
+    .countdown { font-size: 48px; font-weight: bold; color: #ff4b2b; }
+    .job-status-card { border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .job-status-card.in_call { background: #fef3c7; border: 2px solid #f59e0b; }
+    .job-status-card.assigned { background: #e3f2fd; border: 2px solid #2196f3; }
+    .job-status-card.accepted { background: #e8f5e9; border: 2px solid #4caf50; }
+    .job-status-card.en_route { background: #fff3e0; border: 2px solid #ff9800; }
+    .job-status-card.arrived { background: #f3e5f5; border: 2px solid #9c27b0; }
+    .job-status-card.in_progress { background: #e0f7fa; border: 2px solid #00bcd4; }
+    .job-status-card.paid { background: #e8f5e9; border: 2px solid #4caf50; }
+    .job-status-card.cancelled { background: #fee2e2; border: 2px solid #dc2626; }
+    .job-status-card.pending { background: #fef3c7; border: 2px solid #f59e0b; }
+    .job-status-card h3 { margin-bottom: 15px; }
+    .tech-info { display: grid; gap: 10px; }
+    .tech-info-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .status-badge {
+      display: inline-block;
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 12px;
+      background: #667eea;
+      color: white;
+    }
+    .receipt-card {
+      background: #d4edda;
+      border: 2px solid #28a745;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .session-alert {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .session-alert h3 { color: #856404; margin-bottom: 10px; }
+    .hidden { display: none !important; }
+    .login-section { background: #e3f2fd; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+    .user-info {
+      background: #d4edda;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .user-info strong { color: #155724; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚗 Clicks Customer</h1>
+    <p class="subtitle">SOS Test Simulator with Login & Session Resume</p>
+
+    <!-- Login Status -->
+    <div id="loginStatus" class="status-indicator status-disconnected">
+      <span class="status-dot red"></span>
+      <span id="loginStatusText">Not Logged In</span>
+    </div>
+
+    <!-- Login Section -->
+    <div id="loginSection" class="login-section">
+      <h3>🔐 Customer Login</h3>
+      <div class="form-group">
+        <label>Server URL</label>
+        <input type="text" id="serverUrl" value="http://localhost:5001">
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input type="tel" id="phoneNumber" placeholder="+971501234567">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="password">
+      </div>
+      <button class="btn btn-login" onclick="login()">🔑 Login</button>
+    </div>
+
+    <!-- User Info (shown after login) -->
+    <div id="userInfo" class="user-info hidden">
+      <strong>👤 Logged in as: <span id="userName">-</span></strong>
+      <br><small>ID: <span id="userIdDisplay">-</span></small>
+      <br><button class="btn btn-logout" onclick="logout()" style="margin-top: 10px;">Logout</button>
+    </div>
+
+    <!-- Session Resume Alert -->
+    <div id="sessionAlert" class="session-alert hidden">
+      <h3>📍 Active Session Found!</h3>
+      <p id="sessionAlertText">You have an active job/SOS. Resuming...</p>
+    </div>
+
+    <!-- Socket Connection Status -->
+    <div id="statusIndicator" class="status-indicator status-disconnected hidden">
+      <span class="status-dot red"></span>
+      <span id="statusText">Socket Disconnected</span>
+    </div>
+
+    <!-- Configuration (shown after login) -->
+    <div id="configSection" class="config-section hidden">
+      <h3>⚙️ SOS Configuration</h3>
+      <div class="form-group">
+        <label>Vehicle ID</label>
+        <input type="text" id="vehicleId" placeholder="Enter vehicle ObjectId">
+      </div>
+      <div class="form-group">
+        <label>Latitude</label>
+        <input type="number" id="latitude" value="25.2048" step="0.0001">
+      </div>
+      <div class="form-group">
+        <label>Longitude</label>
+        <input type="number" id="longitude" value="55.2708" step="0.0001">
+      </div>
+    </div>
+
+    <!-- Connect Button -->
+    <button id="connectBtn" class="btn btn-connect hidden" onclick="connectSocket()">
+      🔌 Connect to Socket
+    </button>
+
+    <!-- SOS Active State -->
+    <div id="sosActive" class="hidden">
+      <div class="sos-active">
+        <h2>🚨 SOS Request Active</h2>
+        <p>Waiting for admin to respond...</p>
+        <div class="countdown" id="countdown">60</div>
+        <p>seconds remaining</p>
+      </div>
+      <button class="btn btn-cancel" onclick="cancelSOS()">Cancel SOS</button>
+    </div>
+
+    <!-- Job Status Card -->
+    <div id="jobStatusCard" class="job-status-card hidden">
+      <h3>📋 Job Status: <span class="status-badge" id="statusBadge">-</span></h3>
+      <div class="tech-info">
+        <div class="tech-info-item"><span>Job ID:</span><span id="jobIdDisplay">-</span></div>
+        <div class="tech-info-item"><span>👨‍🔧 Technician:</span><span id="techName">-</span></div>
+        <div class="tech-info-item"><span>📞 Phone:</span><span id="techPhone">-</span></div>
+        <div class="tech-info-item"><span>📍 Location:</span><span id="jobLocation">-</span></div>
+        <div class="tech-info-item"><span>🕐 Last Update:</span><span id="lastUpdate">-</span></div>
+      </div>
+    </div>
+
+    <!-- Receipt Card -->
+    <div id="receiptCard" class="receipt-card hidden">
+      <h3>🧾 Job Complete - Receipt</h3>
+      <div class="tech-info">
+        <div class="tech-info-item"><span>💰 Total Amount:</span><span id="receiptAmount">-</span></div>
+        <div class="tech-info-item"><span>💳 Payment Method:</span><span id="receiptMethod">-</span></div>
+        <div class="tech-info-item"><span>📅 Paid At:</span><span id="receiptTime">-</span></div>
+      </div>
+      <button class="btn btn-rate" onclick="rateService()" style="margin-top: 15px;">⭐ Rate Service</button>
+    </div>
+
+    <!-- SOS Button -->
+    <button id="sosBtn" class="btn btn-sos hidden" onclick="sendSOS()" disabled>
+      🆘 SEND SOS
+    </button>
+
+    <!-- Messages Log -->
+    <div class="messages">
+      <h3>📡 Live Events</h3>
+      <div id="messageLog"></div>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let authToken = null;
+    let customerId = null;
+    let currentSOSId = null;
+    let currentJobId = null;
+    let countdownInterval = null;
+
+    // Check for stored session on page load
+    window.onload = function() {
+      const storedToken = localStorage.getItem('customer_auth_token');
+      const storedCustomerId = localStorage.getItem('customer_id');
+      const storedName = localStorage.getItem('customer_name');
+      
+      if (storedToken && storedCustomerId) {
+        authToken = storedToken;
+        customerId = storedCustomerId;
+        log('Found stored session, checking for active job...', 'info');
+        showLoggedInState(storedName || 'Customer');
+        checkSession();
+      }
+    };
+
+    function log(message, type = 'sent') {
+      const msgLog = document.getElementById('messageLog');
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+      const content = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+      div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>\n${content}`;
+      msgLog.prepend(div);
+    }
+
+    function showLoggedInState(name) {
+      document.getElementById('loginSection').classList.add('hidden');
+      document.getElementById('userInfo').classList.remove('hidden');
+      document.getElementById('userName').textContent = name;
+      document.getElementById('userIdDisplay').textContent = customerId;
+      document.getElementById('configSection').classList.remove('hidden');
+      document.getElementById('connectBtn').classList.remove('hidden');
+      document.getElementById('statusIndicator').classList.remove('hidden');
+      
+      const loginStatus = document.getElementById('loginStatus');
+      loginStatus.className = 'status-indicator status-logged-in';
+      loginStatus.querySelector('.status-dot').className = 'status-dot blue';
+      document.getElementById('loginStatusText').textContent = 'Logged In';
+    }
+
+    async function login() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const phoneNumber = document.getElementById('phoneNumber').value;
+      const password = document.getElementById('password').value;
+
+      if (!phoneNumber || !password) {
+        alert('Please enter phone number and password');
+        return;
+      }
+
+      log(`Logging in with phone: ${phoneNumber}...`, 'sent');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/customers/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone_number: phoneNumber, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Login failed');
+        }
+
+        authToken = data.token;
+        customerId = data.customer._id;
+        
+        localStorage.setItem('customer_auth_token', authToken);
+        localStorage.setItem('customer_id', customerId);
+        localStorage.setItem('customer_name', `${data.customer.first_name} ${data.customer.last_name}`);
+
+        log({ event: 'Login Success', customer: data.customer }, 'received');
+        
+        showLoggedInState(`${data.customer.first_name} ${data.customer.last_name}`);
+        
+        await checkSession();
+
+      } catch (err) {
+        log({ event: 'Login Failed', error: err.message }, 'error');
+        alert(`Login failed: ${err.message}`);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('customer_auth_token');
+      localStorage.removeItem('customer_id');
+      localStorage.removeItem('customer_name');
+      
+      if (socket) { socket.disconnect(); socket = null; }
+      
+      authToken = null;
+      customerId = null;
+      currentSOSId = null;
+      currentJobId = null;
+      
+      document.getElementById('loginSection').classList.remove('hidden');
+      document.getElementById('userInfo').classList.add('hidden');
+      document.getElementById('configSection').classList.add('hidden');
+      document.getElementById('connectBtn').classList.add('hidden');
+      document.getElementById('statusIndicator').classList.add('hidden');
+      document.getElementById('sosBtn').classList.add('hidden');
+      document.getElementById('jobStatusCard').classList.add('hidden');
+      document.getElementById('sosActive').classList.add('hidden');
+      document.getElementById('sessionAlert').classList.add('hidden');
+      document.getElementById('receiptCard').classList.add('hidden');
+      
+      const loginStatus = document.getElementById('loginStatus');
+      loginStatus.className = 'status-indicator status-disconnected';
+      loginStatus.querySelector('.status-dot').className = 'status-dot red';
+      document.getElementById('loginStatusText').textContent = 'Not Logged In';
+      
+      log('Logged out', 'info');
+    }
+
+    async function checkSession() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      
+      log('Checking for active session (GET /api/jobs/customer/session)...', 'info');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/jobs/customer/session`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Session check failed');
+        }
+
+        log({ event: 'Session Check Result', data }, 'received');
+
+        if (data.has_active_session) {
+          document.getElementById('sessionAlert').classList.remove('hidden');
+          
+          if (data.active_sos) {
+            currentSOSId = data.active_sos._id;
+            const sosStatus = data.active_sos.status;
+            document.getElementById('sessionAlertText').textContent = 
+              `Active SOS found (status: ${sosStatus}). Connecting to resume...`;
+            
+            setTimeout(() => connectSocket(), 1000);
+            
+            if (sosStatus === 'pending') {
+              showSOSActive(data.active_sos.expires_at);
+            } else if (sosStatus === 'in_call') {
+              updateJobStatus('in_call', { message: 'Admin is calling you' });
+            }
+          } else if (data.active_job) {
+            currentJobId = data.active_job._id;
+            const jobStatus = data.active_job.job_status;
+            document.getElementById('sessionAlertText').textContent = 
+              `Active job found (status: ${jobStatus}). Connecting to resume...`;
+            
+            displayResumedJob(data.active_job);
+            setTimeout(() => connectSocket(), 1000);
+          }
+        } else {
+          log('No active session found - ready to create new SOS', 'info');
+          document.getElementById('sosBtn').classList.remove('hidden');
+        }
+
+      } catch (err) {
+        log({ event: 'Session Check Failed', error: err.message }, 'error');
+        document.getElementById('sosBtn').classList.remove('hidden');
+      }
+    }
+
+    function displayResumedJob(job) {
+      document.getElementById('jobStatusCard').classList.remove('hidden');
+      document.getElementById('jobIdDisplay').textContent = job._id?.slice(-8).toUpperCase() || '-';
+      document.getElementById('jobLocation').textContent = job.location || '-';
+      
+      if (job.assignedTechnician) {
+        document.getElementById('techName').textContent = 
+          `${job.assignedTechnician.firstName || ''} ${job.assignedTechnician.lastName || ''}`.trim() || '-';
+        document.getElementById('techPhone').textContent = job.assignedTechnician.phone || '-';
+      }
+      
+      updateJobStatus(job.job_status, { technician: job.assignedTechnician });
+    }
+
+    function updateConnectionStatus(connected) {
+      const indicator = document.getElementById('statusIndicator');
+      const statusText = document.getElementById('statusText');
+      const dot = indicator.querySelector('.status-dot');
+      const sosBtn = document.getElementById('sosBtn');
+      const connectBtn = document.getElementById('connectBtn');
+
+      if (connected) {
+        indicator.className = 'status-indicator status-connected';
+        dot.className = 'status-dot green';
+        statusText.textContent = 'Socket Connected';
+        sosBtn.disabled = false;
+        connectBtn.disabled = true;
+        connectBtn.textContent = '✅ Connected';
+      } else {
+        indicator.className = 'status-indicator status-disconnected';
+        dot.className = 'status-dot red';
+        statusText.textContent = 'Socket Disconnected';
+        sosBtn.disabled = true;
+        connectBtn.disabled = false;
+        connectBtn.textContent = '🔌 Connect to Socket';
+      }
+    }
+
+    function updateJobStatus(status, data = {}) {
+      const card = document.getElementById('jobStatusCard');
+      const badge = document.getElementById('statusBadge');
+      const lastUpdate = document.getElementById('lastUpdate');
+      
+      card.classList.remove('hidden');
+      card.className = `job-status-card ${status}`;
+      badge.className = `status-badge ${status}`;
+      
+      const statusLabels = {
+        'pending': '⏳ PENDING',
+        'in_call': '📞 IN CALL',
+        'assigned': '📋 ASSIGNED',
+        'accepted': '✅ ACCEPTED',
+        'en_route': '🚗 EN ROUTE',
+        'arrived': '📍 ARRIVED',
+        'in_progress': '🔧 IN PROGRESS',
+        'paid': '💰 PAID',
+        'cancelled': '❌ CANCELLED'
+      };
+      
+      badge.textContent = statusLabels[status] || status.toUpperCase();
+      lastUpdate.textContent = new Date().toLocaleTimeString();
+
+      if (data.technician) {
+        const techName = data.technician.name || 
+          `${data.technician.firstName || ''} ${data.technician.lastName || ''}`.trim();
+        document.getElementById('techName').textContent = techName || '-';
+        document.getElementById('techPhone').textContent = data.technician.phone || '-';
+      }
+      
+      if (data.message) {
+        document.getElementById('techName').textContent = data.message;
+      }
+    }
+
+    function showReceipt(data) {
+      document.getElementById('receiptCard').classList.remove('hidden');
+      document.getElementById('receiptAmount').textContent = `AED ${data.total_amount || data.receipt?.total_amount || '-'}`;
+      document.getElementById('receiptMethod').textContent = data.receipt?.payment_method || 'Cash';
+      document.getElementById('receiptTime').textContent = data.receipt?.paid_at ? new Date(data.receipt.paid_at).toLocaleString() : new Date().toLocaleString();
+    }
+
+    function connectSocket() {
+      const serverUrl = document.getElementById('serverUrl').value;
+
+      log(`Connecting to ${serverUrl}/customer...`, 'sent');
+
+      socket = io(`${serverUrl}/customer`, {
+        transports: ['websocket', 'polling'],
+        reconnection: true
+      });
+
+      socket.on('connect', () => {
+        log('✅ Socket connected!', 'received');
+        socket.emit('register', customerId);
+        log(`Registered as customer: ${customerId}`, 'sent');
+        updateConnectionStatus(true);
+        
+        if (!currentSOSId && !currentJobId) {
+          document.getElementById('sosBtn').classList.remove('hidden');
+        }
+      });
+
+      socket.on('disconnect', () => {
+        log('❌ Socket disconnected', 'error');
+        updateConnectionStatus(false);
+      });
+
+      // SOS Events
+      socket.on('sosCreated', (data) => {
+        log({ event: 'sosCreated', data }, 'received');
+        currentSOSId = data.sos_id;
+        showSOSActive(data.expires_at);
+      });
+
+      socket.on('sosExpired', (data) => {
+        log({ event: 'sosExpired', data }, 'error');
+        hideSOSActive();
+        alert('SOS expired - no technician available');
+      });
+
+      socket.on('sosCancelled', (data) => {
+        log({ event: 'sosCancelled', data }, 'received');
+        hideSOSActive();
+      });
+
+      socket.on('sosInCall', (data) => {
+        log({ event: '📞 sosInCall (Admin is calling you!)', data }, 'received');
+        hideSOSActive();
+        updateJobStatus('in_call', { message: data.message });
+        alert('📞 An operator is reviewing your request and will call you shortly!');
+      });
+
+      socket.on('technicianAssigned', (data) => {
+        log({ event: 'technicianAssigned', data }, 'received');
+        hideSOSActive();
+        currentJobId = data.job_id;
+        document.getElementById('jobIdDisplay').textContent = data.job_id?.slice(-8).toUpperCase() || '-';
+        updateJobStatus('assigned', data);
+      });
+
+      socket.on('technicianAccepted', (data) => {
+        log({ event: 'technicianAccepted', data }, 'received');
+        currentJobId = data.job_id;
+        updateJobStatus('accepted', data);
+      });
+
+      socket.on('technicianEnRoute', (data) => {
+        log({ event: 'technicianEnRoute', data }, 'received');
+        updateJobStatus('en_route', data);
+      });
+
+      socket.on('locationUpdate', (data) => {
+        log({ event: 'locationUpdate', data }, 'received');
+        document.getElementById('lastUpdate').textContent = `Loc: ${data.latitude?.toFixed(4)}, ${data.longitude?.toFixed(4)}`;
+      });
+
+      socket.on('technicianArrived', (data) => {
+        log({ event: '📍 technicianArrived', data }, 'received');
+        updateJobStatus('arrived', data);
+        alert('🎉 Technician has ARRIVED!');
+      });
+
+      socket.on('jobStarted', (data) => {
+        log({ event: '🔧 jobStarted', data }, 'received');
+        updateJobStatus('in_progress', data);
+        alert('🔧 Technician has started working on your vehicle!');
+      });
+
+      socket.on('jobCompleted', (data) => {
+        log({ event: '💰 jobCompleted', data }, 'received');
+        updateJobStatus('paid', data);
+        showReceipt(data);
+        currentJobId = null;
+        alert('✅ Job Complete! Payment received. Thank you!');
+      });
+
+      socket.on('jobCancelled', (data) => {
+        log({ event: '❌ jobCancelled', data }, 'error');
+        updateJobStatus('cancelled', data);
+        currentJobId = null;
+        alert(`❌ Job has been cancelled.\n\nReason: ${data.reason || 'No reason provided'}`);
+      });
+
+      socket.on('error', (data) => {
+        log({ event: 'error', data }, 'error');
+      });
+    }
+
+    function sendSOS() {
+      const vehicleId = document.getElementById('vehicleId').value;
+      const latitude = parseFloat(document.getElementById('latitude').value);
+      const longitude = parseFloat(document.getElementById('longitude').value);
+
+      if (!vehicleId) {
+        alert('Please enter a Vehicle ID');
+        return;
+      }
+
+      const sosData = {
+        customer_id: customerId,
+        customer_vehicle_id: vehicleId,
+        latitude: latitude,
+        longitude: longitude
+      };
+
+      log({ event: 'createSOS', data: sosData }, 'sent');
+      socket.emit('createSOS', sosData);
+    }
+
+    function cancelSOS() {
+      if (currentSOSId) {
+        socket.emit('cancelSOS', { sos_id: currentSOSId, reason: 'Customer cancelled' });
+        log({ event: 'cancelSOS', sos_id: currentSOSId }, 'sent');
+        hideSOSActive();
+      }
+    }
+
+    function showSOSActive(expiresAt) {
+      document.getElementById('sosActive').classList.remove('hidden');
+      document.getElementById('sosBtn').classList.add('hidden');
+      
+      const expiryTime = new Date(expiresAt);
+      
+      countdownInterval = setInterval(() => {
+        const now = new Date();
+        const secondsLeft = Math.max(0, Math.floor((expiryTime - now) / 1000));
+        document.getElementById('countdown').textContent = secondsLeft;
+        
+        if (secondsLeft === 0) clearInterval(countdownInterval);
+      }, 1000);
+    }
+
+    function hideSOSActive() {
+      document.getElementById('sosActive').classList.add('hidden');
+      document.getElementById('sosBtn').classList.remove('hidden');
+      currentSOSId = null;
+      if (countdownInterval) clearInterval(countdownInterval);
+    }
+
+    function rateService() {
+      const rating = prompt('Rate the service (1-5 stars):');
+      if (rating && rating >= 1 && rating <= 5) {
+        log({ event: 'rateService', rating: parseInt(rating) }, 'sent');
+        alert(`Thank you for rating ${rating} stars! 🌟`);
+      }
+    }
+  </script>
+</body>
+</html>

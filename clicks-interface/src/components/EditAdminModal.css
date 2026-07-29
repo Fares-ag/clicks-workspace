@@ -1,0 +1,243 @@
+/* Edit Admin Modal Styles */
+
+.edit-admin-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.edit-admin-modal {
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.edit-admin-modal-header {
+  padding: 24px 24px 0 24px;
+  border-bottom: 1px solid var(--color-secondary);
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.edit-admin-modal-title {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  color: var(--color-text-primary);
+  margin: 0 0 8px 0;
+}
+
+.edit-admin-modal-subtitle {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-secondary);
+  margin: 0 0 24px 0;
+}
+
+.edit-admin-modal-close {
+  position: absolute;
+  top: 0;
+  right: 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.edit-admin-section {
+  padding: 0 24px;
+  margin-bottom: 24px;
+}
+
+.edit-admin-section-title {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  margin: 0 0 16px 0;
+}
+
+.edit-admin-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.edit-admin-field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.edit-admin-label {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+}
+
+.edit-admin-input,
+.edit-admin-select {
+  height: 44px;
+  padding: 10px 14px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.edit-admin-input:focus,
+.edit-admin-select:focus {
+  border-color: var(--color-primary);
+}
+
+.edit-admin-input.error,
+.edit-admin-select.error {
+  border-color: var(--color-error);
+}
+
+.edit-admin-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.edit-admin-file-upload {
+  position: relative;
+}
+
+.edit-admin-file-input {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  z-index: -1;
+}
+
+.edit-admin-file-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 10px 14px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.edit-admin-file-label:hover {
+  border-color: var(--color-primary);
+}
+
+.edit-admin-file-note {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+.edit-admin-error {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+  color: var(--color-error);
+  margin-top: 4px;
+  white-space: pre-line;
+}
+
+.edit-admin-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 24px;
+  border-top: 1px solid var(--color-secondary);
+}
+
+.edit-admin-cancel-btn {
+  height: 44px;
+  padding: 10px 16px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-admin-cancel-btn:hover {
+  background: var(--color-secondary-hover);
+}
+
+.edit-admin-submit-btn {
+  height: 44px;
+  padding: 10px 16px;
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-white);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  min-width: 140px;
+}
+
+.edit-admin-submit-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.edit-admin-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .edit-admin-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .edit-admin-modal {
+    margin: 10px;
+    max-width: calc(100vw - 20px);
+  }
+}

@@ -1,0 +1,116 @@
+/* Assign Vehicle Dropdown Component */
+
+.assign-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 999;
+}
+
+.assign-vehicle-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--spacing-sm);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+}
+
+.assign-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.assign-title {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  color: var(--color-text-primary);
+}
+
+.assign-search-container {
+  margin-bottom: 12px;
+}
+
+.assign-search-input {
+  width: 236px;
+  height: 44px;
+  padding: 12px 16px;
+  background: var(--color-bg-white);
+  border: var(--border-width) solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+  color: var(--color-text-primary);
+  box-sizing: border-box;
+  outline: none;
+}
+
+.assign-search-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.assign-search-input:focus {
+  border-color: var(--color-primary);
+}
+
+.assign-vehicles-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.assign-vehicle-option {
+  height: 40px;
+  padding: 12px;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border-radius: var(--border-radius-md);
+  box-sizing: border-box;
+  gap: 8px;
+}
+
+.assign-vehicle-option:hover {
+  background-color: var(--color-secondary-hover);
+}
+
+.assign-vehicle-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.assign-vehicle-name {
+  flex: 1;
+}
+
+.assign-no-results {
+  padding: 12px;
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-secondary);
+  text-align: center;
+}

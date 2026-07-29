@@ -1,0 +1,9 @@
+{
+  "name": "clicks-shared",
+  "version": "1.0.0",
+  "description": "Shared models and utilities for Clicks API",
+  "main": "index.js",
+  "dependencies": {
+    "mongoose": "^7.0.0"
+  }
+}

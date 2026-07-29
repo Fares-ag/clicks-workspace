@@ -1,0 +1,94 @@
+﻿.sos-inbox-container {
+  padding: 24px 28px 40px;
+}
+
+.sos-inbox-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.sos-inbox-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #101828;
+}
+
+.sos-inbox-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  max-width: 480px;
+}
+
+.sos-inbox-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sos-inbox-select,
+.sos-inbox-search {
+  height: 40px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.sos-inbox-search {
+  min-width: 220px;
+}
+
+.sos-refresh-btn,
+.sos-action-btn {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sos-action-btn:disabled {
+  background: var(--color-input-border);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+.sos-status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sos-customer-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sos-customer-name {
+  font-weight: 600;
+  color: #101828;
+}
+
+.sos-customer-phone {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.sos-id-cell {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}

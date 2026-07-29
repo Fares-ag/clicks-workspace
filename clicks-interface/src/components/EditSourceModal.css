@@ -1,0 +1,305 @@
+﻿.edit-source-modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.2);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-y: auto;
+  padding-top: 59px;
+  padding-bottom: 59px;
+}
+
+.edit-source-modal {
+  width: 700px;
+  min-height: 480px;
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.edit-source-modal-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-secondary-light);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.edit-source-modal-close:hover {
+  background: var(--color-secondary-hover);
+}
+
+.edit-source-modal-error {
+  padding: 12px 16px;
+  background: #FEE;
+  border: 1px solid #F88;
+  border-radius: 6px;
+  color: #C33;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.edit-source-subsources-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edit-source-subsources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-source-no-subsources {
+  color: #98A2B3;
+  font-size: 14px;
+  text-align: center;
+  margin: 0;
+  padding: 16px;
+  background: var(--color-bg-page);
+  border-radius: 6px;
+}
+
+.edit-source-subsource-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-source-subsource-input {
+  flex: 1;
+  height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-size: 14px;
+  color: #252525;
+  background: var(--color-bg-white);
+  box-sizing: border-box;
+  box-shadow: var(--shadow-input);
+  font-family: inherit;
+}
+
+.edit-source-subsource-input:focus {
+  outline: none;
+  border-color: #EA4949;
+  box-shadow: 0 0 0 4px rgba(234, 73, 73, 0.1);
+}
+
+.edit-source-subsource-remove {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #FECDCA;
+  background: #FEF3F2;
+  color: #B42318;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.edit-source-subsource-remove:hover {
+  background: #FEE4E2;
+  border-color: #F97066;
+}
+
+.edit-source-add-subsource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.edit-source-add-subsource-input {
+  flex: 1;
+  height: 40px;
+  padding: 8px 12px;
+  border: 1px dashed var(--color-input-border);
+  border-radius: var(--border-radius-md);
+  font-size: 14px;
+  color: #252525;
+  background: #FCFCFD;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.edit-source-add-subsource-input:focus {
+  outline: none;
+  border-color: #EA4949;
+  border-style: solid;
+  box-shadow: 0 0 0 4px rgba(234, 73, 73, 0.1);
+}
+
+.edit-source-add-subsource-input::placeholder {
+  color: #98A2B3;
+}
+
+.edit-source-add-subsource-btn {
+  height: 40px;
+  padding: 0 16px;
+  background: var(--color-primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--border-radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.edit-source-add-subsource-btn:hover:not(:disabled) {
+  background: #7A1919;
+}
+
+.edit-source-add-subsource-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.edit-source-modal-close-x {
+  font-size: 20px;
+  color: #252525;
+  font-weight: bold;
+  pointer-events: none;
+}
+
+.edit-source-modal-header {
+  margin-bottom: 8px;
+}
+
+.edit-source-modal-title {
+  font-size: 24px;
+  font-weight: 500;
+  color: #252525;
+  margin-bottom: 8px;
+}
+
+.edit-source-modal-subtitle {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  margin-bottom: 28px;
+}
+
+.edit-source-modal-section {
+  margin-bottom: 28px;
+}
+
+.edit-source-modal-section-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: #252525;
+  margin-bottom: 20px;
+}
+
+.edit-source-modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.edit-source-modal-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 0;
+}
+
+.edit-source-modal-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 292px;
+  max-width: 292px;
+}
+
+.edit-source-modal-field label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #494949;
+  margin-bottom: 6px;
+}
+
+.edit-source-modal-field input[type="text"] {
+  height: 44px;
+  width: 100%;
+  font-size: 14px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  padding: 8px;
+  color: #252525;
+  background: var(--color-bg-white);
+  box-sizing: border-box;
+  box-shadow: var(--shadow-input);
+}
+
+.edit-source-modal-textarea {
+  width: 100%;
+  min-height: 120px;
+  font-size: 14px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  padding: 8px;
+  color: #252525;
+  background: var(--color-bg-white);
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: var(--shadow-input);
+}
+
+.edit-source-modal-field input.input-error,
+.edit-source-modal-textarea.input-error {
+  border: 1.5px solid #F97066 !important;
+}
+
+.edit-source-modal-error-text {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #F97066;
+}
+
+.edit-source-modal-field[style*="width: 612px"] {
+  min-width: 612px;
+  max-width: 612px;
+}
+
+.edit-source-modal-submit {
+  width: 118px;
+  height: 44px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  margin-top: 24px;
+  align-self: flex-end;
+}

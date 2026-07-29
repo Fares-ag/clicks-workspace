@@ -1,0 +1,56 @@
+name: Deploy Frontend to Staging VM
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Deploy dist/ to VM
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
+          REMOTE_HOST: ${{ secrets.AZURE_VM_HOST }}
+          REMOTE_USER: ${{ secrets.AZURE_VM_USERNAME }}
+          SOURCE: "dist/"
+          TARGET: "/home/${{ secrets.AZURE_VM_USERNAME }}/clicks-interface/dist"
+          EXCLUDE: "/node_modules/"
+
+      - name: Restart PM2 on VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USERNAME }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          port: 22
+          script: |
+            # Load nvm environment
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+            # Restart using the ecosystem config from clicks-api
+            cd /home/${{ secrets.AZURE_VM_USERNAME }}/clicks-api
+            pm2 startOrRestart ecosystem.config.js --only clicks-interface
+            pm2 save
+
+            echo "--- Deployment successful ---"
+            pm2 status

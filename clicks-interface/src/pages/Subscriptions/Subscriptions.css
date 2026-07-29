@@ -1,0 +1,199 @@
+.sub-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-lg);
+}
+
+.sub-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: var(--spacing-lg);
+}
+
+.sub-title {
+  margin: 0;
+  font-family: var(--font-main);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+}
+
+.sub-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-secondary, #667085);
+}
+
+.sub-header-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sub-search input,
+.sub-header-actions select {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: var(--font-main);
+}
+
+.sub-add-btn {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 18px;
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+
+.sub-table-wrap {
+  flex: 1;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.sub-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sub-table th,
+.sub-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-main);
+  font-size: 14px;
+}
+
+.sub-table th {
+  background: #fafafa;
+  color: var(--color-text-muted);
+  position: sticky;
+  top: 0;
+}
+
+.sub-name {
+  font-weight: 600;
+}
+
+.sub-muted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.sub-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.sub-badge.active {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.sub-badge.expired {
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.sub-badge.cancelled {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.sub-cancel-btn {
+  background: #fef3f2;
+  color: #b42318;
+  border: 1px solid #fecdca;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sub-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.sub-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.sub-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.sub-modal h2 {
+  margin: 0 0 16px;
+  font-family: var(--font-main);
+}
+
+.sub-modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-family: var(--font-main);
+}
+
+.sub-modal input {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.sub-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.sub-modal-actions button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+
+.sub-modal-actions button[type="submit"] {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+}
+
+.sub-error {
+  color: #b42318;
+  font-size: 13px;
+  margin-bottom: 8px;
+}

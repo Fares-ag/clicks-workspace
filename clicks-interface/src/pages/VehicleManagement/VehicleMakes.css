@@ -1,0 +1,230 @@
+﻿/* Vehicle Makes Page */
+.vehicle-makes-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-lg);
+}
+
+.vehicle-makes-page-title {
+  font-family: var(--font-main);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 28px;
+  color: var(--color-text-primary);
+  margin: 0 0 24px 0;
+}
+
+/* Table Card */
+.vehicle-makes-table-card {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header Section */
+.vehicle-makes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vehicle-makes-header-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex: 1;
+}
+
+.vehicle-makes-title {
+  font-family: var(--font-main);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 28px;
+  letter-spacing: -0.18px;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.vehicle-makes-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Search Input */
+.vehicle-makes-search {
+  position: relative;
+  width: 300px;
+}
+
+.vehicle-makes-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.vehicle-makes-search-input {
+  width: 100%;
+  height: 44px;
+  padding: 10px 16px 10px 44px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: var(--font-weight-regular);
+  line-height: 20px;
+  color: var(--color-text-muted);
+}
+
+.vehicle-makes-search-input::placeholder {
+  color: var(--color-text-placeholder);
+}
+
+.vehicle-makes-search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Filter Button */
+.vehicle-makes-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vehicle-makes-filter-btn:hover {
+  background: var(--color-bg-page);
+}
+
+.vehicle-makes-filter-btn img {
+  width: 20px;
+  height: 20px;
+}
+
+/* Add Button */
+.vehicle-makes-add-btn {
+  height: 40px;
+  padding: 8px 16px;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: var(--color-bg-white);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-left: 10px;
+}
+
+.vehicle-makes-add-btn:hover {
+  background: var(--color-primary-hover);
+}
+
+/* Table */
+.vehicle-makes-table {
+  flex: 1;
+  overflow: auto;
+}
+
+.vehicle-makes-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vehicle-makes-table thead {
+  background: var(--color-bg-page);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.vehicle-makes-table th {
+  padding: 12px 24px;
+  text-align: left;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-bg-page);
+  border-top: 1px solid var(--color-bg-page);
+}
+
+.vehicle-makes-table th:last-child {
+  text-align: center;
+  width: 120px;
+}
+
+.vehicle-makes-table tbody tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vehicle-makes-table tbody tr:hover {
+  background: var(--color-bg-page);
+}
+
+.vehicle-makes-table td {
+  padding: 16px 24px;
+  height: 72px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--color-text-muted);
+}
+
+.vehicle-makes-table td:last-child {
+  text-align: center;
+}
+
+/* Edit Button */
+.vehicle-makes-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease;
+}
+
+.vehicle-makes-edit-btn:hover {
+  opacity: 0.7;
+}
+
+.vehicle-makes-edit-btn img {
+  width: 20px;
+  height: 20px;
+}

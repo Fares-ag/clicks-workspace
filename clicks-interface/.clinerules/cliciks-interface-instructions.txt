@@ -1,0 +1,3 @@
+Provide the entire code always. Do not provide code with comments saying "rest of the code here" or leaving elipses.
+Use the theme.css in the styles folder whenever possible.
+Ask questions, do not assume anything if not clear. 

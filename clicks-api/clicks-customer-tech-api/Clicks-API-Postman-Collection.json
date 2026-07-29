@@ -1,0 +1,1226 @@
+{
+  "info": {
+    "name": "Clicks Customer/Technician API - Complete Collection",
+    "description": "Complete Postman collection for all REST endpoints in clicks-customer-tech-api.\n\n⚠️ **IMPORTANT - WEBSOCKET TESTING:**\n\nPostman CANNOT test WebSocket/Socket.IO connections directly. For WebSocket testing, use:\n\n1. **HTML Test Files** (Recommended):\n   - Located in `test-files/` folder\n   - `customer-sos-test.html` - Test customer SOS flow\n   - `technician-app-test.html` - Test technician workflow\n\n2. **Socket.IO Client Tools:**\n   - Socket.IO Client (web): https://amritb.github.io/socketio-client-tool/\n   - Chrome Extension: Smart Websocket Client\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🔌 **WEBSOCKET NAMESPACES:**\n\n**Customer Namespace:** `ws://localhost:5001/customer`\n- Emit: `register`, `createSOS`, `cancelSOS`\n- Listen: `sosCreated`, `sosInCall`, `technicianAssigned`, `technicianAccepted`, `technicianEnRoute`, `technicianArrived`, `jobStarted`, `jobCompleted`, `jobCancelled`, `locationUpdate`, `sosExpired`, `sosCancelled`\n\n**Technician Namespace:** `ws://localhost:5001/technician`\n- Emit: `register`, `updateLocation`, `startEnRoute`, `markArrived`, `startJob`, `paymentReceived`\n- Listen: `newJobAssigned`, `enRouteConfirmed`, `arrivedConfirmed`, `jobStartedConfirmed`, `paymentConfirmed`, `jobCancelled`, `error`\n\n**Admin Namespace:** `ws://localhost:5001/admin`\n- Emit: `register`, `sosAccepted`, `adminCancelJob`\n- Listen: `newSOSRequest`, `jobCancelled`\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **JOB STATUS FLOW:**\n\npending → assigned → accepted → en_route → arrived → in_progress → completed → paid\n\n**REST API Actions:**\n- Accept Job: POST /api/technicians/jobs/:id/accept (assigned → accepted)\n- Reject Job: POST /api/technicians/jobs/:id/reject (assigned → cancelled)\n- Complete Job: POST /api/jobs/:id/complete (in_progress → completed)\n\n**WebSocket Actions:**\n- startEnRoute: accepted → en_route\n- markArrived: en_route → arrived\n- startJob: arrived → in_progress\n- paymentReceived: completed → paid (notifies customer)\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📚 **DOCUMENTATION:**\n- Complete Booking Flow: `BOOKING_FLOW_DOCUMENTATION.md`\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nThis collection contains REST API endpoints. For WebSocket events, use the test HTML files or tools mentioned above.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key" : "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"1234567890\",\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"1234567890\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/customers/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Smith\",\n  \"email\": \"jane@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Update Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"oldPassword\": \"password123\",\n  \"newPassword\": \"newpass456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/update-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "update-password"]
+            }
+          }
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/customers/delete",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "delete"]
+            }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"1234567890\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "forgot-password"]
+            },
+            "description": "Request OTP for password reset. OTP is sent via SMS."
+          }
+        },
+        {
+          "name": "Verify Reset OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"1234567890\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/verify-reset-otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "verify-reset-otp"]
+            },
+            "description": "Verify the OTP received via SMS. Returns a reset token."
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"1234567890\",\n  \"reset_token\": \"token_from_verify_step\",\n  \"new_password\": \"newpassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/customers/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "customers", "reset-password"]
+            },
+            "description": "Reset password using the token from verify-reset-otp step."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Technicians",
+      "item": [
+        {
+          "name": "Register Technician",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "phone", "value": "9876543210", "type": "text" },
+                { "key": "email", "value": "tech@example.com", "type": "text" },
+                { "key": "firstName", "value": "Alice", "type": "text" },
+                { "key": "lastName", "value": "Johnson", "type": "text" },
+                { "key": "password", "value": "techpass123", "type": "text" },
+                { "key": "profilePicture", "type": "file" },
+                { "key": "licenseFront", "type": "file" },
+                { "key": "licenseBack", "type": "file" },
+                { "key": "permitFront", "type": "file" },
+                { "key": "permitBack", "type": "file" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\",\n  \"password\": \"techpass123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "login"]
+            },
+            "description": "Login returns token and technician info including:\n- applicationStatus: 'Pending' | 'Approved' | 'Rejected'\n- rejectionReason: string | null (only if rejected)\n\nExample response:\n```json\n{\n  \"token\": \"jwt_token\",\n  \"technician\": {\n    \"id\": \"...\",\n    \"firstName\": \"Alice\",\n    \"lastName\": \"Johnson\",\n    \"email\": \"tech@example.com\",\n    \"phone\": \"9876543210\",\n    \"profilePicture\": \"url\",\n    \"applicationStatus\": \"Approved\",\n    \"rejectionReason\": null\n  }\n}\n```"
+          }
+        },
+        {
+          "name": "Get Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/technicians/dashboard",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "dashboard"]
+            }
+          }
+        },
+        {
+          "name": "Toggle Status (Online/Offline)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Online\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "status"]
+            },
+            "description": "Toggle technician availability status.\n\nValid values: 'Online', 'Offline'\n\nNote: Technician ID is taken from JWT token (not request body).\nTechnician must have applicationStatus: 'Approved' to go Online."
+          }
+        },
+        {
+          "name": "Get Technician Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/technicians/jobs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "jobs"]
+            }
+          }
+        },
+        {
+          "name": "Get Application Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/technicians/application-status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "application-status"]
+            },
+            "description": "Get application status. Note: This is also returned in login response."
+          }
+        },
+        {
+          "name": "Send OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/otp/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "otp", "send"]
+            }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/otp/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "otp", "verify"]
+            }
+          }
+        },
+        {
+          "name": "Accept Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/technicians/jobs/{{job_id}}/accept",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "jobs", "{{job_id}}", "accept"]
+            },
+            "description": "Accept an assigned job.\n\nStatus change: assigned → accepted\n\n**Also broadcasts `technicianAccepted` event to customer via WebSocket.**\n\nResponse:\n```json\n{\n  \"message\": \"Job accepted\",\n  \"job_status\": \"accepted\",\n  \"accepted_at\": \"2025-12-06T10:00:00Z\"\n}\n```"
+          }
+        },
+        {
+          "name": "Reject Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejection_reasons\": [\"Too far\", \"Busy with another job\"],\n  \"rejection_description\": \"Not available at this time\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/jobs/{{job_id}}/reject",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "jobs", "{{job_id}}", "reject"]
+            },
+            "description": "Reject an assigned job.\n\nStatus change: assigned → cancelled"
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "forgot-password"]
+            },
+            "description": "Request OTP for password reset. OTP is sent via SMS."
+          }
+        },
+        {
+          "name": "Verify Reset OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/verify-reset-otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "verify-reset-otp"]
+            },
+            "description": "Verify the OTP received via SMS. Returns a reset token."
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"9876543210\",\n  \"reset_token\": \"token_from_verify_step\",\n  \"new_password\": \"newpassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/technicians/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "technicians", "reset-password"]
+            },
+            "description": "Reset password using the token from verify-reset-otp step."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vehicles",
+      "item": [
+        {
+          "name": "Add Vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"vehicle_make\": \"Toyota\",\n  \"vehicle_type\": \"Sedan\",\n  \"vehicle_model\": \"Corolla\",\n  \"year\": 2020,\n  \"vehicle_color\": \"Blue\",\n  \"plate_number\": \"ABC123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles"]
+            }
+          }
+        },
+        {
+          "name": "Get Customer Vehicles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles"]
+            }
+          }
+        },
+        {
+          "name": "Get Vehicle Makes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/makes",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "makes"]
+            }
+          }
+        },
+        {
+          "name": "Get Vehicle Models",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/models?make=Toyota",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "models"],
+              "query": [
+                {
+                  "key": "make",
+                  "value": "Toyota"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Vehicle Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/types",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "types"]
+            }
+          }
+        },
+        {
+          "name": "Update Vehicle",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_color\": \"Red\",\n  \"year\": 2021\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/{{vehicle_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "{{vehicle_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Vehicle",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/vehicles/{{vehicle_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vehicles", "{{vehicle_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SOS",
+      "item": [
+        {
+          "name": "Get SOS History (Customer)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sos/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sos"]
+            }
+          }
+        },
+        {
+          "name": "Get SOS Request By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sos/{{sos_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sos", "{{sos_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Technician SOS History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sos/technician/history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sos", "technician", "history"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "Get Customer Session (App Resume)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/customer/session",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "customer", "session"]
+            },
+            "description": "Get customer's active SOS and/or job for app resume.\n\nUse this when customer opens the app to check if they have an active session.\n\nResponse:\n```json\n{\n  \"active_sos\": { ... } | null,\n  \"active_job\": { ... } | null,\n  \"has_active_session\": true | false\n}\n```\n\nFrontend navigation based on status:\n- active_sos.status: 'pending' → SOS Waiting Screen\n- active_sos.status: 'in_call' → SOS In Call Screen\n- active_job.job_status: 'assigned/accepted' → Job Assigned Screen\n- active_job.job_status: 'en_route' → Job Tracking Screen\n- active_job.job_status: 'arrived' → Technician Arrived Screen\n- active_job.job_status: 'in_progress' → Job In Progress Screen\n- active_job.job_status: 'completed' + payment_status != 'paid' → Awaiting Payment Screen"
+          }
+        },
+        {
+          "name": "Get Customer Active Job",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/customer/active",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "customer", "active"]
+            },
+            "description": "Get customer's currently active job only (no SOS info)."
+          }
+        },
+        {
+          "name": "Get Customer Active SOS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/customer/active-sos",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "customer", "active-sos"]
+            },
+            "description": "Get customer's currently active SOS request only."
+          }
+        },
+        {
+          "name": "Get Technician Session (App Resume)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/technician/session",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "technician", "session"]
+            },
+            "description": "Get technician's active job for app resume.\n\nUse this when technician opens the app to check if they have an active job.\n\nResponse:\n```json\n{\n  \"technician\": { \"id\", \"name\", \"status\", \"is_active\" },\n  \"active_job\": { ... } | null,\n  \"has_active_job\": true | false\n}\n```\n\nFrontend navigation based on job_status:\n- 'assigned' → New Job Screen\n- 'accepted' → Job Accepted Screen\n- 'en_route' → Navigation Screen\n- 'arrived' → Job Arrived Screen\n- 'in_progress' → Job Working Screen\n- 'completed' → Payment Screen"
+          }
+        },
+        {
+          "name": "Get Technician Active Job",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/technician/active",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "technician", "active"]
+            },
+            "description": "Get technician's currently active job only."
+          }
+        },
+        {
+          "name": "Get Customer Job History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/customer/history?status=completed",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "customer", "history"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "completed",
+                  "description": "Optional: Filter by status (pending, assigned, accepted, en_route, arrived, in_progress, completed, paid, cancelled)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Job By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Add Repair Procedure",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Battery replacement\",\n  \"quantity\": 1,\n  \"price\": 150,\n  \"receipt_image_url\": \"https://example.com/receipt.jpg\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}/repairs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}", "repairs"]
+            }
+          }
+        },
+        {
+          "name": "Calculate Total Price",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}/total",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}", "total"]
+            },
+            "description": "Returns total breakdown: base price + distance fee + time surcharge + repairs total"
+          }
+        },
+        {
+          "name": "Mark Job Completed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}/complete",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}", "complete"]
+            },
+            "description": "Mark job as completed (work finished).\n\nStatus change: in_progress → completed\n\n**Note:** Customer is NOT notified at this stage. Customer receives `jobCompleted` event only when technician confirms payment via WebSocket `paymentReceived` event.\n\nAfter this, technician should:\n1. Show payment screen with total\n2. Collect payment from customer\n3. Emit `paymentReceived` WebSocket event"
+          }
+        },
+        {
+          "name": "Rate Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"rating_description\": \"Excellent service! Very professional and quick.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}/rate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}", "rate"]
+            },
+            "description": "Customer rates a completed job (1-5 stars + optional description).\n\nValidations:\n- Job must be completed/paid\n- Rating must be between 1 and 5"
+          }
+        },
+        {
+          "name": "Find Nearby Technicians",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/technicians/nearby?location=25.2048,55.2708",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "technicians", "nearby"],
+              "query": [
+                {
+                  "key": "location",
+                  "value": "25.2048,55.2708",
+                  "description": "Latitude,Longitude"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support",
+      "item": [
+        {
+          "name": "Create Support Ticket",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue_type\": \"Payment Issue\",\n  \"description\": \"Payment not processed correctly\",\n  \"job_id\": \"{{job_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/support/tickets",
+              "host": ["{{base_url}}"],
+              "path": ["api", "support", "tickets"]
+            }
+          }
+        },
+        {
+          "name": "Get Customer Tickets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/support/tickets",
+              "host": ["{{base_url}}"],
+              "path": ["api", "support", "tickets"]
+            }
+          }
+        },
+        {
+          "name": "Update Ticket (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\",\n  \"resolution\": \"Refund has been processed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/support/tickets/{{ticket_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "support", "tickets", "{{ticket_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Ticket Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/support/types",
+              "host": ["{{base_url}}"],
+              "path": ["api", "support", "types"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contact Us",
+      "item": [
+        {
+          "name": "Submit Contact Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue\": \"Payment Issue\",\n  \"description\": \"I was charged twice for the same service\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/contact-us",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contact-us"]
+            },
+            "description": "Customer submits a contact/support request"
+          }
+        },
+        {
+          "name": "Get Contact History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/contact-us",
+              "host": ["{{base_url}}"],
+              "path": ["api", "contact-us"]
+            },
+            "description": "Get customer's contact request history"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics (Technician)",
+      "item": [
+        {
+          "name": "Get Earnings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/analytics/earnings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "analytics", "earnings"]
+            },
+            "description": "Get technician's earnings data"
+          }
+        },
+        {
+          "name": "Get Performance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/analytics/performance",
+              "host": ["{{base_url}}"],
+              "path": ["api", "analytics", "performance"]
+            },
+            "description": "Get performance metrics (jobs completed, cancelled, rating, etc.)"
+          }
+        },
+        {
+          "name": "Get Weekly Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/analytics/weekly",
+              "host": ["{{base_url}}"],
+              "path": ["api", "analytics", "weekly"]
+            },
+            "description": "Get weekly statistics"
+          }
+        },
+        {
+          "name": "Get Job Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/analytics/jobs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "analytics", "jobs"]
+            },
+            "description": "Get detailed job statistics"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Receipts",
+      "item": [
+        {
+          "name": "Get Receipt By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/receipts/{{receipt_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts", "{{receipt_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Download Receipt PDF",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/receipts/{{receipt_id}}/download",
+              "host": ["{{base_url}}"],
+              "path": ["api", "receipts", "{{receipt_id}}", "download"]
+            },
+            "description": "Downloads receipt as PDF"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repair Procedures",
+      "item": [
+        {
+          "name": "Create Repair Procedure (with image upload)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "job_id", "value": "{{job_id}}", "type": "text" },
+                { "key": "technician_id", "value": "{{technician_id}}", "type": "text" },
+                { "key": "description", "value": "Battery replacement", "type": "text" },
+                { "key": "quantity", "value": "1", "type": "text" },
+                { "key": "price", "value": "150", "type": "text" },
+                { "key": "receipt_image", "type": "file", "description": "Upload receipt image" }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/repairs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repairs"]
+            },
+            "description": "Upload repair procedure with receipt image"
+          }
+        },
+        {
+          "name": "Get Repair Procedures",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/repairs/?job_id={{job_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repairs"],
+              "query": [
+                {
+                  "key": "job_id",
+                  "value": "{{job_id}}",
+                  "description": "Filter by job ID"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Repair Procedure",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Battery and alternator replacement\",\n  \"price\": 200,\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/repairs/{{repair_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repairs", "{{repair_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Repair Procedure",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/repairs/{{repair_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repairs", "{{repair_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket Reference",
+      "item": [
+        {
+          "name": "Health Check (API is running)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            },
+            "description": "🔌 **WEBSOCKET EVENTS REFERENCE**\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**CUSTOMER NAMESPACE** (`/customer`)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n**Client → Server:**\n```\nregister: { customer_id }\ncreate SOS: { customer_id, customer_vehicle_id, latitude, longitude }\ncancelSOS: { sos_id, reason }\n```\n\n**Server → Client:**\n```\nsosCreated: { sos_id, status, expires_at }\nsosInCall: { sos_id, status, message }\ntechnicianAssigned: { job_id, technician, status }\ntechnicianAccepted: { job_id, technician, status, accepted_at }\ntechnicianEnRoute: { job_id, status, en_route_at }\nlocationUpdate: { job_id, latitude, longitude, timestamp }\ntechnicianArrived: { job_id, status, arrived_at }\njobStarted: { job_id, status, started_at }\njobCompleted: { job_id, status, total_amount, receipt, technician }\njobCancelled: { job_id, status, reason, cancelled_at }\nsosExpired: { sos_id }\nsosCancelled: { sos_id }\nerror: { message }\n```\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**TECHNICIAN NAMESPACE** (`/technician`)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n**Client → Server:**\n```\nregister: { technician_id }\nupdateLocation: { technician_id, latitude, longitude, job_id }\nstartEnRoute: { job_id }\nmarkArrived: { job_id }\nstartJob: { job_id }\npaymentReceived: { job_id, payment_method, notes }\n```\n\n**Server → Client:**\n```\nnewJobAssigned: { job_id, sos_id, customer, vehicle, location, price }\nenRouteConfirmed: { job_id, status, en_route_at }\narrivedConfirmed: { job_id, status, arrived_at, message }\njobStartedConfirmed: { job_id, status, started_at, message }\npaymentConfirmed: { job_id, status, receipt, message }\njobCancelled: { job_id, status, reason, cancelled_at }\nerror: { message }\n```\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**ADMIN NAMESPACE** (`/admin`)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n**Client → Server:**\n```\nregister: { admin_id }\nsosAccepted: { sos_id, customer_id }\nadminCancelJob: { job_id, customer_id, technician_id, reason }\n```\n\n**Server → Client:**\n```\nnewSOSRequest: { sos_id, customer, vehicle, location, expires_at }\njobCancelled: { job_id, message }\n```\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**CONNECTION EXAMPLE:**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```javascript\nimport { io } from 'socket.io-client';\n\nconst socket = io('http://localhost:5001/customer');\n\nsocket.emit('register', customerId);\n\nsocket.on('technicianAccepted', (data) => {\n  console.log('Technician accepted:', data);\n});\n```"
+          }
+        }
+      ]
+    }
+  ]
+}

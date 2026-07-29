@@ -1,0 +1,271 @@
+﻿.add-tech-modal-backdrop {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.2);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-y: auto;
+  padding-top: 59px;
+  padding-bottom: 59px;
+}
+
+.add-tech-modal {
+  width: 700px;
+  min-height: 1066px;
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.add-tech-modal-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-secondary-light);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.add-tech-modal-close:hover {
+  background: var(--color-secondary-hover);
+}
+
+.add-tech-modal-close-x {
+  font-size: 20px;
+  color: #252525;
+  font-weight: bold;
+  pointer-events: none;
+}
+
+.add-tech-modal-header {
+  margin-bottom: 8px;
+}
+
+
+.add-tech-modal-title {
+  font-size: 24px;
+  font-weight: 500;
+  color: #252525;
+  margin-bottom: 8px;
+}
+
+.add-tech-modal-subtitle {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  margin-bottom: 28px;
+}
+
+.add-tech-modal-section {
+  margin-bottom: 28px;
+}
+
+.add-tech-modal-section-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: #252525;
+  margin-bottom: 20px;
+}
+
+.add-tech-modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.add-tech-modal-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 0;
+}
+
+.add-tech-modal-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 292px;
+  max-width: 292px;
+}
+
+.add-tech-modal-field label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #494949;
+  margin-bottom: 6px;
+}
+
+.add-tech-modal-field input[type="text"],
+.add-tech-modal-field input[type="email"],
+.add-tech-modal-field input[type="date"],
+.add-tech-modal-field input[type="number"],
+.add-tech-modal-field select {
+  height: 44px;
+  width: 100%;
+  font-size: 14px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  padding: 8px;
+  color: #252525;
+  background: var(--color-bg-white);
+  box-sizing: border-box;
+  box-shadow: var(--shadow-input);
+}
+
+.add-tech-modal-field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 5'><path fill='%23667085' d='M2 0L0 2h4zm0 5L0 3h4z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 40px;
+}
+
+.add-tech-modal-field input.input-error,
+.add-tech-modal-field select.input-error,
+.add-tech-modal-password input.input-error,
+.add-tech-modal-upload.input-error {
+  border: 1.5px solid #F97066 !important;
+}
+
+.add-tech-modal-error-text {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #F97066;
+}
+
+.add-tech-modal-field input[type="file"] {
+  display: none;
+}
+
+.add-tech-modal-upload {
+  height: 44px;
+  width: 100%;
+  min-width: 292px;
+  max-width: 612px;
+  border: 1px dashed var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  background: var(--color-bg-white);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-input);
+}
+
+.add-tech-modal-upload-text {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.add-tech-modal-upload-icon {
+  width: 24px;
+  height: 24px;
+  margin-left: 16px;
+}
+
+.add-tech-modal-field[style*="width: 612px"] {
+  min-width: 612px;
+  max-width: 612px;
+}
+
+.add-tech-modal-password {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.add-tech-modal-password input {
+  height: 44px;
+  width: 100%;
+  font-size: 14px;
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  padding: 8px;
+  color: #252525;
+  background: var(--color-bg-white);
+  box-shadow: var(--shadow-input);
+}
+
+.add-tech-modal-eye {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.add-tech-modal-submit {
+  width: 78px;
+  height: 44px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  margin-top: 24px;
+  align-self: flex-end;
+}
+
+.date-picker-button {
+  width: 100%;
+  height: 44px;
+  padding: 12px 16px;
+  background: var(--color-bg-white);
+  border: var(--border-width) solid var(--color-secondary);
+  border-radius: var(--border-radius-md);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+  box-shadow: var(--shadow-input);
+}
+
+.date-picker-button:hover {
+  border-color: var(--color-primary);
+}
+
+.date-picker-button.input-error {
+  border-color: #f04438;
+  background-color: #fef3f2;
+}
+
+.date-picker-modal {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1001;
+  margin-top: 4px;
+}

@@ -1,0 +1,174 @@
+﻿/* Edit Client Modal */
+.edit-client-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.edit-client-modal {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 6px;
+  padding: 44px;
+  width: 90%;
+  max-width: 700px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+/* Close Button */
+.edit-client-modal-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  background: #F2F4F7;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.edit-client-modal-close:hover {
+  background: var(--color-border);
+}
+
+.edit-client-modal-close-icon {
+  font-size: 20px;
+  color: #98A2B3;
+}
+
+/* Header */
+.edit-client-modal-header {
+  margin-bottom: 28px;
+}
+
+.edit-client-modal-title {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 32px;
+  color: #252525;
+  margin: 0 0 8px 0;
+}
+
+.edit-client-modal-subtitle {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* Inputs Section */
+.edit-client-modal-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.edit-client-modal-section-title {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 25px;
+  letter-spacing: -0.18px;
+  color: #252525;
+  margin: 0;
+}
+
+/* Form Row */
+.edit-client-modal-row {
+  display: flex;
+  gap: 24px;
+}
+
+/* Field */
+.edit-client-modal-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-client-modal-field label {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: #494949;
+}
+
+.edit-client-modal-field input {
+  height: 44px;
+  padding: 10px 16px;
+  background: #FFFFFF;
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #252525;
+}
+
+.edit-client-modal-field input::placeholder {
+  color: #98A2B3;
+}
+
+.edit-client-modal-field input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Disabled Field */
+.edit-client-modal-disabled-label {
+  color: var(--color-input-border) !important;
+}
+
+.edit-client-modal-disabled-input {
+  background: var(--color-bg-page) !important;
+  border-color: #F2F4F7 !important;
+  color: var(--color-input-border) !important;
+  cursor: not-allowed;
+}
+
+/* Footer */
+.edit-client-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.edit-client-modal-submit {
+  padding: 12px 16px;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.edit-client-modal-submit:hover {
+  background: var(--color-primary-hover);
+}
+
+.edit-client-modal-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

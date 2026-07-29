@@ -1,0 +1,87 @@
+name: clicks_user
+description: "A new Flutter project."
+publish_to: "none"
+
+version: 1.1.2+12
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  bloc: ^9.0.0
+  cupertino_icons: ^1.0.8
+  dio: ^5.8.0+1
+  easy_localization: ^3.0.7+1
+  equatable: ^2.0.7
+  flutter:
+    sdk: flutter
+  flutter_bloc: ^9.0.0
+  flutter_rating_bar: ^4.0.1
+  url_launcher: ^6.2.5
+  flutter_screenutil: ^5.9.3
+  flutter_svg: ^2.0.17
+  geolocator: ^14.0.2
+  google_maps_flutter: ^2.6.1
+  flutter_polyline_points: ^2.1.0
+  geocoding: ^3.0.0
+  get_it: ^8.0.3
+  google_fonts: ^6.2.1
+  image_picker: ^1.1.2
+  intl: any
+  pinput: ^5.0.1
+  pretty_dio_logger: ^1.4.0
+  responsive_builder: ^0.7.1
+  shared_preferences: ^2.5.2
+  shimmer: ^3.0.0
+  socket_io_client: ^3.1.3
+  flutter_widget_from_html_core: ^0.15.2
+  firebase_core: ^3.8.1
+  firebase_messaging: ^15.2.1
+  flutter_local_notifications: ^18.0.1
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
+  flutter_test:
+    sdk: flutter
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/App icon.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/fonts/
+    - assets/translations/
+
+  fonts:
+    - family: HelveticaNeue
+      fonts:
+        - asset: assets/fonts/HelveticaNeueLight.otf
+          weight: 300
+        - asset: assets/fonts/HelveticaNeueRoman.otf
+          weight: 400
+        - asset: assets/fonts/HelveticaNeueMedium.otf
+          weight: 500
+        - asset: assets/fonts/HelveticaNeueBold.otf
+          weight: 700
+
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #

@@ -1,0 +1,212 @@
+﻿/* Approve Application Modal */
+.approve-app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.approve-app-modal {
+  position: relative;
+  background: #FFFFFF;
+  border-radius: 6px;
+  padding: 44px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.approve-app-modal-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  background: #F2F4F7;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.approve-app-modal-close:hover {
+  background: var(--color-border);
+}
+
+.approve-app-modal-close-icon {
+  font-size: 20px;
+  color: #98A2B3;
+}
+
+.approve-app-modal-header {
+  margin-bottom: 28px;
+}
+
+.approve-app-modal-title {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 32px;
+  color: #252525;
+  margin: 0;
+}
+
+.approve-app-modal-section {
+  margin-bottom: 28px;
+}
+
+.approve-app-modal-doc-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.approve-app-modal-doc-title {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 28px;
+  letter-spacing: -0.18px;
+  color: #252525;
+  margin: 0;
+}
+
+.approve-app-modal-image-preview {
+  width: 100%;
+  height: 241px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-page);
+}
+
+.approve-app-modal-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.approve-app-modal-no-image {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.approve-app-modal-expiry-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.approve-app-modal-expiry-label {
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 25px;
+  letter-spacing: -0.18px;
+  color: #252525;
+}
+
+.approve-app-modal-date-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: #494949;
+}
+
+.approve-app-modal-calendar-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.approve-app-modal-status-section {
+  margin-bottom: 24px;
+}
+
+.approve-app-modal-status-select {
+  width: auto;
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: #494949;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%236E6E6E' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 40px;
+}
+
+.approve-app-modal-status-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.approve-app-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.approve-app-modal-submit {
+  padding: 12px 16px;
+  background: #FFFFFF;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-family: "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.14px;
+  color: #494949;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.approve-app-modal-submit:not(:disabled):hover {
+  background: var(--color-bg-page);
+  border-color: var(--color-input-border);
+}
+
+.approve-app-modal-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Approve status - maroon color */
+.approve-app-modal-submit-approve {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #FFFFFF;
+}
+
+.approve-app-modal-submit-approve:not(:disabled):hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}

@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Technician App Test - Clicks Roadside</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: white;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #16213e;
+      border-radius: 20px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      border: 1px solid #0f3460;
+    }
+    h1 { text-align: center; color: #00b894; margin-bottom: 10px; }
+    .subtitle { text-align: center; color: #74b9ff; margin-bottom: 30px; font-size: 14px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; color: #74b9ff; }
+    input {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #0f3460;
+      border-radius: 10px;
+      font-size: 16px;
+      background: #1a1a2e;
+      color: white;
+      transition: border-color 0.3s;
+    }
+    input:focus { outline: none; border-color: #00b894; }
+    .config-section {
+      background: #1a1a2e;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #0f3460;
+    }
+    .config-section h3 { margin-bottom: 15px; color: #00b894; }
+    .btn {
+      width: 100%;
+      padding: 15px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin-bottom: 10px;
+    }
+    .btn-login { background: #00b894; color: white; }
+    .btn-login:hover { background: #00a884; }
+    .btn-logout { background: #e74c3c; color: white; width: auto; padding: 8px 20px; }
+    .btn-connect { background: #00b894; color: white; }
+    .btn-connect:hover { background: #00a884; }
+    .btn-connect:disabled { background: #636e72; cursor: not-allowed; }
+    .btn-accept { background: #00b894; color: white; font-size: 18px; }
+    .btn-accept:hover { background: #00a884; transform: scale(1.02); }
+    .btn-reject { background: #d63031; color: white; }
+    .btn-reject:hover { background: #c0392b; }
+    .btn-action { background: #0984e3; color: white; }
+    .btn-action:hover { background: #0773c7; }
+    .btn-complete { background: #6c5ce7; color: white; }
+    .btn-complete:hover { background: #5b4cdb; }
+    .btn-payment { background: #fdcb6e; color: #2d3436; }
+    .btn-payment:hover { background: #f9c846; }
+    .btn:disabled { background: #636e72 !important; cursor: not-allowed; transform: none !important; }
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: 600;
+    }
+    .status-disconnected { background: rgba(214, 48, 49, 0.2); color: #ff7675; }
+    .status-connected { background: rgba(0, 184, 148, 0.2); color: #55efc4; }
+    .status-logged-in { background: rgba(9, 132, 227, 0.2); color: #74b9ff; }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; }
+    .status-dot.red { background: #d63031; }
+    .status-dot.green { background: #00b894; animation: pulse 1.5s infinite; }
+    .status-dot.blue { background: #0984e3; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .messages {
+      background: #0f0f23;
+      border-radius: 10px;
+      padding: 15px;
+      max-height: 250px;
+      overflow-y: auto;
+      margin-top: 20px;
+      border: 1px solid #0f3460;
+    }
+    .messages h3 { color: #74b9ff; margin-bottom: 10px; }
+    .message {
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 11px;
+      white-space: pre-wrap;
+    }
+    .message.sent { background: #1a1a2e; color: #74b9ff; border-left: 3px solid #74b9ff; }
+    .message.received { background: #1a1a2e; color: #55efc4; border-left: 3px solid #55efc4; }
+    .message.error { background: #1a1a2e; color: #ff7675; border-left: 3px solid #ff7675; }
+    .message.info { background: #1a1a2e; color: #fdcb6e; border-left: 3px solid #fdcb6e; }
+    .job-card {
+      background: #1a1a2e;
+      border: 2px solid #0f3460;
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .job-card.new-job { border-color: #00b894; background: rgba(0, 184, 148, 0.1); }
+    .job-card.accepted { border-color: #0984e3; background: rgba(9, 132, 227, 0.1); }
+    .job-card.en_route { border-color: #fdcb6e; background: rgba(253, 203, 110, 0.1); }
+    .job-card.arrived { border-color: #a29bfe; background: rgba(162, 155, 254, 0.1); }
+    .job-card.in_progress { border-color: #fd79a8; background: rgba(253, 121, 168, 0.1); }
+    .job-card.cancelled { border-color: #d63031; background: rgba(214, 48, 49, 0.1); }
+    .job-card h3 { color: #00b894; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+    .job-info { display: grid; gap: 10px; margin-bottom: 20px; }
+    .job-info-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #0f3460; }
+    .job-info-item span:first-child { color: #74b9ff; }
+    .job-info-item span:last-child { color: #fff; }
+    .status-badge {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 15px;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .status-badge.assigned { background: #00b894; color: white; }
+    .status-badge.accepted { background: #0984e3; color: white; }
+    .status-badge.en_route { background: #fdcb6e; color: #2d3436; }
+    .status-badge.arrived { background: #a29bfe; color: white; }
+    .status-badge.in_progress { background: #fd79a8; color: white; }
+    .status-badge.cancelled { background: #d63031; color: white; }
+    .action-buttons { display: grid; gap: 10px; }
+    .action-buttons.two-col { grid-template-columns: 1fr 1fr; }
+    .session-alert {
+      background: rgba(253, 203, 110, 0.2);
+      border: 2px solid #fdcb6e;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .session-alert h3 { color: #fdcb6e; margin-bottom: 10px; }
+    .session-alert p { color: #dfe6e9; }
+    .hidden { display: none !important; }
+    .login-section {
+      background: #1a1a2e;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #0f3460;
+    }
+    .login-section h3 { color: #00b894; margin-bottom: 15px; }
+    .user-info {
+      background: rgba(0, 184, 148, 0.2);
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+      border: 1px solid #00b894;
+    }
+    .user-info strong { color: #55efc4; }
+    .no-job-card {
+      background: #1a1a2e;
+      border: 2px dashed #0f3460;
+      border-radius: 15px;
+      padding: 40px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .no-job-card h3 { color: #74b9ff; margin-bottom: 10px; }
+    .no-job-card p { color: #636e72; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>👨‍🔧 Clicks Technician</h1>
+    <p class="subtitle">Technician App Simulator with Login & Session Resume</p>
+
+    <!-- Login Status -->
+    <div id="loginStatus" class="status-indicator status-disconnected">
+      <span class="status-dot red"></span>
+      <span id="loginStatusText">Not Logged In</span>
+    </div>
+
+    <!-- Login Section -->
+    <div id="loginSection" class="login-section">
+      <h3>🔐 Technician Login</h3>
+      <div class="form-group">
+        <label>Server URL</label>
+        <input type="text" id="serverUrl" value="http://localhost:5001">
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input type="tel" id="phone" placeholder="+971501234567">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="password">
+      </div>
+      <button class="btn btn-login" onclick="login()">🔑 Login</button>
+    </div>
+
+    <!-- User Info (shown after login) -->
+    <div id="userInfo" class="user-info hidden">
+      <strong>👨‍🔧 Logged in as: <span id="userName">-</span></strong>
+      <br><small>ID: <span id="userIdDisplay">-</span></small>
+      <br><small>Status: <span id="techStatus">-</span></small>
+      <br><button class="btn btn-logout" onclick="logout()" style="margin-top: 10px;">Logout</button>
+    </div>
+
+    <!-- Session Resume Alert -->
+    <div id="sessionAlert" class="session-alert hidden">
+      <h3>📍 Active Job Found!</h3>
+      <p id="sessionAlertText">You have an active job. Resuming...</p>
+    </div>
+
+    <!-- Socket Connection Status -->
+    <div id="statusIndicator" class="status-indicator status-disconnected hidden">
+      <span class="status-dot red"></span>
+      <span id="statusText">Socket Disconnected</span>
+    </div>
+
+    <!-- Connect Button -->
+    <button id="connectBtn" class="btn btn-connect hidden" onclick="connectSocket()">
+      🔌 Connect to Socket
+    </button>
+
+    <!-- No Job Card -->
+    <div id="noJobCard" class="no-job-card hidden">
+      <h3>📋 No Active Job</h3>
+      <p>Waiting for new job assignments...</p>
+    </div>
+
+    <!-- Job Card -->
+    <div id="jobCard" class="job-card hidden">
+      <h3>
+        <span>📋 Current Job</span>
+        <span class="status-badge" id="jobStatusBadge">ASSIGNED</span>
+      </h3>
+      <div class="job-info">
+        <div class="job-info-item"><span>Job ID:</span><span id="jobId">-</span></div>
+        <div class="job-info-item"><span>👤 Customer:</span><span id="customerName">-</span></div>
+        <div class="job-info-item"><span>📞 Phone:</span><span id="customerPhone">-</span></div>
+        <div class="job-info-item"><span>🚗 Vehicle:</span><span id="vehicleInfo">-</span></div>
+        <div class="job-info-item"><span>📍 Location:</span><span id="jobLocation">-</span></div>
+        <div class="job-info-item"><span>🔧 Issue:</span><span id="jobIssue">-</span></div>
+        <div class="job-info-item"><span>💰 Price:</span><span id="jobPrice">-</span></div>
+      </div>
+
+      <!-- Action Buttons - Change based on status -->
+      <div id="actionButtons" class="action-buttons">
+        <!-- Buttons will be dynamically inserted here -->
+      </div>
+    </div>
+
+    <!-- Messages Log -->
+    <div class="messages">
+      <h3>📡 Live Events</h3>
+      <div id="messageLog"></div>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let authToken = null;
+    let technicianId = null;
+    let currentJobId = null;
+    let currentJobStatus = null;
+
+    // Check for stored session on page load
+    window.onload = function() {
+      const storedToken = localStorage.getItem('tech_auth_token');
+      const storedTechId = localStorage.getItem('tech_id');
+      const storedName = localStorage.getItem('tech_name');
+      
+      if (storedToken && storedTechId) {
+        authToken = storedToken;
+        technicianId = storedTechId;
+        log('Found stored session, checking for active job...', 'info');
+        showLoggedInState(storedName || 'Technician', '-');
+        checkSession();
+      }
+    };
+
+    function log(message, type = 'sent') {
+      const msgLog = document.getElementById('messageLog');
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+      const content = typeof message === 'object' ? JSON.stringify(message, null, 2) : message;
+      div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>\n${content}`;
+      msgLog.prepend(div);
+    }
+
+    function showLoggedInState(name, status) {
+      document.getElementById('loginSection').classList.add('hidden');
+      document.getElementById('userInfo').classList.remove('hidden');
+      document.getElementById('userName').textContent = name;
+      document.getElementById('userIdDisplay').textContent = technicianId;
+      document.getElementById('techStatus').textContent = status;
+      document.getElementById('connectBtn').classList.remove('hidden');
+      document.getElementById('statusIndicator').classList.remove('hidden');
+      
+      const loginStatus = document.getElementById('loginStatus');
+      loginStatus.className = 'status-indicator status-logged-in';
+      loginStatus.querySelector('.status-dot').className = 'status-dot blue';
+      document.getElementById('loginStatusText').textContent = 'Logged In';
+    }
+
+    async function login() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const phone = document.getElementById('phone').value;
+      const password = document.getElementById('password').value;
+
+      if (!phone || !password) {
+        alert('Please enter phone number and password');
+        return;
+      }
+
+      log(`Logging in with phone: ${phone}...`, 'sent');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/technicians/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Login failed');
+        }
+
+        authToken = data.token;
+        technicianId = data.technician._id;
+        
+        localStorage.setItem('tech_auth_token', authToken);
+        localStorage.setItem('tech_id', technicianId);
+        localStorage.setItem('tech_name', `${data.technician.firstName} ${data.technician.lastName}`);
+
+        log({ event: 'Login Success', technician: data.technician }, 'received');
+        
+        showLoggedInState(
+          `${data.technician.firstName} ${data.technician.lastName}`,
+          data.technician.currentStatus || 'Available'
+        );
+        
+        await checkSession();
+
+      } catch (err) {
+        log({ event: 'Login Failed', error: err.message }, 'error');
+        alert(`Login failed: ${err.message}`);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('tech_auth_token');
+      localStorage.removeItem('tech_id');
+      localStorage.removeItem('tech_name');
+      
+      if (socket) { socket.disconnect(); socket = null; }
+      
+      authToken = null;
+      technicianId = null;
+      currentJobId = null;
+      currentJobStatus = null;
+      
+      document.getElementById('loginSection').classList.remove('hidden');
+      document.getElementById('userInfo').classList.add('hidden');
+      document.getElementById('connectBtn').classList.add('hidden');
+      document.getElementById('statusIndicator').classList.add('hidden');
+      document.getElementById('jobCard').classList.add('hidden');
+      document.getElementById('noJobCard').classList.add('hidden');
+      document.getElementById('sessionAlert').classList.add('hidden');
+      
+      const loginStatus = document.getElementById('loginStatus');
+      loginStatus.className = 'status-indicator status-disconnected';
+      loginStatus.querySelector('.status-dot').className = 'status-dot red';
+      document.getElementById('loginStatusText').textContent = 'Not Logged In';
+      
+      log('Logged out', 'info');
+    }
+
+    async function checkSession() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      
+      log('Checking for active session (GET /api/jobs/technician/session)...', 'info');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/jobs/technician/session`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Session check failed');
+        }
+
+        log({ event: 'Session Check Result', data }, 'received');
+
+        // Update technician status display
+        if (data.technician) {
+          document.getElementById('techStatus').textContent = data.technician.status || 'Available';
+        }
+
+        if (data.has_active_job && data.active_job) {
+          document.getElementById('sessionAlert').classList.remove('hidden');
+          const jobStatus = data.active_job.job_status;
+          document.getElementById('sessionAlertText').textContent = 
+            `Active job found (status: ${jobStatus}). Connecting to resume...`;
+          
+          currentJobId = data.active_job._id;
+          currentJobStatus = jobStatus;
+          
+          displayResumedJob(data.active_job);
+          setTimeout(() => connectSocket(), 1000);
+        } else {
+          log('No active job found - waiting for new assignments', 'info');
+          document.getElementById('noJobCard').classList.remove('hidden');
+        }
+
+      } catch (err) {
+        log({ event: 'Session Check Failed', error: err.message }, 'error');
+        document.getElementById('noJobCard').classList.remove('hidden');
+      }
+    }
+
+    function displayResumedJob(job) {
+      document.getElementById('noJobCard').classList.add('hidden');
+      document.getElementById('jobCard').classList.remove('hidden');
+      
+      document.getElementById('jobId').textContent = job._id?.slice(-8).toUpperCase() || '-';
+      document.getElementById('jobLocation').textContent = job.location || '-';
+      document.getElementById('jobIssue').textContent = job.issue || '-';
+      document.getElementById('jobPrice').textContent = job.price ? `AED ${job.price}` : '-';
+      
+      if (job.customer_id) {
+        document.getElementById('customerName').textContent = 
+          `${job.customer_id.first_name || ''} ${job.customer_id.last_name || ''}`.trim() || '-';
+        document.getElementById('customerPhone').textContent = job.customer_id.phone_number || '-';
+      }
+      
+      if (job.customer_vehicle_id) {
+        const v = job.customer_vehicle_id;
+        const make = v.vehicle_make?.makeName || '';
+        const model = v.vehicle_model?.modelName || '';
+        document.getElementById('vehicleInfo').textContent = `${make} ${model} (${v.year || ''})`.trim() || '-';
+      }
+      
+      updateJobCard(job.job_status);
+    }
+
+    function updateConnectionStatus(connected) {
+      const indicator = document.getElementById('statusIndicator');
+      const statusText = document.getElementById('statusText');
+      const dot = indicator.querySelector('.status-dot');
+      const connectBtn = document.getElementById('connectBtn');
+
+      if (connected) {
+        indicator.className = 'status-indicator status-connected';
+        dot.className = 'status-dot green';
+        statusText.textContent = 'Socket Connected';
+        connectBtn.disabled = true;
+        connectBtn.textContent = '✅ Connected';
+      } else {
+        indicator.className = 'status-indicator status-disconnected';
+        dot.className = 'status-dot red';
+        statusText.textContent = 'Socket Disconnected';
+        connectBtn.disabled = false;
+        connectBtn.textContent = '🔌 Connect to Socket';
+      }
+    }
+
+    function updateJobCard(status) {
+      currentJobStatus = status;
+      const card = document.getElementById('jobCard');
+      const badge = document.getElementById('jobStatusBadge');
+      const actionDiv = document.getElementById('actionButtons');
+      
+      card.classList.remove('hidden');
+      card.className = `job-card ${status}`;
+      badge.className = `status-badge ${status}`;
+      
+      const statusLabels = {
+        'assigned': 'ASSIGNED',
+        'accepted': 'ACCEPTED',
+        'en_route': 'EN ROUTE',
+        'arrived': 'ARRIVED',
+        'in_progress': 'IN PROGRESS',
+        'cancelled': 'CANCELLED'
+      };
+      badge.textContent = statusLabels[status] || status.toUpperCase();
+      
+      // Update action buttons based on status
+      let buttonsHTML = '';
+      switch(status) {
+        case 'assigned':
+          actionDiv.className = 'action-buttons two-col';
+          buttonsHTML = `
+            <button class="btn btn-accept" onclick="acceptJob()">✅ Accept Job</button>
+            <button class="btn btn-reject" onclick="rejectJob()">❌ Reject</button>
+          `;
+          break;
+        case 'accepted':
+          actionDiv.className = 'action-buttons';
+          buttonsHTML = `<button class="btn btn-action" onclick="startEnRoute()">🚗 Start En Route</button>`;
+          break;
+        case 'en_route':
+          actionDiv.className = 'action-buttons';
+          buttonsHTML = `
+            <button class="btn btn-action" onclick="sendLocationUpdate()">📍 Send Location Update</button>
+            <button class="btn btn-complete" onclick="markArrived()">📍 Mark Arrived</button>
+          `;
+          break;
+        case 'arrived':
+          actionDiv.className = 'action-buttons';
+          buttonsHTML = `<button class="btn btn-action" onclick="startJob()">🔧 Start Job</button>`;
+          break;
+        case 'in_progress':
+          actionDiv.className = 'action-buttons';
+          buttonsHTML = `
+            <button class="btn btn-complete" onclick="completeJob()">✅ Mark Complete</button>
+            <button class="btn btn-payment" onclick="confirmPayment()">💰 Confirm Payment</button>
+          `;
+          break;
+        case 'cancelled':
+          actionDiv.className = 'action-buttons';
+          buttonsHTML = `<p style="color: #ff7675; text-align: center;">Job has been cancelled</p>`;
+          break;
+      }
+      actionDiv.innerHTML = buttonsHTML;
+    }
+
+    function connectSocket() {
+      const serverUrl = document.getElementById('serverUrl').value;
+
+      log(`Connecting to ${serverUrl}/technician...`, 'sent');
+
+      socket = io(`${serverUrl}/technician`, {
+        transports: ['websocket', 'polling'],
+        reconnection: true
+      });
+
+      socket.on('connect', () => {
+        log('✅ Socket connected!', 'received');
+        socket.emit('register', technicianId);
+        log(`Registered as technician: ${technicianId}`, 'sent');
+        updateConnectionStatus(true);
+      });
+
+      socket.on('disconnect', () => {
+        log('❌ Socket disconnected', 'error');
+        updateConnectionStatus(false);
+      });
+
+      // New job assigned
+      socket.on('newJobAssigned', (data) => {
+        log({ event: '🆕 newJobAssigned', data }, 'received');
+        currentJobId = data.job_id;
+        displayNewJob(data);
+        alert('🆕 New Job Assigned! Check your app.');
+      });
+
+      socket.on('enRouteConfirmed', (data) => {
+        log({ event: 'enRouteConfirmed', data }, 'received');
+        updateJobCard('en_route');
+      });
+
+      socket.on('arrivedConfirmed', (data) => {
+        log({ event: '📍 arrivedConfirmed', data }, 'received');
+        updateJobCard('arrived');
+      });
+
+      socket.on('jobStartedConfirmed', (data) => {
+        log({ event: '🔧 jobStartedConfirmed', data }, 'received');
+        updateJobCard('in_progress');
+      });
+
+      socket.on('paymentConfirmed', (data) => {
+        log({ event: '💰 paymentConfirmed', data }, 'received');
+        currentJobId = null;
+        currentJobStatus = null;
+        document.getElementById('jobCard').classList.add('hidden');
+        document.getElementById('noJobCard').classList.remove('hidden');
+        alert('✅ Payment confirmed! Job complete.');
+      });
+
+      socket.on('jobCancelled', (data) => {
+        log({ event: '❌ jobCancelled', data }, 'error');
+        updateJobCard('cancelled');
+        alert(`❌ Job cancelled by admin.\n\nReason: ${data.reason || 'No reason provided'}`);
+      });
+
+      socket.on('error', (data) => {
+        log({ event: 'error', data }, 'error');
+      });
+    }
+
+    function displayNewJob(data) {
+      document.getElementById('noJobCard').classList.add('hidden');
+      document.getElementById('jobCard').classList.remove('hidden');
+      
+      document.getElementById('jobId').textContent = data.job_id?.slice(-8).toUpperCase() || '-';
+      document.getElementById('customerName').textContent = data.customer?.name || '-';
+      document.getElementById('customerPhone').textContent = data.customer?.phone || '-';
+      document.getElementById('jobLocation').textContent = 
+        data.location ? `${data.location.latitude}, ${data.location.longitude}` : '-';
+      document.getElementById('jobIssue').textContent = data.issue || '-';
+      document.getElementById('jobPrice').textContent = data.price ? `AED ${data.price}` : '-';
+      
+      if (data.vehicle) {
+        document.getElementById('vehicleInfo').textContent = 
+          `${data.vehicle.make || ''} ${data.vehicle.model || ''} (${data.vehicle.year || ''})`.trim();
+      }
+      
+      updateJobCard('assigned');
+    }
+
+    async function acceptJob() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      log(`Accepting job ${currentJobId}...`, 'sent');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/technicians/jobs/${currentJobId}/accept`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) throw new Error(data.error || 'Accept failed');
+
+        log({ event: 'Job Accepted', data }, 'received');
+        updateJobCard('accepted');
+      } catch (err) {
+        log({ event: 'Accept Failed', error: err.message }, 'error');
+        alert(`Failed to accept: ${err.message}`);
+      }
+    }
+
+    async function rejectJob() {
+      const reason = prompt('Reason for rejection:');
+      if (!reason) return;
+
+      const serverUrl = document.getElementById('serverUrl').value;
+      log(`Rejecting job ${currentJobId}...`, 'sent');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/technicians/jobs/${currentJobId}/reject`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ rejection_reasons: [reason], rejection_description: reason })
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) throw new Error(data.error || 'Reject failed');
+
+        log({ event: 'Job Rejected', data }, 'received');
+        currentJobId = null;
+        document.getElementById('jobCard').classList.add('hidden');
+        document.getElementById('noJobCard').classList.remove('hidden');
+      } catch (err) {
+        log({ event: 'Reject Failed', error: err.message }, 'error');
+        alert(`Failed to reject: ${err.message}`);
+      }
+    }
+
+    function startEnRoute() {
+      log({ event: 'startEnRoute', job_id: currentJobId }, 'sent');
+      socket.emit('startEnRoute', { job_id: currentJobId });
+    }
+
+    function sendLocationUpdate() {
+      const lat = 25.2 + (Math.random() * 0.01);
+      const lng = 55.27 + (Math.random() * 0.01);
+      
+      log({ event: 'updateLocation', latitude: lat, longitude: lng }, 'sent');
+      socket.emit('updateLocation', {
+        technician_id: technicianId,
+        latitude: lat,
+        longitude: lng,
+        job_id: currentJobId
+      });
+    }
+
+    function markArrived() {
+      log({ event: 'markArrived', job_id: currentJobId }, 'sent');
+      socket.emit('markArrived', { job_id: currentJobId });
+    }
+
+    function startJob() {
+      log({ event: 'startJob', job_id: currentJobId }, 'sent');
+      socket.emit('startJob', { job_id: currentJobId });
+    }
+
+    async function completeJob() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      log(`Completing job ${currentJobId}...`, 'sent');
+
+      try {
+        const response = await fetch(`${serverUrl}/api/jobs/${currentJobId}/complete`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) throw new Error(data.error || 'Complete failed');
+
+        log({ event: 'Job Completed', data }, 'received');
+        alert('Job marked as completed. Now confirm payment.');
+      } catch (err) {
+        log({ event: 'Complete Failed', error: err.message }, 'error');
+        alert(`Failed to complete: ${err.message}`);
+      }
+    }
+
+    function confirmPayment() {
+      const method = prompt('Payment method (cash/card):', 'cash');
+      if (!method) return;
+
+      log({ event: 'paymentReceived', job_id: currentJobId, payment_method: method }, 'sent');
+      socket.emit('paymentReceived', {
+        job_id: currentJobId,
+        payment_method: method,
+        notes: 'Payment confirmed via test app'
+      });
+    }
+  </script>
+</body>
+</html>

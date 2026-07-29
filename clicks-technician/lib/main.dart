@@ -1,0 +1,54 @@
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'app_root.dart';
+
+import 'core/api/dio_helper.dart';
+import 'core/di/di.dart';
+import 'core/helper/app_context.dart';
+import 'core/helper/cache_helper.dart';
+import 'core/helper/google_maps_loader.dart';
+import 'core/helper/maps_api_key.dart';
+import 'core/notifications/job_notification_service.dart';
+import 'core/routing/routes.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
+
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // status bar color
+  SystemChrome.setSystemUIOverlayStyle(
+    SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+    ),
+  );
+
+  await CacheHelper.init();
+  DioHelper.init();
+  DioHelper.onUnauthorized = () {
+    final nav = AppContext.navigatorKey.currentState;
+    if (nav != null) {
+      nav.pushNamedAndRemoveUntil(Routes.login, (_) => false);
+    }
+  };
+
+  await JobNotificationService.instance.init();
+  await JobNotificationService.instance.requestPermissions();
+
+  // Prefer dart-define; on Android fall back to Manifest Maps key.
+  final mapsKey = await MapsApiKey.resolve();
+  // Flutter web: inject Maps JS with the same key as admin Live Map.
+  await ensureGoogleMapsLoaded(mapsKey);
+
+  setupGetIt();
+  runApp(
+    EasyLocalization(
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      path: 'assets/translations',
+      fallbackLocale: const Locale('en'),
+      child: const AppRoot(),
+    ),
+  );
+}
