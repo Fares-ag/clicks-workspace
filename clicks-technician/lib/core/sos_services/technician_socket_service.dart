@@ -76,8 +76,18 @@ class TechnicianSocketService {
 
   void _setupEventListeners() {
     void handleAssigned(dynamic data) {
-      _log('🆕 New Job Assigned: $data');
+      final jobId = data is Map
+          ? (data['job_id'] ?? data['_id'])?.toString()
+          : null;
+      _log('🆕 New Job Assigned${jobId != null ? ' id=$jobId' : ''}');
       onNewJobAssigned?.call(data);
+    }
+
+    void logJobEvent(String label, dynamic data) {
+      final jobId = data is Map
+          ? (data['job_id'] ?? data['_id'])?.toString()
+          : null;
+      _log('$label${jobId != null ? ' id=$jobId' : ''}');
     }
 
     _socket!.on(ProductRules.socketNewJobAssigned, handleAssigned);
@@ -85,38 +95,40 @@ class TechnicianSocketService {
     _socket!.on(ProductRules.socketNewJobAssignedAlias, handleAssigned);
 
     _socket!.on('enRouteConfirmed', (data) {
-      _log('🚗 En Route Confirmed: $data');
+      logJobEvent('🚗 En Route Confirmed', data);
       onEnRouteConfirmed?.call(data);
     });
 
     _socket!.on('arrivedConfirmed', (data) {
-      _log('🎉 Arrived Confirmed: $data');
+      logJobEvent('🎉 Arrived Confirmed', data);
       onArrivedConfirmed?.call(data);
     });
 
     _socket!.on('jobStartedConfirmed', (data) {
-      _log('🔧 Job Started Confirmed: $data');
+      logJobEvent('🔧 Job Started Confirmed', data);
       onJobStartedConfirmed?.call(data);
     });
 
     _socket!.on('paymentConfirmed', (data) {
-      _log('💰 Payment Confirmed: $data');
+      logJobEvent('💰 Payment Confirmed', data);
       onPaymentConfirmed?.call(data);
     });
 
     _socket!.on('jobCancelled', (data) {
-      _log('❌ Job Cancelled: $data');
+      logJobEvent('❌ Job Cancelled', data);
       onJobCancelled?.call(data);
     });
 
     // Forward-compatible: not emitted by current tech-api, but handoff expects it.
     _socket!.on('jobReassigned', (data) {
-      _log('♻️ Job Reassigned: $data');
+      logJobEvent('♻️ Job Reassigned', data);
       onJobReassigned?.call(data);
     });
 
     _socket!.on('error', (data) {
-      _log('❌ Socket Error: $data');
+      final message =
+          (data is Map ? data['message'] : null)?.toString() ?? 'Socket error';
+      _log('❌ Socket Error: $message');
       onError?.call(data);
     });
   }

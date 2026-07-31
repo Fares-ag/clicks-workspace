@@ -97,8 +97,14 @@ class _NotificationsPopupState extends State<_NotificationsPopup> {
                       Icon(Icons.notifications_none_rounded,
                           size: 40.sp, color: ColorsManager.greyColor),
                       SizedBox(height: 8.h),
-                      Text('No notifications yet',
+                      Text('No in-app history yet',
                           style: TextStyles.font14RegularGrey),
+                      SizedBox(height: 6.h),
+                      Text(
+                        'New job assignments are delivered via push notifications.',
+                        textAlign: TextAlign.center,
+                        style: TextStyles.font12RegularGrey,
+                      ),
                     ],
                   ),
                 )

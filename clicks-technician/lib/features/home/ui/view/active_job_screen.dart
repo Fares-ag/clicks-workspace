@@ -599,7 +599,7 @@ class _Actions extends StatelessWidget {
           onPressed: cubit.isLoadingAction
               ? null
               : () => _openComplete(context),
-          label: 'Start Job',
+          label: 'Complete Job',
           margin: 0,
           width: double.infinity,
           bgColor: ColorsManager.mainColor,

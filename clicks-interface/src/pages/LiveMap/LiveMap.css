@@ -72,6 +72,19 @@
 .live-map-socket-badge.disconnected .live-map-socket-dot {
   background: #f79009;
 }
+
+.live-map-stale-count {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: #fffaeb;
+  border: 1px solid #fedf89;
+  color: #b54708;
+}
+
 @keyframes live-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -459,10 +472,34 @@
   margin: 0 0 2px 0;
 }
 
+.tech-popup-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin: 0 0 2px 0;
+}
+
+.tech-popup-stale {
+  color: #d97706;
+  font-weight: 700;
+}
+
+.tech-popup-lastseen {
+  font-size: 12px;
+  color: #667085;
+  margin: 0 0 6px 0;
+}
+
 .tech-popup-vehicle {
   font-size: 13px;
   color: var(--color-text-secondary);
   margin: 0;
+}
+
+.lm-tech-stale-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #d97706;
 }
 
 /* ==================== GOOGLE MAPS OVERRIDES ==================== */
@@ -495,6 +532,68 @@
   height: 100%;
   font-size: 16px;
   color: var(--color-text-secondary);
+}
+
+.live-map-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+}
+
+.live-map-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 24px 8px;
+  padding: 10px 14px;
+  border-radius: var(--border-radius-md);
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.live-map-error-retry {
+  flex-shrink: 0;
+  border: 1px solid #f97066;
+  background: #fff;
+  color: #b42318;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.live-map-error-retry:hover {
+  background: #fff5f5;
+}
+
+.tech-popup-status.online {
+  color: #027a48;
+}
+
+.tech-popup-status.on-job {
+  color: #b42318;
+}
+
+.tech-popup-fresh {
+  color: #027a48;
+  font-weight: 700;
+}
+
+.lm-tech-fresh-label {
+  font-size: 11px;
+  color: #667085;
 }
 
 .live-map-empty-pill {

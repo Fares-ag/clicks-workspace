@@ -2,6 +2,18 @@ const jwt = require("jsonwebtoken");
 const { SOSRequest, Technician, Job, Customer, CustomerVehicle } = require("../../../clicks-shared/models");
 const { broadcastMs, inCallTimeoutMs } = require("../utils/sosTimeout");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
+const { assertJobAccess } = require("../utils/ownership");
+
+function socketTechnicianUser(socket) {
+  if (!socket?.user?.id) return null;
+  return { id: socket.user.id, role: "technician" };
+}
+
+function assertSocketJobAccess(job, socket) {
+  const user = socketTechnicianUser(socket);
+  if (!user) return false;
+  return assertJobAccess(job, user);
+}
 
 /**
  * Admin JWT roles may be "Super Admin", "Admin", "Job Dispatcher", etc.
@@ -62,6 +74,17 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
  * Initialize Socket.IO for SOS functionality
  * @param {Server} io - Socket.IO server instance
  */
+const DEFAULT_LOCATION_STALE_MS = Number(process.env.TECH_LOCATION_STALE_MS || 60000);
+
+function locationAgeMs(lastLocationAt) {
+  if (!lastLocationAt) return Infinity;
+  return Date.now() - new Date(lastLocationAt).getTime();
+}
+
+function isLocationStale(lastLocationAt, staleMs = DEFAULT_LOCATION_STALE_MS) {
+  return locationAgeMs(lastLocationAt) >= staleMs;
+}
+
 function coordsFromTechnician(technician) {
   const [longitude = 0, latitude = 0] =
     technician?.currentLocation?.coordinates || [0, 0];
@@ -71,6 +94,9 @@ function coordsFromTechnician(technician) {
 function buildAdminTechnicianPayload(technician) {
   const { latitude, longitude } = coordsFromTechnician(technician);
   const v = technician.assignedVehicle;
+  const lastLocationAt = technician.lastLocationAt
+    ? new Date(technician.lastLocationAt).toISOString()
+    : null;
   return {
     technician_id: technician._id.toString(),
     firstName: technician.firstName,
@@ -79,6 +105,8 @@ function buildAdminTechnicianPayload(technician) {
     profilePicture: technician.profilePicture,
     currentStatus: technician.currentStatus,
     location: { latitude, longitude },
+    lastLocationAt,
+    locationStale: isLocationStale(technician.lastLocationAt),
     vehicle: v
       ? {
           _id: v._id,
@@ -108,6 +136,8 @@ function initializeSOSSocket(io) {
   const adminSockets = new Map(); // admin_id -> socket.id
   /** Grace timers so brief reconnects don't yank Offline on Live Map */
   const technicianOfflineTimers = new Map(); // technician_id -> timeout
+  /** Dedup On Job stale broadcasts (cleared on fresh location) */
+  const staleLocationEmittedFor = new Set();
 
   const pendingExpireTimers = new Map(); // sosId -> timeout
   const inCallExpireTimers = new Map(); // sosId -> timeout
@@ -170,13 +200,81 @@ function initializeSOSSocket(io) {
   sweepStaleSos();
   setInterval(sweepStaleSos, 60 * 1000).unref?.();
 
+  // On Job force-quit: emit stale (not Offline) when lastLocationAt exceeds window.
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - LOCATION_STALE_MS);
+      const staleOnJob = await Technician.find({
+        currentStatus: "On Job",
+        isActive: true,
+        $or: [{ lastLocationAt: { $lt: cutoff } }, { lastLocationAt: null }],
+      }).select("_id lastLocationAt");
+      for (const t of staleOnJob) {
+        const id = t._id.toString();
+        if (!staleLocationEmittedFor.has(id)) {
+          emitAdminTechnicianLocationStale(id, t.lastLocationAt);
+        }
+      }
+    } catch (err) {
+      console.error("On Job stale location sweep failed:", err);
+    }
+  }, 30000).unref?.();
+
+  function emitAdminTechnicianLocationStale(technician_id, lastLocationAt) {
+    const id = technician_id.toString();
+    staleLocationEmittedFor.add(id);
+    adminNamespace.emit("technicianLocationStale", {
+      technician_id: id,
+      lastLocationAt: lastLocationAt
+        ? new Date(lastLocationAt).toISOString()
+        : null,
+      locationStale: true,
+    });
+  }
+
   function emitAdminTechnicianLocation(technician_id, latitude, longitude, updatedAt) {
+    const id = technician_id.toString();
+    staleLocationEmittedFor.delete(id);
+    const iso = updatedAt ? new Date(updatedAt).toISOString() : new Date().toISOString();
     adminNamespace.emit("technicianLocationUpdate", {
-      technician_id: technician_id.toString(),
+      technician_id: id,
       latitude,
       longitude,
-      updatedAt: updatedAt ? new Date(updatedAt).toISOString() : new Date().toISOString(),
+      updatedAt: iso,
+      lastLocationAt: iso,
+      locationStale: false,
     });
+  }
+
+  /** On Job techs stay on the map but surface stale when heartbeat stops. */
+  function scheduleOnJobStaleCheck(technicianId, locationAge) {
+    const checkAndEmit = async () => {
+      if (technicianSockets.has(technicianId)) return;
+      try {
+        const t = await Technician.findById(technicianId).select(
+          "currentStatus lastLocationAt"
+        );
+        if (!t || t.currentStatus !== "On Job") return;
+        if (locationAgeMs(t.lastLocationAt) >= LOCATION_STALE_MS) {
+          emitAdminTechnicianLocationStale(technicianId, t.lastLocationAt);
+        }
+      } catch (err) {
+        console.error("On Job stale check failed:", err);
+      }
+    };
+
+    if (locationAge >= LOCATION_STALE_MS) {
+      checkAndEmit();
+      return;
+    }
+
+    const delay = Math.max(0, LOCATION_STALE_MS - locationAge);
+    const followUp = setTimeout(async () => {
+      technicianOfflineTimers.delete(technicianId);
+      await checkAndEmit();
+    }, delay);
+    followUp.unref?.();
+    technicianOfflineTimers.set(technicianId, followUp);
   }
 
   async function emitAdminTechnicianPresence(technicianId, status) {
@@ -190,7 +288,7 @@ function initializeSOSSocket(io) {
 
       const technician = await Technician.findById(technicianId)
         .select(
-          "firstName lastName phone profilePicture currentStatus currentLocation assignedVehicle"
+          "firstName lastName phone profilePicture currentStatus currentLocation assignedVehicle lastLocationAt"
         )
         .populate({
           path: "assignedVehicle",
@@ -328,9 +426,14 @@ function initializeSOSSocket(io) {
         }
 
         // Update technician status back to "Online" if assigned
-        if (technician_id) {
-          await setTechnicianStatus(technician_id, "Online");
-          console.log(`Technician ${technician_id} status reset to Online`);
+        const techId =
+          technician_id ||
+          job.assignedTechnician?.toString?.() ||
+          job.assignedTechnician;
+        if (techId) {
+          await setTechnicianStatus(techId, "Online");
+          await emitAdminTechnicianPresence(techId, "Online");
+          console.log(`Technician ${techId} status reset to Online`);
         }
 
         const cancellationData = {
@@ -638,7 +741,11 @@ function initializeSOSSocket(io) {
         // If there's an active job, broadcast location to customer
         if (job_id) {
           const job = await Job.findById(job_id);
-          if (job && job.customer_id) {
+          if (
+            job &&
+            assertSocketJobAccess(job, socket) &&
+            job.customer_id
+          ) {
             const customerSocketId = customerSockets.get(job.customer_id.toString());
             if (customerSocketId) {
               customerNamespace.to(customerSocketId).emit("locationUpdate", {
@@ -651,7 +758,11 @@ function initializeSOSSocket(io) {
           }
         }
 
-        console.log(`Technician ${technician_id} location updated: [${latitude}, ${longitude}]`);
+        console.log(
+          process.env.NODE_ENV === "development"
+            ? `Technician ${technician_id} location updated: [${latitude}, ${longitude}]`
+            : `Technician ${technician_id} location updated`
+        );
       } catch (err) {
         console.error("Error updating technician location:", err);
       }
@@ -668,6 +779,10 @@ function initializeSOSSocket(io) {
 
         if (!job) {
           socket.emit("error", { message: "Job not found" });
+          return;
+        }
+        if (!assertSocketJobAccess(job, socket)) {
+          socket.emit("error", { message: "Forbidden" });
           return;
         }
 
@@ -721,6 +836,10 @@ function initializeSOSSocket(io) {
           socket.emit("error", { message: "Job not found" });
           return;
         }
+        if (!assertSocketJobAccess(job, socket)) {
+          socket.emit("error", { message: "Forbidden" });
+          return;
+        }
 
         // Job must be in "en_route" status
         if (job.job_status !== "en_route") {
@@ -768,6 +887,10 @@ function initializeSOSSocket(io) {
           socket.emit("error", { message: "Job not found" });
           return;
         }
+        if (!assertSocketJobAccess(job, socket)) {
+          socket.emit("error", { message: "Forbidden" });
+          return;
+        }
 
         // Job must be in "arrived" status
         if (job.job_status !== "arrived") {
@@ -804,9 +927,11 @@ function initializeSOSSocket(io) {
     });
 
     // ⚡ Technician confirms payment received (completed → paid)
+    // REST confirmPayment is source of truth for payment + receipt; this handler
+    // is notify-only when payment_status is already paid.
     socket.on("paymentReceived", async (data) => {
       try {
-        const { job_id, payment_method, notes } = data;
+        const { job_id, payment_method } = data;
         console.log(`Technician confirming payment for job ${job_id}`);
 
         const job = await Job.findById(job_id)
@@ -817,64 +942,98 @@ function initializeSOSSocket(io) {
           socket.emit("error", { message: "Job not found" });
           return;
         }
-
-        // Job must be in "completed" status (after technician marks complete via REST)
-        if (job.job_status !== "completed") {
-          socket.emit("error", { message: `Cannot mark payment from status: ${job.job_status}. Job must be marked complete first.` });
+        if (!assertSocketJobAccess(job, socket)) {
+          socket.emit("error", { message: "Forbidden" });
           return;
         }
 
-        // Update payment_status to paid (job_status stays completed)
+        if (job.job_status !== "completed") {
+          socket.emit("error", {
+            message: `Cannot mark payment from status: ${job.job_status}. Job must be marked complete first.`,
+          });
+          return;
+        }
+
+        const buildReceiptData = () => ({
+          job_id,
+          customer: job.customer_id
+            ? {
+                name: `${job.customer_id.first_name} ${job.customer_id.last_name}`,
+                phone: job.customer_id.phone_number,
+                email: job.customer_id.email,
+              }
+            : null,
+          technician: job.assignedTechnician
+            ? {
+                name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
+                phone: job.assignedTechnician.phone,
+              }
+            : null,
+          total_amount: job.price,
+          payment_method: job.payment_method,
+          paid_at: job.paid_at,
+        });
+
+        const notifyCustomerPaid = (receiptData) => {
+          const customerSocketId = customerSockets.get(
+            job.customer_id?._id?.toString()
+          );
+          if (customerSocketId) {
+            customerNamespace.to(customerSocketId).emit("jobCompleted", {
+              job_id,
+              job_status: "completed",
+              payment_status: "paid",
+              total_amount: job.price,
+              receipt: receiptData,
+              technician: job.assignedTechnician
+                ? {
+                    name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
+                    photo: job.assignedTechnician.profilePicture,
+                  }
+                : null,
+            });
+            console.log(`Customer ${job.customer_id._id} notified: job completed & paid`);
+          }
+        };
+
+        // Idempotent notify-only path after REST confirmPayment
+        if (job.payment_status === "paid") {
+          await setTechnicianStatus(job.assignedTechnician._id, "Online");
+          await emitAdminTechnicianPresence(job.assignedTechnician._id, "Online");
+          const receiptData = buildReceiptData();
+          socket.emit("paymentConfirmed", {
+            job_id,
+            job_status: "completed",
+            payment_status: "paid",
+            receipt: receiptData,
+            message: "Payment already confirmed",
+          });
+          notifyCustomerPaid(receiptData);
+          return;
+        }
+
+        // Legacy fallback: mutate payment if REST was not used
         job.payment_status = "paid";
-        job.payment_method = payment_method || "cash";
+        job.payment_method = payment_method || job.payment_method || "cash";
         job.paid_at = new Date();
         await job.save();
 
-        // Update technician status back to Online
         await setTechnicianStatus(job.assignedTechnician._id, "Online");
+        await emitAdminTechnicianPresence(job.assignedTechnician._id, "Online");
 
-        // Prepare receipt data
-        const receiptData = {
-          job_id,
-          customer: job.customer_id ? {
-            name: `${job.customer_id.first_name} ${job.customer_id.last_name}`,
-            phone: job.customer_id.phone_number,
-            email: job.customer_id.email
-          } : null,
-          technician: job.assignedTechnician ? {
-            name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-            phone: job.assignedTechnician.phone
-          } : null,
-          total_amount: job.price,
-          payment_method: job.payment_method,
-          paid_at: job.paid_at
-        };
+        const receiptData = buildReceiptData();
+        receiptData.payment_method = job.payment_method;
+        receiptData.paid_at = job.paid_at;
 
-        // Confirm to technician
         socket.emit("paymentConfirmed", {
           job_id,
           job_status: "completed",
           payment_status: "paid",
           receipt: receiptData,
-          message: "Payment confirmed successfully"
+          message: "Payment confirmed successfully",
         });
 
-        // Notify customer - Job is complete!
-        const customerSocketId = customerSockets.get(job.customer_id?._id?.toString());
-        if (customerSocketId) {
-          customerNamespace.to(customerSocketId).emit("jobCompleted", {
-            job_id,
-            job_status: "completed",
-            payment_status: "paid",
-            total_amount: job.price,
-            receipt: receiptData,
-            technician: job.assignedTechnician ? {
-              name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-              photo: job.assignedTechnician.profilePicture
-            } : null
-          });
-          console.log(`Customer ${job.customer_id._id} notified: job completed & paid`);
-        }
+        notifyCustomerPaid(receiptData);
       } catch (err) {
         console.error("Error confirming payment:", err);
         socket.emit("error", { message: "Failed to confirm payment" });
@@ -901,16 +1060,23 @@ function initializeSOSSocket(io) {
           if (technicianSockets.has(technicianId)) return;
           try {
             const tech = await Technician.findById(technicianId);
-            if (!tech || tech.currentStatus === "On Job") return;
+            if (!tech) return;
             if (tech.currentStatus === "Offline") {
               await emitAdminTechnicianPresence(technicianId, "Offline");
               return;
             }
-            // If a REST heartbeat arrived recently the app is still alive in background —
-            // keep them Online. We'll re-check in LOCATION_STALE_MS.
             const locationAge = tech.lastLocationAt
               ? Date.now() - new Date(tech.lastLocationAt).getTime()
               : Infinity;
+
+            // On Job: never auto-Offline — surface stale location instead.
+            if (tech.currentStatus === "On Job") {
+              scheduleOnJobStaleCheck(technicianId, locationAge);
+              return;
+            }
+
+            // If a REST heartbeat arrived recently the app is still alive in background —
+            // keep them Online. We'll re-check in LOCATION_STALE_MS.
             if (locationAge < LOCATION_STALE_MS) {
               console.log(`Technician ${technicianId} socket gone but REST heartbeat fresh (${Math.round(locationAge / 1000)}s ago) — keeping Online`);
               // Schedule a follow-up check after stale window expires.
@@ -919,7 +1085,15 @@ function initializeSOSSocket(io) {
                 if (technicianSockets.has(technicianId)) return;
                 try {
                   const t2 = await Technician.findById(technicianId);
-                  if (!t2 || t2.currentStatus === "On Job") return;
+                  if (!t2 || t2.currentStatus === "On Job") {
+                    if (t2?.currentStatus === "On Job") {
+                      const ageOnJob = t2.lastLocationAt
+                        ? Date.now() - new Date(t2.lastLocationAt).getTime()
+                        : Infinity;
+                      scheduleOnJobStaleCheck(technicianId, ageOnJob);
+                    }
+                    return;
+                  }
                   const age2 = t2.lastLocationAt
                     ? Date.now() - new Date(t2.lastLocationAt).getTime()
                     : Infinity;

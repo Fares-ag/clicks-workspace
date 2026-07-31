@@ -11,9 +11,19 @@ function looksHashed(password) {
   return typeof password === "string" && /^\$2[aby]?\$/.test(password);
 }
 
+const LOCATION_STALE_MS = Number(process.env.TECH_LOCATION_STALE_MS || 60000);
+
+function isLocationStaleForMap(lastLocationAt) {
+  if (!lastLocationAt) return true;
+  return Date.now() - new Date(lastLocationAt).getTime() >= LOCATION_STALE_MS;
+}
+
 function toLiveMapTechnician(t) {
   const [longitude = 0, latitude = 0] = t.currentLocation?.coordinates || [0, 0];
   const v = t.assignedVehicle;
+  const lastLocationAt = t.lastLocationAt
+    ? new Date(t.lastLocationAt).toISOString()
+    : null;
   return {
     _id: t._id,
     firstName: t.firstName,
@@ -22,6 +32,8 @@ function toLiveMapTechnician(t) {
     currentStatus: t.currentStatus,
     profilePicture: t.profilePicture,
     location: { latitude, longitude },
+    lastLocationAt,
+    locationStale: isLocationStaleForMap(t.lastLocationAt),
     vehicle: v
       ? {
           _id: v._id,
@@ -41,7 +53,7 @@ async function getLiveMapTechnicians(req, res) {
       currentStatus: { $in: ["Online", "On Job"] },
     })
       .select(
-        "firstName lastName phone currentStatus profilePicture currentLocation assignedVehicle"
+        "firstName lastName phone currentStatus profilePicture currentLocation assignedVehicle lastLocationAt"
       )
       .populate({
         path: "assignedVehicle",

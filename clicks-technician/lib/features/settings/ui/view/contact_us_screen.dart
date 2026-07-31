@@ -1,13 +1,12 @@
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/components/app_text_field.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
-import 'package:clicks_technician/core/helper/extensions.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-/// Contact form (soft launch — no backend).
+/// Contact form (soft launch — submissions not sent yet).
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
 
@@ -29,10 +28,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
-    AppSnackBars.successSnackBar(
-      'Message sent — we will get back to you',
+    AppSnackBars.errorSnackBar(
+      'Contact form is not available yet. Please call support.',
     );
-    context.pop();
   }
 
   @override
@@ -69,7 +67,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
             SizedBox(height: 24.h),
             AppButton(
               onPressed: _submit,
-              label: 'Submit',
+              label: 'Coming soon',
               margin: 0,
               width: double.infinity,
               bgColor: ColorsManager.mainColor,

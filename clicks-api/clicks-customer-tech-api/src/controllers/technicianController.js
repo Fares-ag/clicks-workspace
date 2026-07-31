@@ -333,7 +333,11 @@ const updateLocation = async (req, res) => {
       lastLocationAt,
     });
 
-    console.log(`[REST] Technician ${technicianId} location updated: [${lat}, ${lng}]`);
+    console.log(
+      process.env.NODE_ENV === "development"
+        ? `[REST] Technician ${technicianId} location updated: [${lat}, ${lng}]`
+        : `[REST] Technician ${technicianId} location updated`
+    );
 
     // Broadcast to admin Live Map (same event as socket path)
     const notifyLocation = req.app.get("notifyAdminTechnicianLocation");
@@ -361,6 +365,24 @@ const toggleStatus = async (req, res) => {
     const { status } = req.body; // "Online" or "Offline"
     if (!["Online", "Offline"].includes(status)) {
       return res.status(400).json({ error: "Status must be Online or Offline" });
+    }
+    if (status === "Offline") {
+      const blockingJob = await Job.findOne({
+        assignedTechnician: id,
+        $or: [
+          {
+            job_status: {
+              $in: ["assigned", "accepted", "en_route", "arrived", "in_progress"],
+            },
+          },
+          { job_status: "completed", payment_status: { $ne: "paid" } },
+        ],
+      }).select("_id job_status payment_status");
+      if (blockingJob) {
+        return res.status(400).json({
+          error: "Cannot go Offline while you have an active job",
+        });
+      }
     }
     const technician = await setTechnicianStatus(id, status);
     if (!technician) {
@@ -416,6 +438,9 @@ const acceptJob = async (req, res) => {
     
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
+    }
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     // Job must be in "assigned" status to be accepted
@@ -510,6 +535,11 @@ const rejectJob = async (req, res) => {
       technician.performance.rejectedJobs =
         (technician.performance.rejectedJobs || 0) + 1;
       await setTechnicianStatus(technician, "Online");
+    }
+
+    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+    if (typeof notifyPresence === "function" && job.assignedTechnician) {
+      await notifyPresence(job.assignedTechnician, "Online");
     }
 
     // P2-04: notify customer that the technician rejected the job
@@ -885,6 +915,10 @@ const deleteAccount = async (req, res) => {
       return res.status(404).json({ error: "Technician not found" });
     }
     await setTechnicianStatus(technician, "Offline");
+    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+    if (typeof notifyPresence === "function") {
+      await notifyPresence(id, "Offline");
+    }
     technician.isActive = false;
     technician.fcm_token = null;
     if (technician.email && !String(technician.email).includes("+deleted")) {

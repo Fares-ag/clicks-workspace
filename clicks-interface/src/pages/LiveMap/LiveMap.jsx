@@ -9,10 +9,50 @@ import { io } from "socket.io-client";
 import { useGetLiveMapTechniciansQuery } from "../../store/technicianApi";
 import { Link, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
+import {
+  REST_POLL_MS,
+  countVisibleStaleTechnicians,
+  formatLastSeen,
+  isSocketOnlyPreserved,
+  isTechLocationStale,
+  mergeApiTechnicianWithSocketState,
+} from "./liveMapUtils.js";
 import "./LiveMap.css";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+// Vehicle marker (SVG in public/icons — PNG car-marker was never committed).
+const CAR_ICON = {
+  url: "/icons/vehicle.svg",
+  scaledSize: { width: 96, height: 96 },
+  anchor: { x: 48, y: 48 },
+};
+
+function getMarkerIcon(tech) {
+  const onJob = tech.currentStatus === "On Job";
+  return {
+    url: CAR_ICON.url,
+    scaledSize: new window.google.maps.Size(
+      onJob ? 88 : CAR_ICON.scaledSize.width,
+      onJob ? 88 : CAR_ICON.scaledSize.height
+    ),
+    anchor: new window.google.maps.Point(
+      onJob ? 44 : CAR_ICON.anchor.x,
+      onJob ? 44 : CAR_ICON.anchor.y
+    ),
+  };
+}
+
+function getMarkerLabel(tech) {
+  if (isTechLocationStale(tech)) {
+    return { text: "!", color: "#ffffff", fontSize: "11px", fontWeight: "700" };
+  }
+  if (tech.currentStatus === "On Job") {
+    return { text: "●", color: "#F04438", fontSize: "14px", fontWeight: "700" };
+  }
+  return undefined;
+}
 
 // Qatar center
 const MAP_CENTER = { lat: 25.276987, lng: 51.520008 };
@@ -76,13 +116,6 @@ const mapOptions = {
   ],
 };
 
-// Marker: custom car icon (public/icons/car-marker.png)
-const CAR_ICON = {
-  url: "/icons/car-marker.png",
-  scaledSize: { width: 96, height: 96 },
-  anchor: { x: 48, y: 48 },
-};
-
 function LiveMap() {
   const navigate = useNavigate();
   const mapRef = useRef(null);
@@ -99,11 +132,19 @@ function LiveMap() {
   const [selectedTechFilter, setSelectedTechFilter] = useState(null);
   const [selectedVehicleFilter, setSelectedVehicleFilter] = useState(null);
   const [contextMenuTechId, setContextMenuTechId] = useState(null);
+  // Re-render every 10s so "last seen" ages in the UI.
+  const [, setLastSeenTick] = useState(0);
 
   // ==================== RTK QUERY ====================
   // 8s REST snapshot as fallback; real-time updates come via socket.
-  const { data: liveMapData, isLoading } = useGetLiveMapTechniciansQuery(undefined, {
-    pollingInterval: 8000,
+  const {
+    data: liveMapData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useGetLiveMapTechniciansQuery(undefined, {
+    pollingInterval: REST_POLL_MS,
   });
 
   // ==================== GOOGLE MAPS LOADER ====================
@@ -115,32 +156,28 @@ function LiveMap() {
 
   // ==================== INITIALIZE FROM API ====================
   useEffect(() => {
-    if (liveMapData?.technicians) {
-      setTechnicians((prev) => {
-        const prevById = new Map(prev.map((t) => [String(t._id), t]));
-        const next = liveMapData.technicians.map((t) => {
-          const id = String(t._id);
-          const existing = prevById.get(id);
-          // Keep socket coords if they are newer than the REST snapshot.
-          // The socket _locationUpdatedAt is set on every technicianLocationUpdate;
-          // the REST snapshot reflects the DB write time (potentially a few seconds stale).
-          if (existing?._locationUpdatedAt) {
-            const socketMs = new Date(existing._locationUpdatedAt).getTime();
-            // If we have a socket location fresher than 60s, prefer it.
-            if (Date.now() - socketMs < 60000 && existing.location) {
-              return { ...t, _id: id, location: existing.location, _locationUpdatedAt: existing._locationUpdatedAt };
-            }
-            // Otherwise fall through and use API location below
-          } else if (existing?.location) {
-            // Legacy: keep socket location even without timestamp
-            return { ...t, _id: id, location: existing.location };
-          }
-          return { ...t, _id: id };
-        });
-        return next;
+    if (!liveMapData?.technicians) return;
+    setTechnicians((prev) => {
+      const prevById = new Map(prev.map((t) => [String(t._id), t]));
+      const apiIds = new Set();
+
+      const mergedFromApi = liveMapData.technicians.map((t) => {
+        const id = String(t._id);
+        apiIds.add(id);
+        return mergeApiTechnicianWithSocketState(t, prevById.get(id));
       });
-    }
+
+      // Union: keep socket-only techs until REST catches up (≤2 poll windows).
+      const socketOnly = prev.filter((t) => isSocketOnlyPreserved(t, apiIds));
+
+      return [...mergedFromApi, ...socketOnly];
+    });
   }, [liveMapData]);
+
+  useEffect(() => {
+    const id = setInterval(() => setLastSeenTick((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
 
   // ==================== SOCKET CONNECTION ====================
   const [socketConnected, setSocketConnected] = useState(false);
@@ -181,16 +218,67 @@ function LiveMap() {
     });
 
     socket.on("technicianLocationUpdate", (data) => {
-      const { technician_id, latitude, longitude, updatedAt } = data;
+      const { technician_id, latitude, longitude, updatedAt, lastLocationAt, locationStale } = data;
       const id = String(technician_id);
       const _locationUpdatedAt = updatedAt || new Date().toISOString();
-      setTechnicians((prev) =>
-        prev.map((t) =>
-          String(t._id) === id
-            ? { ...t, location: { latitude, longitude }, _locationUpdatedAt }
-            : t
-        )
-      );
+      const patch = {
+        location: { latitude, longitude },
+        _locationUpdatedAt,
+        lastLocationAt: lastLocationAt || _locationUpdatedAt,
+        locationStale: locationStale === true,
+        _socketPresenceAt: _locationUpdatedAt,
+      };
+      setTechnicians((prev) => {
+        const exists = prev.find((t) => String(t._id) === id);
+        if (exists) {
+          return prev.map((t) =>
+            String(t._id) === id ? { ...t, ...patch } : t
+          );
+        }
+        // Upsert until technicianOnline / REST poll fills profile fields.
+        return [
+          ...prev,
+          {
+            _id: id,
+            technician_id: id,
+            firstName: "Technician",
+            lastName: "",
+            currentStatus: "Online",
+            ...patch,
+          },
+        ];
+      });
+    });
+
+    socket.on("technicianLocationStale", (data) => {
+      const id = String(data.technician_id);
+      const lastLocationAt = data.lastLocationAt || null;
+      const patch = {
+        locationStale: true,
+        lastLocationAt,
+        _socketPresenceAt: lastLocationAt || new Date().toISOString(),
+      };
+      setTechnicians((prev) => {
+        const exists = prev.find((t) => String(t._id) === id);
+        if (exists) {
+          return prev.map((t) =>
+            String(t._id) === id
+              ? { ...t, ...patch, lastLocationAt: lastLocationAt || t.lastLocationAt }
+              : t
+          );
+        }
+        return [
+          ...prev,
+          {
+            _id: id,
+            technician_id: id,
+            firstName: "Technician",
+            lastName: "",
+            currentStatus: "On Job",
+            ...patch,
+          },
+        ];
+      });
     });
 
     socket.on("technicianOnline", (data) => {
@@ -198,14 +286,35 @@ function LiveMap() {
       const status = data.currentStatus || "Online";
       // Ignore Offline presence events here — handled by technicianOffline
       if (!["Online", "On Job"].includes(status)) return;
+      const presenceAt = data.lastLocationAt || new Date().toISOString();
       setTechnicians((prev) => {
         const exists = prev.find((t) => String(t._id) === id);
         if (exists) {
           return prev.map((t) =>
-            String(t._id) === id ? { ...t, ...data, _id: id, currentStatus: status } : t
+            String(t._id) === id
+              ? {
+                  ...t,
+                  ...data,
+                  _id: id,
+                  currentStatus: status,
+                  lastLocationAt: data.lastLocationAt || t.lastLocationAt,
+                  locationStale: data.locationStale ?? t.locationStale,
+                  _socketPresenceAt: presenceAt,
+                }
+              : t
           );
         }
-        return [...prev, { ...data, _id: id, currentStatus: status }];
+        return [
+          ...prev,
+          {
+            ...data,
+            _id: id,
+            currentStatus: status,
+            lastLocationAt: data.lastLocationAt || null,
+            locationStale: data.locationStale === true,
+            _socketPresenceAt: presenceAt,
+          },
+        ];
       });
     });
 
@@ -274,6 +383,11 @@ function LiveMap() {
     return result;
   }, [technicians, searchQuery, selectedTechFilter, selectedVehicleFilter]);
 
+  const staleCount = useMemo(
+    () => countVisibleStaleTechnicians(technicians),
+    [technicians]
+  );
+
   // ==================== MAP HELPERS ====================
   const onMapLoad = useCallback((map) => { mapRef.current = map; }, []);
 
@@ -287,6 +401,8 @@ function LiveMap() {
   const getInitials = (f, l) => `${(f || "")[0] || ""}${(l || "")[0] || ""}`.toUpperCase();
 
   const getStatusClass = (status) => (status === "On Job" ? "on-job" : "online");
+
+  const showInitialLoading = (isLoading || isFetching) && technicians.length === 0 && !isError;
 
   // ==================== TAB TOGGLE ====================
   const toggleTab = (tab) => {
@@ -327,11 +443,20 @@ function LiveMap() {
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span
             className={`live-map-socket-badge ${socketConnected ? "connected" : "disconnected"}`}
-            title={socketConnected ? "Real-time updates active" : "Connecting to live updates…"}
+            title={
+              socketConnected
+                ? "Socket connected — receiving real-time events (check last-seen for GPS freshness)"
+                : "Connecting to real-time updates…"
+            }
           >
             <span className="live-map-socket-dot" />
-            {socketConnected ? "Live" : "Connecting…"}
+            {socketConnected ? "Connected" : "Connecting…"}
           </span>
+          {staleCount > 0 && (
+            <span className="live-map-stale-count" title="Technicians with stale GPS">
+              {staleCount} stale
+            </span>
+          )}
           <div className="live-map-breadcrumb">
             <Link to="/dashboard">Dashboard</Link>
             <span className="live-map-breadcrumb-sep">&gt;</span>
@@ -339,6 +464,15 @@ function LiveMap() {
           </div>
         </div>
       </div>
+
+      {isError && (
+        <div className="live-map-error-banner">
+          <span>Could not load technicians. Real-time updates may still work.</span>
+          <button type="button" className="live-map-error-retry" onClick={() => refetch()}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* ===== FILTER BAR ===== */}
       <div className="live-map-filterbar">
@@ -378,6 +512,9 @@ function LiveMap() {
 
       {/* ===== MAP + OVERLAID PANEL ===== */}
       <div className="live-map-container">
+        {showInitialLoading && (
+          <div className="live-map-loading-overlay">Loading technicians…</div>
+        )}
         <GoogleMap
           mapContainerStyle={mapContainerStyle}
           center={MAP_CENTER}
@@ -386,27 +523,24 @@ function LiveMap() {
           onLoad={onMapLoad}
           onClick={() => setSelectedTech(null)}
         >
+          {/* TODO(fleet-scale): wrap markers in MarkerClustererF when concurrent fleet
+              routinely exceeds ~50 (see @react-google-maps/api MarkerClustererF). */}
           {filteredTechnicians.map((tech) => {
             if (!tech.location || (tech.location.latitude === 0 && tech.location.longitude === 0))
               return null;
+
+            const stale = isTechLocationStale(tech);
+            const onJob = tech.currentStatus === "On Job";
 
             return (
               <Marker
                 key={tech._id}
                 position={{ lat: tech.location.latitude, lng: tech.location.longitude }}
-                icon={{
-                  url: CAR_ICON.url,
-                  scaledSize: new window.google.maps.Size(
-                    CAR_ICON.scaledSize.width,
-                    CAR_ICON.scaledSize.height
-                  ),
-                  anchor: new window.google.maps.Point(
-                    CAR_ICON.anchor.x,
-                    CAR_ICON.anchor.y
-                  ),
-                }}
+                opacity={stale ? 0.45 : 1}
+                icon={getMarkerIcon(tech)}
+                label={getMarkerLabel(tech)}
                 onClick={() => setSelectedTech(tech)}
-                title={`${tech.firstName} ${tech.lastName}`}
+                title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${stale ? " (stale location)" : ""}`}
               />
             );
           })}
@@ -421,6 +555,17 @@ function LiveMap() {
               <div className="tech-popup">
                 <p className="tech-popup-name">
                   {selectedTech.firstName} {selectedTech.lastName}
+                </p>
+                <p className={`tech-popup-status ${selectedTech.currentStatus === "On Job" ? "on-job" : "online"}`}>
+                  {selectedTech.currentStatus}
+                  {!isTechLocationStale(selectedTech) ? (
+                    <span className="tech-popup-fresh"> · Live</span>
+                  ) : (
+                    <span className="tech-popup-stale"> · Stale location</span>
+                  )}
+                </p>
+                <p className="tech-popup-lastseen">
+                  Last seen: {formatLastSeen(selectedTech)}
                 </p>
                 <p className="tech-popup-vehicle">
                   {selectedTech.vehicle
@@ -460,8 +605,18 @@ function LiveMap() {
                     <span className={`lm-tech-status-dot ${getStatusClass(t.currentStatus)}`} />
                   </div>
                   <div className="lm-tech-info">
-                    <div className="lm-tech-name">{t.firstName} {t.lastName}</div>
-                    <div className="lm-tech-phone">{t.phone}</div>
+                    <div className="lm-tech-name">
+                      {t.firstName} {t.lastName}
+                      {isTechLocationStale(t) ? (
+                        <span className="lm-tech-stale-label"> · stale</span>
+                      ) : null}
+                    </div>
+                    <div className="lm-tech-phone">
+                      {t.phone}
+                      {!isTechLocationStale(t) ? (
+                        <span className="lm-tech-fresh-label"> · {formatLastSeen(t)}</span>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="lm-tech-menu-wrap" ref={contextMenuTechId === t._id ? contextMenuRef : null}>
                     <button

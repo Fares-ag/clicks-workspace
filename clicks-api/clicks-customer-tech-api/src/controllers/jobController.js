@@ -50,6 +50,11 @@ const createJob = async (req, res) => {
       // Update technician status
       await setTechnicianStatus(assignedTechnician, "On Job");
 
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(assignedTechnician, "On Job");
+      }
+
       // Notify assigned technician via socket
       const notifyFunction = req.app.get('notifyAssignedTechnician');
       if (notifyFunction) {
@@ -107,6 +112,16 @@ const updateJobStatus = async (req, res) => {
     }
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
+    }
+    if (req.user.role === "technician" && job_status !== "en_route") {
+      return res.status(400).json({
+        error: "Technicians may only update job status to en_route",
+      });
+    }
+    if (job_status === "en_route" && job.job_status !== "accepted") {
+      return res.status(400).json({
+        error: `Cannot start en route from status: ${job.job_status}`,
+      });
     }
     job.job_status = job_status;
     if (job_status === "en_route") job.en_route_at = new Date();
@@ -204,6 +219,11 @@ const markArrived = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
+    if (job.job_status !== "en_route") {
+      return res.status(400).json({
+        error: `Cannot mark arrived from status: ${job.job_status}`,
+      });
+    }
     job.job_status = "arrived";
     job.arrived_at = new Date();
     await job.save();
@@ -232,6 +252,11 @@ const startJob = async (req, res) => {
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
+    }
+    if (job.job_status !== "arrived") {
+      return res.status(400).json({
+        error: `Cannot start job from status: ${job.job_status}`,
+      });
     }
     job.job_status = "in_progress";
     job.started_at = new Date();
@@ -514,6 +539,12 @@ const cancelJobByTechnician = async (req, res) => {
           (technician.performance.cancelledJobs || 0) + 1;
         await technician.save();
       }
+
+      await setTechnicianStatus(job.assignedTechnician, "Online");
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(job.assignedTechnician, "Online");
+      }
     }
 
     // P2-05: notify customer that the technician cancelled
@@ -543,6 +574,15 @@ const cancelJobByTechnician = async (req, res) => {
 };
 
 const confirmPayment = async (req, res) => {
+  const notifyTechnicianOnline = async (job) => {
+    if (!job?.assignedTechnician) return;
+    await setTechnicianStatus(job.assignedTechnician, "Online");
+    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+    if (typeof notifyPresence === "function") {
+      await notifyPresence(job.assignedTechnician, "Online");
+    }
+  };
+
   try {
     const { id } = req.params;
     const { payment_method, notes } = req.body || {};
@@ -560,6 +600,7 @@ const confirmPayment = async (req, res) => {
     // Idempotency — already paid
     if (job.payment_status === "paid") {
       const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+      await notifyTechnicianOnline(job);
       return res.json({
         message: "Payment already confirmed",
         job_status: job.job_status,
@@ -604,6 +645,7 @@ const confirmPayment = async (req, res) => {
       notes: notes || undefined,
     });
     await receipt.save();
+    await notifyTechnicianOnline(job);
     res.json({
       message: "Payment confirmed",
       job_status: job.job_status,
@@ -616,6 +658,8 @@ const confirmPayment = async (req, res) => {
     // the receipt. Return the existing one rather than a 500.
     if (err.code === 11000) {
       const existing = await Receipt.findOne({ job_id: req.params.id }).sort({ issued_at: -1 });
+      const job = await Job.findById(req.params.id);
+      if (job) await notifyTechnicianOnline(job);
       return res.json({
         message: "Payment already confirmed",
         job_status: "completed",

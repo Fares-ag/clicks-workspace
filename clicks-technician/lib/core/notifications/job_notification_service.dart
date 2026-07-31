@@ -60,6 +60,8 @@ class JobNotificationService {
   /// Optional UI hook after Accept action or notification tap.
   void Function(String jobId)? onJobAcceptedFromNotification;
   void Function(String jobId)? onNotificationOpened;
+  void Function(Map<String, dynamic> data)? onForegroundJobAssigned;
+  void Function(String jobId, String message)? onJobAcceptFromNotificationFailed;
 
   void setForeground(bool value) => _appInForeground = value;
 
@@ -96,9 +98,18 @@ class JobNotificationService {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     FirebaseMessaging.onMessage.listen((message) async {
-      // Foreground: IncomingJobModal handles UX — skip duplicate OS banner.
+      final type = message.data['type']?.toString() ?? '';
+      if (type.isNotEmpty && type != 'job_assigned') return;
+
       if (_appInForeground) {
-        _log('foreground FCM ignored (modal handles assigned job)');
+        final jobId = message.data['job_id']?.toString() ?? '';
+        if (jobId.isNotEmpty) {
+          await CacheHelper.save(kPendingJobIdKey, jobId);
+        }
+        onForegroundJobAssigned?.call(
+          Map<String, dynamic>.from(message.data),
+        );
+        _log('foreground FCM job_assigned → session refresh');
         return;
       }
       await showFromRemoteData(message.data);
@@ -341,6 +352,9 @@ class JobNotificationService {
         await JobNotificationService.instance.cancelUrgentJobNotification();
         JobNotificationService.instance.onJobAcceptedFromNotification
             ?.call(jobId);
+      } else {
+        JobNotificationService.instance.onJobAcceptFromNotificationFailed
+            ?.call(jobId, 'Could not accept job. Open the app and try again.');
       }
       return;
     }

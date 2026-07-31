@@ -236,7 +236,7 @@ class _IdleHeroHome extends StatelessWidget {
                       padding: EdgeInsets.symmetric(horizontal: 28.w),
                       child: SlideStatusToggle(
                         isOnline: cubit.isOnline,
-                        enabled: cubit.jobStatus != 'assigned',
+                        enabled: cubit.canToggleOnlineStatus,
                         loading: cubit.isLoadingStatus,
                         onCompleted: () => _onSlideComplete(context),
                       ),

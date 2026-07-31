@@ -96,28 +96,12 @@ async function bootstrap() {
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);
 
-  // Legacy root namespace (prefer /technician|/customer|/admin)
+  // Legacy default namespace — unauthenticated; not used by current clients.
+  // Live Map / SOS use JWT namespaced paths: /technician, /customer, /admin.
   io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
-
-    socket.on("technicianLocation", ({ technicianId, location }) => {
-      socket.broadcast.emit("technicianLocationUpdate", { technicianId, location });
-    });
-
-    socket.on("jobStatusUpdate", ({ jobId, status }) => {
-      socket.broadcast.emit("jobStatusChanged", { jobId, status });
-    });
-
-    socket.on("jobAccepted", ({ jobId, technicianId }) => {
-      socket.broadcast.emit("jobAcceptedNotification", { jobId, technicianId });
-    });
-    socket.on("jobRejected", ({ jobId, technicianId }) => {
-      socket.broadcast.emit("jobRejectedNotification", { jobId, technicianId });
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Socket disconnected:", socket.id);
-    });
+    console.warn(
+      `Deprecated root socket connected (${socket.id}) — use /technician, /customer, or /admin`
+    );
   });
 
   const PORT = process.env.PORT || 5001;

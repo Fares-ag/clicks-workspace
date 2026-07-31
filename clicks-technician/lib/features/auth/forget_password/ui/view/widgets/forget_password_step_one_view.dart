@@ -157,12 +157,8 @@ class CustomOTPField extends StatelessWidget {
       pinputAutovalidateMode: PinputAutovalidateMode.onSubmit,
       showCursor: true,
       controller: context.read<ForgetPasswordCubit>().otpController,
-      onCompleted: (pin) {
-        assert(() {
-          // ignore: avoid_print
-          print("OTP Completed: $pin");
-          return true;
-        }());
+      onCompleted: (_) {
+        context.read<ForgetPasswordCubit>().validateOTP();
       },
       onChanged: (value) {
         context.read<ForgetPasswordCubit>().validateOTP();

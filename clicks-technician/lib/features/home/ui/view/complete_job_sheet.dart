@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/config/product_rules.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
@@ -8,10 +6,8 @@ import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/signature_pad_sheet.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// Repair lines, total, notes, customer signature, complete.
 class BeginTasksScreen extends StatefulWidget {
@@ -27,10 +23,7 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   final _notesCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
-  final _picker = ImagePicker();
-  final List<XFile> _photos = [];
   final List<({String description, double price})> _repairs = [];
-  bool _listening = false;
   bool _submitting = false;
   double? _total;
 
@@ -85,37 +78,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     await _refreshTotal();
   }
 
-  Future<void> _pickPhoto() async {
-    if (_photos.length >= 5) return;
-    final file = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 75,
-    );
-    if (file != null && mounted) setState(() => _photos.add(file));
-  }
-
-  Future<void> _toggleVoice() async {
-    if (_listening) {
-      setState(() => _listening = false);
-      _appendVoiceMarker();
-      return;
-    }
-    setState(() => _listening = true);
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (mounted && _listening) {
-      setState(() => _listening = false);
-      _appendVoiceMarker();
-    }
-  }
-
-  void _appendVoiceMarker() {
-    final existing = _notesCtrl.text.trim();
-    const marker = 'Voice note recorded';
-    _notesCtrl.text = existing.isEmpty ? marker : '$existing\n$marker';
-    _notesCtrl.selection =
-        TextSelection.collapsed(offset: _notesCtrl.text.length);
-  }
-
   Future<void> _collectSignature() async {
     await showModalBottomSheet<bool>(
       context: context,
@@ -145,7 +107,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     setState(() => _submitting = true);
     final ok = await widget.cubit.completeJob(
       notes: _notesCtrl.text.trim(),
-      photoLabels: _photos.map((e) => e.name).toList(),
     );
     setState(() => _submitting = false);
     if (!ok || !mounted) {
@@ -262,64 +223,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           ),
           SizedBox(height: 8.h),
           Text(
-            'Choose File',
-            style: TextStyles.font14RegularGrey
-                .copyWith(fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 8.h),
-          ..._photos.map((p) {
-            return Padding(
-              padding: EdgeInsets.only(bottom: 8.h),
-              child: _box(
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6.r),
-                      child: SizedBox(
-                        width: 40.w,
-                        height: 40.w,
-                        child: kIsWeb
-                            ? ColoredBox(
-                                color: ColorsManager.fieldColor,
-                                child: Icon(Icons.image,
-                                    color: ColorsManager.greyColor,
-                                    size: 20.sp),
-                              )
-                            : Image.file(File(p.path), fit: BoxFit.cover),
-                      ),
-                    ),
-                    SizedBox(width: 10.w),
-                    Expanded(
-                      child: Text(
-                        p.name,
-                        style: TextStyles.font12RegularGrey
-                            .copyWith(color: Colors.black87),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.delete_outline,
-                          color: ColorsManager.mainColor, size: 20.sp),
-                      onPressed: () => setState(() => _photos.remove(p)),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _pickPhoto,
-              style: TextButton.styleFrom(
-                backgroundColor: ColorsManager.mainColor,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('+ Add'),
-            ),
-          ),
-          SizedBox(height: 8.h),
-          Text(
             'Total Cost',
             style: TextStyles.font16RegularBlack
                 .copyWith(fontWeight: FontWeight.w600),
@@ -348,28 +251,10 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
               hintText: 'Add notes…',
               filled: true,
               fillColor: Colors.white,
-              contentPadding: EdgeInsets.fromLTRB(12.w, 12.h, 48.w, 12.h),
+              contentPadding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 12.h),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10.r),
                 borderSide: BorderSide(color: ColorsManager.border),
-              ),
-              suffixIcon: Padding(
-                padding: EdgeInsets.only(right: 6.w),
-                child: InkWell(
-                  onTap: _toggleVoice,
-                  borderRadius: BorderRadius.circular(20.r),
-                  child: CircleAvatar(
-                    radius: 18.r,
-                    backgroundColor: _listening
-                        ? const Color(0xFFD92D20)
-                        : ColorsManager.mainColor,
-                    child: Icon(
-                      _listening ? Icons.stop_rounded : Icons.mic_rounded,
-                      color: Colors.white,
-                      size: 18.sp,
-                    ),
-                  ),
-                ),
               ),
             ),
           ),

@@ -102,9 +102,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               size: 48.sp, color: ColorsManager.greyColor),
                           SizedBox(height: 12.h),
                           Text(
-                            'No notifications yet',
+                            'No in-app history yet',
                             textAlign: TextAlign.center,
                             style: TextStyles.font14RegularGrey,
+                          ),
+                          SizedBox(height: 6.h),
+                          Text(
+                            'New job assignments are delivered via push notifications.',
+                            textAlign: TextAlign.center,
+                            style: TextStyles.font12RegularGrey,
                           ),
                         ],
                       )

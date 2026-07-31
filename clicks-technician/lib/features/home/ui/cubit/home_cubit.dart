@@ -7,6 +7,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
+import '../../../../core/config/job_fulfill_status.dart';
 import '../../../../core/api/dio_helper.dart';
 import '../../../../core/api/end_points/end_points.dart';
 import '../../../../core/helper/cache_helper.dart';
@@ -76,10 +77,26 @@ class HomeCubit extends Cubit<HomeState> {
     _wireNotificationCallbacks();
     _connectSocket();
     await fetchSession();
+    await _clearPendingJobNotificationKey();
     await Future.wait([fetchHistory(), fetchHomeMeta()]);
     // Register FCM after session so JWT is present.
     // ignore: discarded_futures
     JobNotificationService.instance.registerTokenWithBackend();
+  }
+
+  /// Clear pending notification job id after session has been loaded.
+  Future<void> _clearPendingJobNotificationKey() async {
+    final pendingId = CacheHelper.get(kPendingJobIdKey)?.toString();
+    if (pendingId == null || pendingId.isEmpty) return;
+    await CacheHelper.remove(kPendingJobIdKey);
+  }
+
+  /// On resume: refresh session when a notification left a pending job id.
+  Future<void> _hydrateFromPendingNotification() async {
+    final pendingId = CacheHelper.get(kPendingJobIdKey)?.toString();
+    if (pendingId == null || pendingId.isEmpty) return;
+    await fetchSession();
+    await CacheHelper.remove(kPendingJobIdKey);
   }
 
   void _wireNotificationCallbacks() {
@@ -91,6 +108,13 @@ class HomeCubit extends Cubit<HomeState> {
     };
     notif.onNotificationOpened = (_) {
       fetchSession();
+    };
+    notif.onForegroundJobAssigned = (_) {
+      fetchSession();
+    };
+    notif.onJobAcceptFromNotificationFailed = (_, message) {
+      emit(HomeActionError(message ?? 'Could not accept job from notification'));
+      _emitLoaded();
     };
   }
 
@@ -152,7 +176,27 @@ class HomeCubit extends Cubit<HomeState> {
     };
 
     _socketService.onNewJobAssigned = (data) {
-      activeJob = Map<String, dynamic>.from(data as Map);
+      final incoming = Map<String, dynamic>.from(data as Map);
+      final incomingId =
+          (incoming['_id'] ?? incoming['job_id'])?.toString();
+
+      if (activeJob != null) {
+        final currentId = jobId;
+        final currentStatus = jobStatus;
+        if (incomingId != null &&
+            incomingId == currentId &&
+            currentStatus == 'assigned') {
+          activeJob = incoming;
+        } else if (_isFulfillPathStatus(currentStatus)) {
+          return;
+        } else if (currentStatus.isEmpty || currentStatus == 'assigned') {
+          activeJob = incoming;
+        } else {
+          return;
+        }
+      } else {
+        activeJob = incoming;
+      }
       // Modal is showing — dismiss any OS urgent banner.
       // ignore: discarded_futures
       JobNotificationService.instance.cancelUrgentJobNotification();
@@ -175,14 +219,14 @@ class HomeCubit extends Cubit<HomeState> {
 
     _socketService.onJobCancelled = (data) {
       activeJob = null;
-      _emitLoaded();
+      fetchSession();
       _syncLocationTracking();
       _syncSessionPoll();
     };
 
     _socketService.onJobReassigned = (data) {
       activeJob = null;
-      _emitLoaded();
+      fetchSession();
       _syncLocationTracking();
       _syncSessionPoll();
       fetchHistory();
@@ -219,11 +263,14 @@ class HomeCubit extends Cubit<HomeState> {
         final status = data['technician']?['status']?.toString();
         isOnline = status == 'Online' || status == 'On Job';
         final job = data['active_job'];
-        activeJob = job is Map ? Map<String, dynamic>.from(job) : null;
+        if (!isLoadingAction) {
+          activeJob = job is Map ? Map<String, dynamic>.from(job) : null;
+        }
         sessionLoadFailed = false;
       } else if (response.statusCode == 401) {
         await CacheHelper.clear();
         sessionLoadFailed = true;
+        DioHelper.onUnauthorized?.call();
       } else {
         sessionLoadFailed = true;
         final err = DioHelper.errorMessage(response);
@@ -271,6 +318,11 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> toggleOnlineStatus() async {
+    if (hasBlockingActiveJob) {
+      emit(HomeActionError('Finish your active job before going Offline'));
+      return;
+    }
+
     final newStatus = isOnline ? 'Offline' : 'Online';
     isLoadingStatus = true;
     _emitLoaded();
@@ -286,7 +338,11 @@ class HomeCubit extends Cubit<HomeState> {
           isLoadingStatus = false;
           locationWarning = true;
           emit(HomeActionError(
-            'Location must be allowed to go Online. Enable GPS and set location to Always / Allow all the time.',
+            !kIsWeb && Platform.isIOS
+                ? 'On iPhone, location must be set to Always so dispatch can see you on the Live Map when the app is in the background.'
+                : !kIsWeb && Platform.isAndroid
+                    ? 'On Android, location must be set to Allow all the time so dispatch can see you on the Live Map when the app is in the background.'
+                    : 'Location must be allowed to go Online. Enable GPS and set location to Always / Allow all the time.',
           ));
           _emitLoaded();
           return;
@@ -331,6 +387,20 @@ class HomeCubit extends Cubit<HomeState> {
 
   String get jobStatus =>
       (activeJob?['job_status'] ?? activeJob?['status'] ?? '').toString();
+
+  /// True when tech is on fulfill path and must not go Offline or accept overwrites.
+  bool get hasBlockingActiveJob => _isFulfillPathStatus(jobStatus);
+
+  /// Slide toggle enabled only when no incoming/active fulfill job blocks it.
+  bool get canToggleOnlineStatus =>
+      !hasBlockingActiveJob && jobStatus != 'assigned';
+
+  bool _isFulfillPathStatus(String status) {
+    return JobFulfillStatus.isBlocking(
+      status,
+      paymentStatus: activeJob?['payment_status']?.toString(),
+    );
+  }
 
   String get customerName {
     final fromClient = activeJob?['clientName']?.toString();
@@ -647,9 +717,7 @@ class HomeCubit extends Cubit<HomeState> {
         data: {'payment_method': paymentMethod},
       ),
       onSuccess: () {
-        // REST confirmPayment does not push to the customer socket; this does.
-        // Server still accepts when job_status is completed (payment_status may
-        // already be paid — handler re-emits customer jobCompleted).
+        // Best-effort customer socket notify; REST already resets tech to Online.
         _socketService.paymentReceived(id, paymentMethod: paymentMethod);
         activeJob = null;
         fetchHistory();
@@ -867,9 +935,8 @@ class HomeCubit extends Cubit<HomeState> {
   // ─── Permission helpers ──────────────────────────────────────────────────────
 
   /// Ensures GPS is enabled and location permission is granted.
-  /// [requireAlways] requests "Allow all the time" (needed for Android background).
-  /// Returns false only when permission is completely denied; [whileInUse] is
-  /// accepted so the tech can still go Online (stream works while foregrounded).
+  /// [requireAlways] requests "Allow all the time" (needed for Android/iOS background).
+  /// On iOS and Android, Online is blocked unless Always / all-the-time is granted.
   Future<bool> _ensureLocationPermission({
     bool request = false,
     bool requireAlways = false,
@@ -900,12 +967,22 @@ class HomeCubit extends Cubit<HomeState> {
         return false;
       }
 
-      // Try to upgrade to Always so Android FGS can keep running uninterrupted.
-      // Not blocking — if the user declines Always we keep them Online with whileInUse.
+      // Try to upgrade to Always so background Live Map updates keep working.
       if (request &&
           requireAlways &&
           permission == LocationPermission.whileInUse) {
         await Geolocator.requestPermission();
+        permission = await Geolocator.checkPermission();
+      }
+
+      // iOS / Android: background Live Map requires Always — block Online on whileInUse only.
+      if (request &&
+          requireAlways &&
+          !kIsWeb &&
+          (Platform.isIOS || Platform.isAndroid) &&
+          permission != LocationPermission.always) {
+        locationWarning = true;
+        return false;
       }
 
       locationWarning = false;
@@ -921,6 +998,8 @@ class HomeCubit extends Cubit<HomeState> {
     if (!_socketService.isConnected) {
       _socketService.reconnect();
     }
+    // ignore: discarded_futures
+    _hydrateFromPendingNotification();
   }
 
   // ─── Cleanup ─────────────────────────────────────────────────────────────────
