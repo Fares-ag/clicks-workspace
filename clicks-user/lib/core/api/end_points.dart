@@ -32,6 +32,12 @@ class EndPoints {
   // Jobs
   static const String jobs = "/api/jobs";
 
+  // Service requests (non-SOS)
+  static const String serviceRequests = "/api/service-requests";
+  static const String serviceRequestsActive = "/api/service-requests/active";
+  static String cancelServiceRequest(String id) =>
+      "/api/service-requests/$id/cancel";
+
   // Notifications — MVP stub list endpoint (empty OK)
   static const String notifications = "/api/notifications/customer";
   static const String notificationsUnreadCount =

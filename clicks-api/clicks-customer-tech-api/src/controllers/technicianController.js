@@ -10,6 +10,9 @@ const {
   getWeeklyOnlineHoursSummary,
   setTechnicianStatus,
 } = require("../../../clicks-shared/services/technicianOnlineHours");
+const {
+  parseJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/parseJobLocation");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -349,7 +352,15 @@ const updateLocation = async (req, res) => {
     if (job_id) {
       const notifyCustomer = req.app.get("notifyCustomerJobEvent");
       if (typeof notifyCustomer === "function") {
-        notifyCustomer(job_id, "locationUpdate", { latitude: lat, longitude: lng, timestamp: lastLocationAt });
+        const job = await Job.findById(job_id).select("customer_id");
+        if (job?.customer_id) {
+          await notifyCustomer(job.customer_id.toString(), "locationUpdate", {
+            job_id,
+            latitude: lat,
+            longitude: lng,
+            timestamp: lastLocationAt,
+          });
+        }
       }
     }
 
@@ -1058,6 +1069,9 @@ const createTechnicianJob = async (req, res) => {
     const source = await resolveTechnicianAppSource();
     const techName = `${technician.firstName || ""} ${technician.lastName || ""}`.trim();
 
+    const locationStr = String(location).trim();
+    const locationCoordinates = parseJobLocationToGeoPoint(locationStr);
+
     const job = await Job.create({
       clientName: String(clientName).trim(),
       clientMobileNumber: toE164(local, cc),
@@ -1069,7 +1083,8 @@ const createTechnicianJob = async (req, res) => {
       licensePlate: licensePlate ? String(licensePlate).trim() : "",
       vinNumber: vinNumber ? String(vinNumber).trim() : "",
       issue: String(issue).trim(),
-      location: String(location).trim(),
+      location: locationStr,
+      ...(locationCoordinates ? { locationCoordinates } : {}),
       dateTime: new Date(dateTime),
       jobType,
       price: Number(price),

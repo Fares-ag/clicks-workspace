@@ -1,7 +1,17 @@
 const Job = require("../models/Job");
 const Technician = require("../models/Technician");
+const Source = require("../models/Source");
 const SOSRequest = require("../models/SOSRequest");
+const ServiceRequest = require("../models/ServiceRequest");
 const axios = require('axios');
+const xlsx = require("xlsx");
+const {
+  mapHistoricalRow,
+  importHistoricalJobs,
+} = require("../../../clicks-shared/utils/historicalJobImport");
+const {
+  parseJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/parseJobLocation");
 
 // GET /api/jobs
 async function getJobs(req, res) {
@@ -70,6 +80,7 @@ async function createJob(req, res) {
       subSource,
       job_status,
       sos_request_id,
+      service_request_id,
       business_id,
       businessName,
       businessCutType,
@@ -115,12 +126,16 @@ async function createJob(req, res) {
       payment_status: "unpaid",
       assigned_at: assignedTechnician ? new Date() : null,
       sos_request_id: sos_request_id || null,
+      service_request_id: service_request_id || null,
       business_id: business_id || null,
       businessName: businessName || null,
       businessCutType: businessCutType || undefined,
       businessCutPercent:
         businessCutPercent != null ? Number(businessCutPercent) : undefined,
     };
+
+    const geo = parseJobLocationToGeoPoint(location);
+    if (geo) jobData.locationCoordinates = geo;
 
     const job = await Job.create(jobData);
 
@@ -141,6 +156,18 @@ async function createJob(req, res) {
         console.log(`SOS ${sos_request_id} marked as accepted`);
       } catch (sosError) {
         console.error('Error updating SOS:', sosError.message);
+      }
+    }
+
+    if (service_request_id) {
+      try {
+        await ServiceRequest.findByIdAndUpdate(service_request_id, {
+          status: "assigned",
+          job_id: job._id,
+        });
+        console.log(`ServiceRequest ${service_request_id} marked as assigned`);
+      } catch (srError) {
+        console.error("Error updating ServiceRequest:", srError.message);
       }
     }
 
@@ -196,13 +223,35 @@ async function getJobById(req, res) {
       .populate("source");
     if (!job) return res.status(404).json({ message: "Job not found" });
 
+    const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
+    const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
+    const repairs = await RepairProcedure.find({ job_id: job._id })
+      .populate("technician_id", "firstName lastName")
+      .sort({ created_at: 1 });
+    const receipt = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+    const pricing = computeJobPricing(job, repairs);
+
     const { addSASTokenIfNeeded } = require("../utils/sasHelper");
     const jobObj = job.toObject ? job.toObject() : { ...job };
     if (jobObj.customerSignatureUrl) {
       jobObj.customerSignatureUrl = addSASTokenIfNeeded(jobObj.customerSignatureUrl);
     }
 
-    res.json({ job: jobObj });
+    const isPaid = job.payment_status === "paid";
+    const financials = {
+      currentEstimate: pricing.total,
+      totalCost: pricing.costTotal,
+      serviceCharge: pricing.serviceCharge,
+      currentProfit: pricing.profit,
+      dispatcherEstimate: job.estimate ?? null,
+      technicianEstimate: job.technician_estimate ?? null,
+      isPaid,
+      finalPrice: receipt?.total_amount ?? (isPaid ? pricing.total : null),
+      basePrice: pricing.basePrice,
+      repairsTotal: pricing.repairsTotal,
+    };
+
+    res.json({ job: jobObj, repairs, financials });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch job", error: err.message });
   }
@@ -274,9 +323,32 @@ async function updateJob(req, res) {
       update.customerSignatureInvalidatedAt = new Date();
     }
 
-    const job = await Job.findByIdAndUpdate(req.params.id, update, { new: true })
-      .populate('assignedTechnician', 'firstName lastName phone profilePicture')
-      .populate('source', 'mainSourceName');
+    if (Object.prototype.hasOwnProperty.call(req.body, "location")) {
+      const geo = parseJobLocationToGeoPoint(req.body.location);
+      if (geo) {
+        update.locationCoordinates = geo;
+      } else {
+        update.$unset = { ...(update.$unset || {}), locationCoordinates: 1 };
+      }
+    }
+
+    // $unset cannot be mixed into findByIdAndUpdate plain update object alongside other fields
+    // when using a spread of req.body — handle via separate update if needed.
+    let job;
+    if (update.$unset) {
+      const { $unset, ...setFields } = update;
+      job = await Job.findByIdAndUpdate(
+        req.params.id,
+        { $set: setFields, $unset },
+        { new: true }
+      )
+        .populate('assignedTechnician', 'firstName lastName phone profilePicture')
+        .populate('source', 'mainSourceName');
+    } else {
+      job = await Job.findByIdAndUpdate(req.params.id, update, { new: true })
+        .populate('assignedTechnician', 'firstName lastName phone profilePicture')
+        .populate('source', 'mainSourceName');
+    }
 
     const becameCompleted =
       job_status === "completed" && currentJob.job_status !== "completed";
@@ -335,11 +407,81 @@ async function getJobRepairs(req, res) {
   }
 }
 
+// POST /api/jobs/import — bulk import historical jobs from XLSX
+async function importJobs(req, res) {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ message: "No Excel file uploaded. Use form field 'file'." });
+    }
+
+    const workbook = xlsx.read(req.file.buffer, { type: "buffer", cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      return res.status(400).json({ message: "Excel file has no sheets" });
+    }
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: null });
+    if (!rows.length) {
+      return res.status(400).json({ message: "Excel sheet is empty" });
+    }
+
+    // Optional preview-only mode (map first N rows without writing)
+    if (req.query.preview === "1" || req.query.preview === "true") {
+      const previewLimit = Math.min(Number(req.query.limit) || 10, 50);
+      const preview = [];
+      for (let i = 0; i < Math.min(rows.length, previewLimit); i++) {
+        const { doc, error, techName } = mapHistoricalRow(rows[i]);
+        preview.push({
+          row: i + 2,
+          legacy_id: rows[i]?.id ?? null,
+          techName,
+          error,
+          mapped: doc
+            ? {
+                clientName: doc.clientName,
+                clientMobileNumber: doc.clientMobileNumber,
+                issue: doc.issue,
+                location: doc.location,
+                dateTime: doc.dateTime,
+                jobType: doc.jobType,
+                job_status: doc.job_status,
+                price: doc.price,
+                payment_method: doc.payment_method || null,
+                vehicleModel: doc.vehicleModel,
+                licensePlate: doc.licensePlate,
+              }
+            : null,
+        });
+      }
+      return res.json({ totalRows: rows.length, preview });
+    }
+
+    const result = await importHistoricalJobs({
+      Job,
+      Source,
+      Technician,
+      rows,
+    });
+
+    res.json({
+      message: "Import completed",
+      totalRows: rows.length,
+      imported: result.imported,
+      skipped: result.skipped,
+      errors: result.errors.slice(0, 100),
+      errorCount: result.errors.length,
+    });
+  } catch (err) {
+    console.error("Job import failed:", err);
+    res.status(500).json({ message: "Failed to import jobs", error: err.message });
+  }
+}
+
 module.exports = {
   getJobs,
   createJob,
   getJobById,
   updateJob,
   deleteJob,
-  getJobRepairs
+  getJobRepairs,
+  importJobs,
 };

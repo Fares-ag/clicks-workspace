@@ -17,10 +17,18 @@ const upload = multer({
     files: 10,
   },
   fileFilter: (_req, file, cb) => {
-    if (!ALLOWED_MIME.has(file.mimetype)) {
-      return cb(new Error(`Unsupported file type: ${file.mimetype}`));
+    if (ALLOWED_MIME.has(file.mimetype)) {
+      return cb(null, true);
     }
-    cb(null, true);
+    // Flutter web multipart often sends application/octet-stream for PNG bytes.
+    if (
+      file.mimetype === "application/octet-stream" &&
+      (/\.png$/i.test(file.originalname || "") || file.fieldname === "signature")
+    ) {
+      file.mimetype = "image/png";
+      return cb(null, true);
+    }
+    return cb(new Error(`Unsupported file type: ${file.mimetype}`));
   },
 });
 

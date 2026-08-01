@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "326682322843",
+    "project_id": "clicks-technician-qa",
+    "storage_bucket": "clicks-technician-qa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:326682322843:android:4acb35e71f46d9a557233e",
+        "android_client_info": {
+          "package_name": "com.roya.clicks_technician"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD6vTWtV7OzipppbOSKMAIHdbknE0ZQ7Zo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -5,3 +5,6 @@ dist
 .vercel
 .vercel.json.local
 .env*
+
+.vercel
+.env*

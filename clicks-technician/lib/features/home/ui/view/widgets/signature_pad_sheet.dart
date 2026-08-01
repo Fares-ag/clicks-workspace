@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:clicks_technician/core/components/app_button.dart';
@@ -36,16 +35,20 @@ class _SignaturePadSheetState extends State<SignaturePadSheet> {
           as RenderRepaintBoundary;
       final image = await boundary.toImage(pixelRatio: 2);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      final file = File(
-        '${Directory.systemTemp.path}/signature_${DateTime.now().millisecondsSinceEpoch}.png',
+      if (bytes == null) {
+        AppSnackBars.errorSnackBar('Failed to save signature');
+        return;
+      }
+      final ok = await widget.cubit.uploadCustomerSignatureBytes(
+        bytes.buffer.asUint8List(),
       );
-      await file.writeAsBytes(bytes!.buffer.asUint8List());
-      final ok = await widget.cubit.uploadCustomerSignature(file.path);
       if (!mounted) return;
       if (ok) {
         Navigator.pop(context, true);
       } else {
-        AppSnackBars.errorSnackBar('Failed to upload signature');
+        AppSnackBars.errorSnackBar(
+          widget.cubit.lastActionError ?? 'Failed to upload signature',
+        );
       }
     } catch (_) {
       AppSnackBars.errorSnackBar('Failed to save signature');

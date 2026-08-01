@@ -38,6 +38,9 @@ import Calls from "./pages/Calls";
 // Live Map
 import LiveMap from "./pages/LiveMap";
 
+// Heat Map
+import HeatMap from "./pages/HeatMap";
+
 // Source Configurator
 import Sources from "./pages/SourceConfigurator";
 
@@ -59,6 +62,7 @@ import { SupportTickets, TicketDetails } from "./pages/SupportTickets";
 
 // SOS Inbox
 import SOSInbox from "./pages/SOSInbox";
+import ServiceRequestsInbox from "./pages/ServiceRequests";
 
 // Public Pages
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
@@ -120,6 +124,16 @@ function App() {
           <ProtectedRoute>
             <AdminLayout>
               <LiveMap />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/heat-map"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <HeatMap />
             </AdminLayout>
           </ProtectedRoute>
         }
@@ -340,6 +354,16 @@ function App() {
           <ProtectedRoute>
             <AdminLayout>
               <SOSInbox />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/service-requests"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <ServiceRequestsInbox />
             </AdminLayout>
           </ProtectedRoute>
         }

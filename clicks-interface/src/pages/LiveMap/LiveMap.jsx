@@ -17,30 +17,28 @@ import {
   isTechLocationStale,
   mergeApiTechnicianWithSocketState,
 } from "./liveMapUtils.js";
+import {
+  GOOGLE_MAPS_API_KEY,
+  googleMapsLoaderOptions,
+} from "../../config/googleMapsLoader";
 import "./LiveMap.css";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Vehicle marker (SVG in public/icons — PNG car-marker was never committed).
+// Same van marker as technician app (`assets/images/map_icon.png`).
 const CAR_ICON = {
-  url: "/icons/vehicle.svg",
-  scaledSize: { width: 96, height: 96 },
-  anchor: { x: 48, y: 48 },
+  url: "/icons/map_icon.png",
+  scaledSize: { width: 120, height: 120 },
+  anchor: { x: 60, y: 60 },
 };
 
 function getMarkerIcon(tech) {
   const onJob = tech.currentStatus === "On Job";
+  const size = onJob ? 110 : CAR_ICON.scaledSize.width;
   return {
     url: CAR_ICON.url,
-    scaledSize: new window.google.maps.Size(
-      onJob ? 88 : CAR_ICON.scaledSize.width,
-      onJob ? 88 : CAR_ICON.scaledSize.height
-    ),
-    anchor: new window.google.maps.Point(
-      onJob ? 44 : CAR_ICON.anchor.x,
-      onJob ? 44 : CAR_ICON.anchor.y
-    ),
+    scaledSize: new window.google.maps.Size(size, size),
+    anchor: new window.google.maps.Point(size / 2, size / 2),
   };
 }
 
@@ -148,11 +146,8 @@ function LiveMap() {
   });
 
   // ==================== GOOGLE MAPS LOADER ====================
-  const mapsKeyMissing = !GOOGLE_MAPS_KEY.trim();
-  const { isLoaded: mapsLoaded } = useJsApiLoader({
-    id: "clicks-live-map",
-    googleMapsApiKey: GOOGLE_MAPS_KEY,
-  });
+  const mapsKeyMissing = !GOOGLE_MAPS_API_KEY.trim();
+  const { isLoaded: mapsLoaded } = useJsApiLoader(googleMapsLoaderOptions);
 
   // ==================== INITIALIZE FROM API ====================
   useEffect(() => {

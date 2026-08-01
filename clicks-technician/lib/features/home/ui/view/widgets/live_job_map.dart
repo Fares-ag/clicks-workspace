@@ -1,11 +1,12 @@
 import 'dart:ui' as ui;
 
+import 'package:clicks_technician/core/api/dio_helper.dart';
+import 'package:clicks_technician/core/api/end_points/end_points.dart';
 import 'package:clicks_technician/core/constants/map_style.dart';
 import 'package:clicks_technician/core/helper/maps_api_key.dart';
 import 'package:clicks_technician/core/helper/maps_launcher.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
@@ -117,7 +118,11 @@ class _LiveJobMapState extends State<LiveJobMap> {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    // Web: disposing before buildView() throws in google_maps_flutter_web.
+    if (_mapReady) {
+      _controller?.dispose();
+    }
+    _controller = null;
     super.dispose();
   }
 
@@ -221,24 +226,18 @@ class _LiveJobMapState extends State<LiveJobMap> {
       return;
     }
 
-    if (!_hasKey) {
-      if (mounted) setState(() => _error = 'Maps key missing');
-      return;
-    }
-
     if (_geocoding) return;
     _geocoding = true;
     try {
-      final dio = Dio();
-      final res = await dio.get<Map<String, dynamic>>(
-        'https://maps.googleapis.com/maps/api/geocode/json',
-        queryParameters: {
+      final res = await DioHelper.getData(
+        url: EndPoints.mapsGeocode,
+        query: {
           'address': label,
-          'key': _mapsKey,
           'region': 'qa',
         },
       );
-      final results = res.data?['results'];
+      final data = res.data;
+      final results = data is Map ? data['results'] : null;
       if (results is List && results.isNotEmpty) {
         final loc = results.first['geometry']?['location'];
         if (loc is Map) {
@@ -276,25 +275,23 @@ class _LiveJobMapState extends State<LiveJobMap> {
       _setStraightRoute(techPos, dest);
     }
 
-    if (!_hasKey) {
-      await _fitBounds();
-      return;
-    }
-
     _fetchingRoute = true;
     try {
-      final dio = Dio();
-      final res = await dio.get<Map<String, dynamic>>(
-        'https://maps.googleapis.com/maps/api/directions/json',
-        queryParameters: {
+      final res = await DioHelper.getData(
+        url: EndPoints.mapsDirections,
+        query: {
           'origin': '${techPos.latitude},${techPos.longitude}',
           'destination': '${dest.latitude},${dest.longitude}',
           'mode': 'driving',
-          'key': _mapsKey,
         },
       );
-      final status = (res.data?['status'] ?? '').toString();
-      final routes = res.data?['routes'];
+      if (res.statusCode == 404 || res.statusCode == 503) {
+        await _fetchRouteDirect(techPos, dest);
+        return;
+      }
+      final data = res.data;
+      final status = (data is Map ? data['status'] : null)?.toString() ?? '';
+      final routes = data is Map ? data['routes'] : null;
       if (status == 'OK' && routes is List && routes.isNotEmpty) {
         final encoded =
             routes.first['overview_polyline']?['points']?.toString() ?? '';
@@ -315,11 +312,36 @@ class _LiveJobMapState extends State<LiveJobMap> {
       _setStraightRoute(techPos, dest);
       await _fitBounds();
     } catch (_) {
-      _setStraightRoute(techPos, dest);
+      await _fetchRouteDirect(techPos, dest);
+      if (_routePoints.length < 2) {
+        _setStraightRoute(techPos, dest);
+      }
       await _fitBounds();
     } finally {
       _fetchingRoute = false;
     }
+  }
+
+  /// Fallback when the server maps proxy is missing (e.g. prod not deployed yet).
+  Future<void> _fetchRouteDirect(LatLng techPos, LatLng dest) async {
+    if (_mapsKey.isEmpty) return;
+    try {
+      final result = await PolylinePoints().getRouteBetweenCoordinates(
+        googleApiKey: _mapsKey,
+        request: PolylineRequest(
+          origin: PointLatLng(techPos.latitude, techPos.longitude),
+          destination: PointLatLng(dest.latitude, dest.longitude),
+          mode: TravelMode.driving,
+        ),
+      );
+      if (result.points.isNotEmpty && mounted) {
+        setState(() {
+          _routePoints = result.points
+              .map((p) => LatLng(p.latitude, p.longitude))
+              .toList();
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _fitBounds() async {
@@ -450,6 +472,7 @@ class _LiveJobMapState extends State<LiveJobMap> {
       fit: StackFit.expand,
       children: [
         GoogleMap(
+          key: ValueKey('live_map_${widget.jobId ?? widget.locationLabel}'),
           initialCameraPosition: CameraPosition(target: initial, zoom: 14),
           markers: _markers,
           polylines: _polylines,

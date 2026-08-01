@@ -65,6 +65,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/technicians", technicianRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/sos", sosRoutes);
+app.use("/api/service-requests", require("./routes/serviceRequestRoutes"));
 app.use("/api/jobs", jobRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/contact-us", contactUsRoutes);
@@ -73,6 +74,7 @@ app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/receipts", require("./routes/receiptRoutes"));
 app.use("/api/repairs", require("./routes/repairProcedureRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/maps", require("./routes/mapsRoutes"));
 
 app.get("/api/launch-flags", (_req, res) => {
   const { getLaunchFlags } = require("./utils/featureFlags");
@@ -95,6 +97,11 @@ async function bootstrap() {
   app.set("notifySosClaimed", sosHandlers.notifySosClaimed);
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);
+  app.set("notifyAdminServiceRequest", sosHandlers.notifyAdminServiceRequest);
+  app.set(
+    "notifyAdminServiceRequestCancelled",
+    sosHandlers.notifyAdminServiceRequestCancelled
+  );
 
   // Legacy default namespace — unauthenticated; not used by current clients.
   // Live Map / SOS use JWT namespaced paths: /technician, /customer, /admin.

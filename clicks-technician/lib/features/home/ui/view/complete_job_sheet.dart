@@ -21,13 +21,25 @@ class BeginTasksScreen extends StatefulWidget {
 
 class _BeginTasksScreenState extends State<BeginTasksScreen> {
   final _notesCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
-  final List<({String description, double price})> _repairs = [];
+  final _costCtrl = TextEditingController();
+  final _lineNotesCtrl = TextEditingController();
+  final List<({String name, String description, double price, double cost})>
+      _repairs = [];
   bool _submitting = false;
   double? _total;
 
   String get _draftKey => 'task_draft_${widget.cubit.jobId ?? 'none'}';
+
+  bool _hasValidSignature() {
+    return (widget.cubit.activeJob?['customerSignatureUrl']
+                ?.toString()
+                .isNotEmpty ??
+            false) &&
+        !widget.cubit.signatureClearedBanner;
+  }
 
   @override
   void initState() {
@@ -56,24 +68,38 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   }
 
   Future<void> _addRepair() async {
+    final name = _nameCtrl.text.trim();
     final desc = _descCtrl.text.trim();
     final price = double.tryParse(_priceCtrl.text.trim());
+    final cost = double.tryParse(_costCtrl.text.trim()) ?? 0;
+    final lineNotes = _lineNotesCtrl.text.trim();
     if (desc.isEmpty || price == null) {
-      AppSnackBars.errorSnackBar('Enter procedure and price');
+      AppSnackBars.errorSnackBar('Enter procedure description and customer price');
       return;
     }
     final ok = await widget.cubit.addRepairProcedure(
       description: desc,
       price: price,
+      name: name.isNotEmpty ? name : null,
+      notes: lineNotes.isNotEmpty ? lineNotes : null,
+      cost: cost,
     );
     if (!ok) {
       AppSnackBars.errorSnackBar('Could not add repair');
       return;
     }
     setState(() {
-      _repairs.add((description: desc, price: price));
+      _repairs.add((
+        name: name.isNotEmpty ? name : desc,
+        description: desc,
+        price: price,
+        cost: cost,
+      ));
+      _nameCtrl.clear();
       _descCtrl.clear();
       _priceCtrl.clear();
+      _costCtrl.clear();
+      _lineNotesCtrl.clear();
     });
     await _refreshTotal();
   }
@@ -93,16 +119,28 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
 
   Future<void> _complete() async {
     if (ProductRules.requireSignatureBeforeComplete) {
-      final hasSig = (widget.cubit.activeJob?['customerSignatureUrl']
-                  ?.toString()
-                  .isNotEmpty ??
-              false) &&
-          !widget.cubit.signatureClearedBanner;
+      var hasSig = _hasValidSignature();
       if (!hasSig) {
         AppSnackBars.errorSnackBar('Customer signature is required');
         await _collectSignature();
-        return;
+        hasSig = _hasValidSignature();
+        if (!hasSig) return;
       }
+    }
+    // Persist any filled repair line the tech forgot to tap "+ Add procedure"
+    final pendingDesc = _descCtrl.text.trim();
+    final pendingPrice = double.tryParse(_priceCtrl.text.trim());
+    if (pendingDesc.isNotEmpty && pendingPrice != null) {
+      await widget.cubit.addRepairProcedure(
+        description: pendingDesc,
+        price: pendingPrice,
+        name: _nameCtrl.text.trim().isNotEmpty ? _nameCtrl.text.trim() : null,
+        notes: _lineNotesCtrl.text.trim().isNotEmpty
+            ? _lineNotesCtrl.text.trim()
+            : null,
+        cost: double.tryParse(_costCtrl.text.trim()) ?? 0,
+      );
+      await _refreshTotal();
     }
     setState(() => _submitting = true);
     final ok = await widget.cubit.completeJob(
@@ -112,7 +150,8 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     if (!ok || !mounted) {
       if (mounted) {
         AppSnackBars.errorSnackBar(
-          'Could not complete — check signature and try again',
+          widget.cubit.lastActionError ??
+              'Could not complete — collect customer signature first, then try again',
         );
       }
       return;
@@ -124,8 +163,11 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   @override
   void dispose() {
     _notesCtrl.dispose();
+    _nameCtrl.dispose();
     _descCtrl.dispose();
     _priceCtrl.dispose();
+    _costCtrl.dispose();
+    _lineNotesCtrl.dispose();
     super.dispose();
   }
 
@@ -161,31 +203,79 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
             (r) => Padding(
               padding: EdgeInsets.only(bottom: 8.h),
               child: _box(
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(r.description,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            r.name,
+                            style: TextStyles.font14RegularGrey.copyWith(
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'QAR ${r.price.toStringAsFixed(0)}',
                           style: TextStyles.font14RegularGrey
-                              .copyWith(color: Colors.black87)),
+                              .copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'QAR ${r.price.toStringAsFixed(0)}',
-                      style: TextStyles.font14RegularGrey
-                          .copyWith(fontWeight: FontWeight.w600),
-                    ),
+                    if (r.description != r.name) ...[
+                      SizedBox(height: 4.h),
+                      Text(
+                        r.description,
+                        style: TextStyles.font12RegularGrey,
+                      ),
+                    ],
+                    if (r.cost > 0) ...[
+                      SizedBox(height: 4.h),
+                      Text(
+                        'Cost: QAR ${r.cost.toStringAsFixed(0)}',
+                        style: TextStyles.font12RegularGrey,
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
           ),
+          TextField(
+            controller: _nameCtrl,
+            decoration: InputDecoration(
+              hintText: 'Name (e.g. Wheel)',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+            ),
+          ),
+          SizedBox(height: 8.h),
+          TextField(
+            controller: _descCtrl,
+            maxLines: 2,
+            decoration: InputDecoration(
+              hintText: 'Description',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+            ),
+          ),
+          SizedBox(height: 8.h),
           Row(
             children: [
               Expanded(
-                flex: 2,
                 child: TextField(
-                  controller: _descCtrl,
+                  controller: _priceCtrl,
+                  keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    hintText: 'Procedure',
+                    hintText: 'Price (customer)',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10.r),
                     ),
@@ -197,10 +287,10 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
               SizedBox(width: 8.w),
               Expanded(
                 child: TextField(
-                  controller: _priceCtrl,
+                  controller: _costCtrl,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    hintText: 'Price',
+                    hintText: 'Cost',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10.r),
                     ),
@@ -210,6 +300,18 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
                 ),
               ),
             ],
+          ),
+          SizedBox(height: 8.h),
+          TextField(
+            controller: _lineNotesCtrl,
+            decoration: InputDecoration(
+              hintText: 'Line notes (optional)',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+            ),
           ),
           Align(
             alignment: Alignment.centerRight,

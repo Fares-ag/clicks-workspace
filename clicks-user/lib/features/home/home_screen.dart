@@ -120,14 +120,6 @@ class HomeScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: ColorsManager.mainColor,
                       shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color:
-                              ColorsManager.mainColor.withValues(alpha: 0.28),
-                          blurRadius: 24,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
                     ),
                     child: Center(
                       child: Text(

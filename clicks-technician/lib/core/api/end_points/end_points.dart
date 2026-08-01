@@ -40,6 +40,7 @@ class EndPoints {
 
   //! Jobs (shared job resource) — REST fallbacks when socket is down
   static String jobById(String id) => "/api/jobs/$id";
+  static String jobActivityDetail(String id) => "/api/jobs/$id/activity-detail";
   static String updateJobStatus(String id) => "/api/jobs/$id/status";
   static String updateJobDetails(String id) => "/api/jobs/$id/details";
   static String uploadSignature(String id) => "/api/jobs/$id/signature";
@@ -60,6 +61,10 @@ class EndPoints {
   static const String faqs = "/api/content/faqs";
   static const String privacyPolicy = "/api/content/privacy-policy";
   static const String termsConditions = "/api/content/terms-and-conditions";
+
+  //! Maps proxy (server-side Google Directions / Geocoding)
+  static const String mapsDirections = "/api/maps/directions";
+  static const String mapsGeocode = "/api/maps/geocode";
 
   //! Notifications (thin technician stubs)
   static const String technicianNotifications = "/api/notifications/technician";

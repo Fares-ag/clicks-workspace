@@ -18,10 +18,21 @@ router.patch("/:id/details", authenticate(["technician"]), jobController.updateJ
 router.post(
   "/:id/signature",
   authenticate(["technician"]),
-  require("../middleware/upload").single("signature"),
+  (req, res, next) => {
+    require("../middleware/upload").single("signature")(req, res, (err) => {
+      if (!err) return next();
+      const message = err.message || "Invalid upload";
+      return res.status(400).json({ error: message });
+    });
+  },
   jobController.uploadCustomerSignature
 );
 router.post("/:id/rate", authenticate(["customer"]), jobController.rateJob);
+router.get(
+  "/:id/activity-detail",
+  authenticate(["technician"]),
+  jobController.getActivityDetail
+);
 router.get("/:id", authenticate(["customer", "technician"]), jobController.getJobById);
 
 router.post("/:id/arrive", authenticate(["technician"]), jobController.markArrived);

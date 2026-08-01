@@ -11,6 +11,15 @@
   justify-content: space-between;
   align-items: center;
   padding-bottom: var(--spacing-lg);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.jobs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .jobs-title {

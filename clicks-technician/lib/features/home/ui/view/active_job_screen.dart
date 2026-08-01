@@ -14,10 +14,81 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 /// Uber-style map-first Active Job screen.
-class ActiveJobScreen extends StatelessWidget {
+class ActiveJobScreen extends StatefulWidget {
   const ActiveJobScreen({super.key, required this.cubit});
 
   final HomeCubit cubit;
+
+  @override
+  State<ActiveJobScreen> createState() => _ActiveJobScreenState();
+}
+
+class _SheetSizes {
+  const _SheetSizes({
+    required this.initial,
+    required this.min,
+    required this.max,
+  });
+
+  final double initial;
+  final double min;
+  final double max;
+}
+
+_SheetSizes _sheetSizesFor(String status) {
+  switch (status) {
+    case 'en_route':
+      // Compact peek — map-first while navigating.
+      return const _SheetSizes(initial: 0.20, min: 0.18, max: 0.78);
+    case 'accepted':
+      return const _SheetSizes(initial: 0.30, min: 0.22, max: 0.78);
+    default:
+      return const _SheetSizes(initial: 0.30, min: 0.22, max: 0.78);
+  }
+}
+
+class _ActiveJobScreenState extends State<ActiveJobScreen> {
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+  String? _lastStatus;
+
+  HomeCubit get cubit => widget.cubit;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastStatus = cubit.jobStatus;
+    if (cubit.jobStatus == 'en_route') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _collapseIfEnRoute());
+    }
+  }
+
+  @override
+  void didUpdateWidget(ActiveJobScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _collapseIfEnRoute();
+  }
+
+  void _collapseIfEnRoute() {
+    final status = cubit.jobStatus;
+    if (status == 'en_route' && _lastStatus != 'en_route') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_sheetController.isAttached) return;
+        _sheetController.animateTo(
+          _sheetSizesFor(status).initial,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+        );
+      });
+    }
+    _lastStatus = status;
+  }
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +101,9 @@ class ActiveJobScreen extends StatelessWidget {
       _ => 'Active Job',
     };
     final media = MediaQuery.of(context);
-    // Keep ~70% of the screen as map; sheet starts compact.
-    final sheetHeight = media.size.height * 0.30;
-    final bottomPad = sheetHeight.clamp(180.0, 280.0);
+    final sizes = _sheetSizesFor(status);
+    final bottomPad = (media.size.height * sizes.initial).clamp(140.0, 280.0);
+    final compactEnRoute = status == 'en_route';
 
     return Scaffold(
       backgroundColor: const Color(0xFFE8EEF2),
@@ -101,9 +172,14 @@ class ActiveJobScreen extends StatelessWidget {
             ),
           ),
           DraggableScrollableSheet(
-            initialChildSize: 0.30,
-            minChildSize: 0.22,
-            maxChildSize: 0.78,
+            controller: _sheetController,
+            initialChildSize: sizes.initial,
+            minChildSize: sizes.min,
+            maxChildSize: sizes.max,
+            snap: true,
+            snapSizes: compactEnRoute
+                ? [sizes.min, 0.42, sizes.max]
+                : [sizes.min, sizes.initial, sizes.max],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(
@@ -157,6 +233,16 @@ class ActiveJobScreen extends StatelessWidget {
                     ],
                     SizedBox(height: 14.h),
                     _Actions(cubit: cubit),
+                    if (compactEnRoute) ...[
+                      SizedBox(height: 10.h),
+                      Text(
+                        'Swipe up for job details',
+                        textAlign: TextAlign.center,
+                        style: TextStyles.font12RegularGrey.copyWith(
+                          color: const Color(0xFF98A2B3),
+                        ),
+                      ),
+                    ],
                     SizedBox(height: 16.h),
                     Text(
                       'Job details',
@@ -577,21 +663,46 @@ class _Actions extends StatelessWidget {
           radius: 10.r,
         );
       case 'arrived':
-        return AppButton(
-          isLoading: cubit.isLoadingAction,
-          onPressed: cubit.isLoadingAction
-              ? null
-              : () async {
-                  await cubit.startJob();
-                  if (context.mounted) _openComplete(context);
-                },
-          label: 'Start Job',
-          margin: 0,
-          width: double.infinity,
-          bgColor: ColorsManager.mainColor,
-          textColor: Colors.white,
-          height: 48.h,
-          radius: 10.r,
+        final near = cubit.canStartJob;
+        final dist = cubit.distanceToJobMeters;
+        final distLabel = dist == null
+            ? 'Waiting for GPS…'
+            : near
+                ? 'You are near the job location'
+                : 'Move within ${HomeCubit.startMaxMeters.toInt()}m to start (${dist.round()}m away)';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              distLabel,
+              textAlign: TextAlign.center,
+              style: TextStyles.font12RegularGrey.copyWith(
+                color: near ? const Color(0xFF12B76A) : ColorsManager.greyColor,
+              ),
+            ),
+            SizedBox(height: 8.h),
+            AppButton(
+              isLoading: cubit.isLoadingAction,
+              onPressed: cubit.isLoadingAction || !near
+                  ? null
+                  : () async {
+                      await cubit.startJob();
+                      if (!context.mounted) return;
+                      if (cubit.jobStatus == 'in_progress') {
+                        _openComplete(context);
+                      } else if (cubit.lastActionError != null) {
+                        AppSnackBars.errorSnackBar(cubit.lastActionError!);
+                      }
+                    },
+              label: 'Start Job',
+              margin: 0,
+              width: double.infinity,
+              bgColor: ColorsManager.mainColor,
+              textColor: Colors.white,
+              height: 48.h,
+              radius: 10.r,
+            ),
+          ],
         );
       case 'in_progress':
         return AppButton(

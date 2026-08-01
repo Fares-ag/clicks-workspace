@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:clicks_user/core/constants/map_style.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
+import 'package:clicks_user/core/helper/google_maps_loader.dart';
+import 'package:clicks_user/core/helper/technician_location.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -89,7 +92,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   // --- Location update throttling (20-second intervals) ---
   DateTime _lastLocationProcessedAt = DateTime(2000);
-  static const _locationUpdateInterval = Duration(seconds: 20);
+  static const _locationUpdateInterval = Duration(seconds: 5);
   Timer? _pendingLocationTimer;
   LatLng? _pendingTechLocation;
   double _pendingTechHeading = 0;
@@ -98,12 +101,23 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   List<LatLng> _routePoints = [];
   bool _fetchingRoute = false;
 
+  late Map<String, dynamic> _techInfo;
+  Timer? _locationPollTimer;
+
   @override
   void initState() {
     super.initState();
     _phase = widget.args.initialPhase;
+    _techInfo = Map<String, dynamic>.from(widget.args.techInfo);
     // Set initial technician location from args (sent with enroute event)
-    if (widget.args.techLat != null && widget.args.techLng != null &&
+    final (techLat, techLng) = TechnicianLocation.latLngFrom(widget.args.techInfo);
+    if (techLat != null &&
+        techLng != null &&
+        widget.args.techLat == null &&
+        widget.args.techLng == null) {
+      _techLocation = LatLng(techLat, techLng);
+    } else if (widget.args.techLat != null &&
+        widget.args.techLng != null &&
         (widget.args.techLat != 0 || widget.args.techLng != 0)) {
       _techLocation = LatLng(widget.args.techLat!, widget.args.techLng!);
     }
@@ -112,6 +126,81 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
     // Fetch real driving route on init if en_route with known tech position
     if (_phase == 'en_route' && _techLocation != null) {
       _fetchRoute(_techLocation!);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<SosCubit>().socketService.ensureConnected();
+      _refreshTechnicianFromServer();
+    });
+    _locationPollTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) {
+        if (mounted && _phase == 'en_route') {
+          _refreshTechnicianFromServer();
+        }
+      },
+    );
+  }
+
+  Future<void> _refreshTechnicianFromServer() async {
+    try {
+      final data = await SessionService.getCustomerActiveJob();
+      final job = data?['active_job'];
+      if (job is! Map || !mounted) return;
+
+      final jobId = job['_id']?.toString() ?? job['id']?.toString();
+      if (jobId != widget.args.jobId) return;
+
+      final tech = job['assignedTechnician'];
+      if (tech is! Map) return;
+
+      final first = tech['firstName']?.toString() ?? '';
+      final last = tech['lastName']?.toString() ?? '';
+      final (lat, lng) = TechnicianLocation.latLngFrom(tech);
+
+      setState(() {
+        _techInfo = {
+          'name': '$first $last'.trim(),
+          'phone': tech['phone']?.toString() ?? '',
+          'photo': tech['profilePicture']?.toString() ?? '',
+          if (lat != null) 'latitude': lat,
+          if (lng != null) 'longitude': lng,
+        };
+      });
+
+      if (lat != null && lng != null) {
+        _applyTechnicianLocation(LatLng(lat, lng), fromPoll: true);
+      }
+    } catch (e) {
+      _log('⚠️ refresh tech location: $e');
+    }
+  }
+
+  void _applyTechnicianLocation(LatLng newPos, {bool fromPoll = false}) {
+    if (_techLocation == null) {
+      setState(() => _techLocation = newPos);
+      _updateMarkers();
+      if (_phase == 'en_route') _fetchRoute(newPos);
+      _animateToTech();
+      return;
+    }
+
+    final moved = Geolocator.distanceBetween(
+          _techLocation!.latitude,
+          _techLocation!.longitude,
+          newPos.latitude,
+          newPos.longitude,
+        ) >
+        25;
+
+    if (!moved) return;
+
+    if (fromPoll) {
+      _pendingTechLocation = newPos;
+      _processLocationUpdate();
+    } else {
+      _animateMarkerTo(newPos, _techHeading);
+      _fetchRoute(newPos);
     }
   }
 
@@ -143,6 +232,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
     _animController?.dispose();
     _animUpdateTimer?.cancel();
     _pendingLocationTimer?.cancel();
+    _locationPollTimer?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
@@ -282,7 +372,9 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
           flat: true,
           icon: _vanIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
           infoWindow: InfoWindow(
-              title: widget.args.techInfo['name'] ?? 'job_progress.technician'.tr()),
+              title: _techInfo['name']?.toString().trim().isNotEmpty == true
+                  ? _techInfo['name'].toString()
+                  : 'job_progress.technician'.tr()),
         ),
       );
 
@@ -403,6 +495,39 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
     return '$h:${dt.minute.toString().padLeft(2, '0')} $ampm';
   }
 
+  Widget _buildMap() {
+    if (kIsWeb && !isGoogleMapsAvailable) {
+      return ColoredBox(
+        color: const Color(0xFFE8E8E8),
+        child: Center(
+          child: Text(
+            'Map unavailable',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+          ),
+        ),
+      );
+    }
+
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: LatLng(widget.args.customerLat, widget.args.customerLng),
+        zoom: 14,
+      ),
+      markers: _markers,
+      polylines: _polylines,
+      myLocationEnabled: false,
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      style: kMapStyle,
+      onMapCreated: (controller) {
+        _mapController = controller;
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) _animateToTech();
+        });
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -416,8 +541,8 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
             final now = DateTime.now();
             final elapsed = now.difference(_lastLocationProcessedAt);
 
-            if (elapsed >= _locationUpdateInterval) {
-              // Enough time has passed — process now
+            if (_techLocation == null || elapsed >= _locationUpdateInterval) {
+              // First fix or enough time has passed — process now
               _pendingLocationTimer?.cancel();
               _processLocationUpdate();
             } else {
@@ -498,26 +623,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
         child: Stack(
           children: [
             // --------- Map ---------
-            GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: LatLng(
-                    widget.args.customerLat, widget.args.customerLng),
-                zoom: 14,
-              ),
-              markers: _markers,
-              polylines: _polylines,
-              myLocationEnabled: false,
-              zoomControlsEnabled: false,
-              mapToolbarEnabled: false,
-              style: kMapStyle,
-              onMapCreated: (controller) {
-                _mapController = controller;
-                // Fit both markers immediately after map is ready
-                Future.delayed(const Duration(milliseconds: 300), () {
-                  if (mounted) _animateToTech();
-                });
-              },
-            ),
+            _buildMap(),
 
             // --------- Top banner (extends to screen top) ---------
             Positioned(
@@ -642,10 +748,12 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
                       // Technician card
                       _TechnicianCard(
-                        name: widget.args.techInfo['name'] ?? 'job_progress.technician'.tr(),
-                        phone: widget.args.techInfo['phone'] ?? '',
-                        photoUrl: widget.args.techInfo['photo'] ?? '',
-                        rating: _parseDouble(widget.args.techInfo['rating']),
+                        name: _techInfo['name']?.toString().trim().isNotEmpty == true
+                            ? _techInfo['name'].toString()
+                            : 'job_progress.technician'.tr(),
+                        phone: _techInfo['phone']?.toString() ?? '',
+                        photoUrl: _techInfo['photo']?.toString() ?? '',
+                        rating: _parseDouble(_techInfo['rating']),
                         onCallTechnician: _callTechnician,
                       ),
 

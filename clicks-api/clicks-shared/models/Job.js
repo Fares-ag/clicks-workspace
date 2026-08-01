@@ -15,6 +15,17 @@ const JobSchema = new mongoose.Schema(
     vinNumber: { type: String, default: "" },
     issue: { type: String, required: true },
     location: { type: String, required: true },
+    // Parsed GeoJSON Point from location string — [longitude, latitude]
+    // Only set when both type and coordinates are present (no partial default).
+    locationCoordinates: {
+      type: {
+        type: String,
+        enum: ["Point"],
+      },
+      coordinates: {
+        type: [Number],
+      },
+    },
     dateTime: { type: Date, required: true },
     jobType: {
       type: String,
@@ -64,6 +75,10 @@ const JobSchema = new mongoose.Schema(
     rating: { type: Number, min: 1, max: 5 },
     rating_description: { type: String, maxlength: 500, default: "" },
     sos_request_id: { type: mongoose.Schema.Types.ObjectId, ref: "SOSRequest" },
+    service_request_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ServiceRequest",
+    },
     // Business portal — set when the job was submitted via a business portal
     business_id: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
     businessName: { type: String },
@@ -89,6 +104,10 @@ const JobSchema = new mongoose.Schema(
     customerSignatureUrl: { type: String, default: "" },
     customerSignedAt: { type: Date, default: null },
     customerSignatureInvalidatedAt: { type: Date, default: null },
+    // Legacy system job id (historical Excel import) — sparse unique for idempotent re-runs
+    legacy_id: { type: Number, default: null, sparse: true },
+    // Technician name from legacy export when no matching Technician record exists
+    legacyTechnicianName: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -96,5 +115,8 @@ const JobSchema = new mongoose.Schema(
 JobSchema.index({ job_status: 1, assignedTechnician: 1, createdAt: -1 });
 JobSchema.index({ customer_id: 1, createdAt: -1 });
 JobSchema.index({ business_id: 1, createdAt: -1 });
+JobSchema.index({ legacy_id: 1 }, { unique: true, sparse: true });
+JobSchema.index({ locationCoordinates: "2dsphere" });
+JobSchema.index({ dateTime: -1, job_status: 1 });
 
 module.exports = mongoose.model("Job", JobSchema);

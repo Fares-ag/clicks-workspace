@@ -3,3 +3,5 @@ import 'google_maps_loader_stub.dart'
 
 Future<void> ensureGoogleMapsLoaded(String apiKey) =>
     impl.ensureGoogleMapsLoaded(apiKey);
+
+bool get isGoogleMapsAvailable => impl.isGoogleMapsAvailable;

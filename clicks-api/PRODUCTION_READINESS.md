@@ -65,6 +65,8 @@ Never put real secrets in `.env.example` or git.
 | `JWT_SECRET` | **must match admin** | **must match admin** |
 | `INTERNAL_API_SECRET` | must match admin | must match admin |
 | `CORS_ORIGINS` | admin + flutter web origins | production origins only |
+| `GOOGLE_MAPS_API_KEY` | server key (Directions + Geocoding) | **required** for `/api/maps/*` proxy used by technician app |
+| `JOB_START_MAX_METERS` | `200` (optional) | start-job proximity gate (default 200) |
 | `LAUNCH_PUBLIC_SOS` / `LAUNCH_PUBLIC_SIGNUP` | true for dogfood | true for soft launch; false = kill switch |
 | `LAUNCH_REGION` | QA | QA |
 | `SMS_PROVIDER` | `smsala` or console | `smsala` + `SMSALA_API_TOKEN` |
@@ -86,6 +88,19 @@ Never put real secrets in `.env.example` or git.
 | `ENV` | staging | production |
 
 Never commit `.env`.
+
+### Technician multi-job + maps (2026-07)
+
+| Endpoint | Auth | Notes |
+|----------|------|-------|
+| `GET /api/jobs/technician/session` | technician | `active_jobs[]` queue + `active_job` primary |
+| `GET /api/jobs/:id/activity-detail` | technician | job, repairs, pricing, receipt |
+| `GET /api/maps/directions` | technician/customer | server `GOOGLE_MAPS_API_KEY` |
+| `GET /api/maps/geocode` | technician/customer | server `GOOGLE_MAPS_API_KEY` |
+| `POST /api/jobs/:id/start` | technician | `{ latitude, longitude }`; one `in_progress`; proximity |
+
+**Railway deploy:** `ops/deploy-tech-api-production.ps1`  
+**Smoke:** `node scripts/smoke-tech-production.js` (optional `TECH_TOKEN`)
 
 ---
 
@@ -118,6 +133,10 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md), [STAGING_DEPLOY.md](./STAGING_DEPL
 - [ ] Rotate Atlas DB password + Maps API key (exposed in chat/history)
 - [ ] Prod Atlas cluster + backups + network lock down
 - [ ] Distinct prod `JWT_*` and `INTERNAL_API_SECRET`; admin/tech secrets match
+- [ ] **Deploy clicks-tech-api** with maps proxy + multi-job + activity-detail (`ops/deploy-tech-api-production.ps1`)
+- [ ] Set **`GOOGLE_MAPS_API_KEY`** + **`JOB_START_MAX_METERS=200`** on Railway clicks-tech-api
+- [ ] Run **`node scripts/smoke-tech-production.js`** (with `TECH_TOKEN` for full pass)
+- [ ] Build technician APK: `flutter build apk --release --dart-define=ENV=production` (see `clicks-technician/PRODUCTION.md`)
 - [ ] CORS allowlists locked to real domains
 - [ ] Admin REST 401 without token (verified)
 - [ ] notify-technician 401 without internal secret (verified)

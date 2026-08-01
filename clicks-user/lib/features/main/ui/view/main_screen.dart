@@ -69,14 +69,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ? MediaQuery.of(context).viewPadding.bottom
             : 0.0;
 
+    // Use .r so the FAB scales with the shorter axis — .w alone grows too tall
+    // on wide web viewports and gets clipped by the nav Stack.
+    final fabSize = 64.r;
+    final fabBottom = 18.h;
+    final navBarHeight = 60.h;
+    final navStackHeight =
+        (fabBottom + fabSize).clamp(90.h, double.infinity) + systemNavPadding;
+
     return SafeArea(
       bottom: false,
       child: Scaffold(
         backgroundColor: Colors.white,
         bottomNavigationBar: SizedBox(
-          height: 90.h + systemNavPadding,
+          height: navStackHeight,
           child: Stack(
             alignment: Alignment.bottomCenter,
+            clipBehavior: Clip.none,
             children: [
               if (systemNavPadding > 0)
                 Positioned(
@@ -98,7 +107,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     }
 
                     return Container(
-                      height: 60.h,
+                      height: navBarHeight,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         border: Border(
@@ -129,7 +138,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             currentIndex,
                             context,
                           ),
-                          SizedBox(width: 64.w),
+                          SizedBox(width: fabSize),
                           _buildNavItem(
                             AssetsManager.repairedSvg,
                             'bottom_nav.services'.tr(),
@@ -151,15 +160,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ),
               Positioned(
-                bottom: 18.h + systemNavPadding,
+                bottom: fabBottom + systemNavPadding,
                 child: GestureDetector(
                   onTap: () {
                     context.read<HomeCubit>().changeBottomNavIndex(0);
                   },
                   child: Container(
-                    height: 64.w,
-                    width: 64.w,
-                    padding: EdgeInsets.all(14.w),
+                    height: fabSize,
+                    width: fabSize,
+                    padding: EdgeInsets.all(14.r),
                     decoration: BoxDecoration(
                       color: ColorsManager.mainColor,
                       shape: BoxShape.circle,
@@ -173,8 +182,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ),
                     child: SvgPicture.asset(
                       AssetsManager.centerNavSvg,
-                      width: 24.w,
-                      height: 24.w,
+                      width: 24.r,
+                      height: 24.r,
                     ),
                   ),
                 ),

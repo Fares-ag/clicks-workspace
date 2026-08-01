@@ -1,6 +1,103 @@
-const { Job, SOSRequest, Technician } = require("../../../clicks-shared/models");
+const {
+  Job,
+  SOSRequest,
+  ServiceRequest,
+  Technician,
+} = require("../../../clicks-shared/models");
 const { assertJobAccess } = require("../utils/ownership");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
+const {
+  parseJobLocation,
+  parseJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/parseJobLocation");
+const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
+const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
+
+const JOB_STATUS_PRIORITY = {
+  in_progress: 0,
+  arrived: 1,
+  en_route: 2,
+  accepted: 3,
+  assigned: 4,
+  completed: 5,
+};
+
+const jobPopulateForTech = [
+  { path: "customer_id", select: "first_name last_name phone_number email" },
+  {
+    path: "customer_vehicle_id",
+    select: "year plate_number vehicle_color",
+    populate: [
+      { path: "vehicle_make", select: "makeName" },
+      { path: "vehicle_model", select: "modelName" },
+      { path: "vehicle_type", select: "typeName" },
+    ],
+  },
+  { path: "source" },
+];
+
+function resolveJobLatLng(job) {
+  const coords = job?.locationCoordinates?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+      return { lat, lng };
+    }
+  }
+  return parseJobLocation(job?.location);
+}
+
+function resolveTechLatLng(body, technician) {
+  const lat = Number(body?.latitude ?? body?.lat);
+  const lng = Number(body?.longitude ?? body?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng };
+  }
+  const coords = technician?.currentLocation?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const tLng = Number(coords[0]);
+    const tLat = Number(coords[1]);
+    if (
+      Number.isFinite(tLat) &&
+      Number.isFinite(tLng) &&
+      !(tLat === 0 && tLng === 0)
+    ) {
+      return { lat: tLat, lng: tLng };
+    }
+  }
+  return null;
+}
+
+function technicianTrackingPayload(tech) {
+  if (!tech) return undefined;
+  const payload = {
+    name: `${tech.firstName || ""} ${tech.lastName || ""}`.trim(),
+    phone: tech.phone,
+    photo: tech.profilePicture,
+  };
+  const coords = tech.currentLocation?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)) {
+      payload.latitude = lat;
+      payload.longitude = lng;
+    }
+  }
+  return payload;
+}
+
+function sortActiveJobs(jobs) {
+  return [...jobs].sort((a, b) => {
+    const pa = JOB_STATUS_PRIORITY[a.job_status] ?? 99;
+    const pb = JOB_STATUS_PRIORITY[b.job_status] ?? 99;
+    if (pa !== pb) return pa - pb;
+    const ta = new Date(a.createdAt || 0).getTime();
+    const tb = new Date(b.createdAt || 0).getTime();
+    return tb - ta;
+  });
+}
 
 const createJob = async (req, res) => {
   try {
@@ -20,12 +117,15 @@ const createJob = async (req, res) => {
     if (!clientName || !clientMobileNumber || !issue || !location || !dateTime || !jobType || !assignedTechnician || !price) {
       return res.status(400).json({ error: "All required fields must be provided" });
     }
+
+    const locationCoordinates = parseJobLocationToGeoPoint(location);
     
     const job = new Job({
       clientName,
       clientMobileNumber,
       issue,
       location,
+      ...(locationCoordinates ? { locationCoordinates } : {}),
       dateTime,
       jobType,
       assignedTechnician,
@@ -105,7 +205,7 @@ const updateJobStatus = async (req, res) => {
     const { job_status } = req.body;
     const job = await Job.findById(id).populate(
       "assignedTechnician",
-      "firstName lastName phone profilePicture"
+      "firstName lastName phone profilePicture currentLocation"
     );
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
@@ -134,13 +234,7 @@ const updateJobStatus = async (req, res) => {
           job_id: job._id,
           status: "en_route",
           en_route_at: job.en_route_at,
-          technician: job.assignedTechnician
-            ? {
-                name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-                phone: job.assignedTechnician.phone,
-                photo: job.assignedTechnician.profilePicture,
-              }
-            : undefined,
+          technician: technicianTrackingPayload(job.assignedTechnician),
         });
       }
     }
@@ -258,6 +352,47 @@ const startJob = async (req, res) => {
         error: `Cannot start job from status: ${job.job_status}`,
       });
     }
+
+    const otherInProgress = await Job.findOne({
+      assignedTechnician: req.user.id,
+      job_status: "in_progress",
+      _id: { $ne: job._id },
+    }).select("_id");
+    if (otherInProgress) {
+      return res.status(400).json({
+        error:
+          "Finish your current in-progress job before starting another",
+        blocking_job_id: otherInProgress._id,
+      });
+    }
+
+    const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
+    const jobPoint = resolveJobLatLng(job);
+    if (!jobPoint) {
+      return res.status(400).json({
+        error: "Job location coordinates are missing; cannot verify proximity",
+      });
+    }
+
+    const technician = await Technician.findById(req.user.id).select(
+      "currentLocation"
+    );
+    const techPoint = resolveTechLatLng(req.body || {}, technician);
+    if (!techPoint) {
+      return res.status(400).json({
+        error: "Technician location is required to start the job",
+      });
+    }
+
+    const distanceMeters = Math.round(distanceBetween(techPoint, jobPoint));
+    if (distanceMeters > maxMeters) {
+      return res.status(400).json({
+        error: `You must be within ${maxMeters}m of the job location to start`,
+        distanceMeters,
+        maxMeters,
+      });
+    }
+
     job.job_status = "in_progress";
     job.started_at = new Date();
     await job.save();
@@ -274,7 +409,11 @@ const startJob = async (req, res) => {
       }
     }
 
-    res.json({ message: "Job started", job_status: job.job_status });
+    res.json({
+      message: "Job started",
+      job_status: job.job_status,
+      distanceMeters,
+    });
   } catch (err) {
     res.status(500).json({ error: "Start job failed", details: err.message });
   }
@@ -288,14 +427,25 @@ const addRepairProcedure = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const { description, quantity, price, receipt_image_url } = req.body;
+    const {
+      description,
+      quantity,
+      price,
+      receipt_image_url,
+      name,
+      notes,
+      cost,
+    } = req.body;
     const repair = new RepairProcedure({
       job_id: id,
       technician_id: req.user.id,
       description,
       quantity,
       price,
-      receipt_image_url
+      name: name != null ? String(name).trim() : "",
+      notes: notes != null ? String(notes).trim() : "",
+      cost: cost != null && cost !== "" ? Number(cost) : 0,
+      receipt_image_url,
     });
     await repair.save();
     res.json({ message: "Repair procedure added", repair });
@@ -313,13 +463,7 @@ const calculateTotal = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    // Enhanced pricing: base price + distance + time + repairs
-    const basePrice = job.price || 0;
-    const distanceFee = job.distance_km ? job.distance_km * 2 : 0;
-    const timeFee = job.dateTime ? (new Date(job.dateTime).getHours() >= 20 ? 20 : 0) : 0; // Night surcharge
-    const repairsTotal = repairs.reduce((sum, r) => sum + (r.price * (r.quantity || 1)), 0);
-    const total = basePrice + distanceFee + timeFee + repairsTotal;
-    res.json({ total, basePrice, distanceFee, timeFee, repairsTotal });
+    res.json(computeJobPricing(job, repairs));
   } catch (err) {
     res.status(500).json({ error: "Calculate total failed", details: err.message });
   }
@@ -620,21 +764,13 @@ const confirmPayment = async (req, res) => {
 
     // P1-04: use the same pricing formula as calculateTotal so receipt matches what tech saw
     const repairs = await RepairProcedure.find({ job_id: id });
-    const basePrice = job.price || 0;
-    const distanceFee = job.distance_km ? job.distance_km * 2 : 0;
-    const timeFee =
-      job.dateTime && new Date(job.dateTime).getUTCHours() >= 20 ? 20 : 0;
-    const repairsTotal = repairs.reduce(
-      (sum, r) => sum + r.price * (r.quantity || 1),
-      0
-    );
-    const total = basePrice + distanceFee + timeFee + repairsTotal;
+    const pricing = computeJobPricing(job, repairs);
 
     const receipt = new Receipt({
       job_id: job._id,
       customer_id: job.customer_id,
       technician_id: job.assignedTechnician,
-      total_amount: total,
+      total_amount: pricing.total,
       payment_status: "paid",
       items: repairs.map((r) => ({
         description: r.description,
@@ -770,11 +906,25 @@ const getCustomerSession = async (req, res) => {
     })
     .populate('source')
     .sort({ createdAt: -1 });
+
+    const activeServiceRequest = await ServiceRequest.findOne({
+      customer_id,
+      status: { $in: ["pending", "assigned"] },
+    })
+      .populate({
+        path: "customer_vehicle_id",
+        populate: [
+          { path: "vehicle_make" },
+          { path: "vehicle_model" },
+        ],
+      })
+      .sort({ createdAt: -1 });
     
     res.json({
       active_sos: activeSOS,
       active_job: activeJob,
-      has_active_session: !!(activeSOS || activeJob)
+      active_service_request: activeServiceRequest,
+      has_active_session: !!(activeSOS || activeJob || activeServiceRequest),
     });
   } catch (err) {
     res.status(500).json({ error: "Fetch session failed", details: err.message });
@@ -820,8 +970,8 @@ const getTechnicianSession = async (req, res) => {
     const technician = await Technician.findById(technician_id)
       .select('firstName lastName currentStatus isActive applicationStatus phone');
     
-    // Active fulfill path OR completed but unpaid (payment confirm UI)
-    const activeJob = await Job.findOne({
+    // All fulfill-path jobs + completed but unpaid (queue for multi-job)
+    const activeJobsRaw = await Job.find({
       assignedTechnician: technician_id,
       $or: [
         {
@@ -832,18 +982,11 @@ const getTechnicianSession = async (req, res) => {
         { job_status: "completed", payment_status: { $ne: "paid" } },
       ],
     })
-    .populate('customer_id', 'first_name last_name phone_number email')
-    .populate({
-      path: 'customer_vehicle_id',
-      select: 'year plate_number vehicle_color',
-      populate: [
-        { path: 'vehicle_make', select: 'makeName' },
-        { path: 'vehicle_model', select: 'modelName' },
-        { path: 'vehicle_type', select: 'typeName' },
-      ],
-    })
-    .populate('source')
+    .populate(jobPopulateForTech)
     .sort({ createdAt: -1 });
+
+    const active_jobs = sortActiveJobs(activeJobsRaw);
+    const activeJob = active_jobs[0] || null;
     
     res.json({
       technician: {
@@ -855,10 +998,43 @@ const getTechnicianSession = async (req, res) => {
         phone: technician?.phone,
       },
       active_job: activeJob,
+      active_jobs,
       has_active_job: !!activeJob
     });
   } catch (err) {
     res.status(500).json({ error: "Fetch technician session failed", details: err.message });
+  }
+};
+
+/** Aggregated payload for Activity Details screen */
+const getActivityDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id).populate(jobPopulateForTech);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const repairs = await RepairProcedure.find({ job_id: id }).sort({
+      created_at: 1,
+    });
+    const pricing = computeJobPricing(job, repairs);
+    const receipt = await Receipt.findOne({ job_id: id }).sort({
+      issued_at: -1,
+    });
+
+    res.json({
+      job,
+      repairs,
+      pricing,
+      receipt: receipt || null,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Fetch activity detail failed",
+      details: err.message,
+    });
   }
 };
 
@@ -980,5 +1156,6 @@ module.exports = {
   getCustomerActiveSOS,
   getCustomerSession,
   getTechnicianActiveJob,
-  getTechnicianSession
+  getTechnicianSession,
+  getActivityDetail,
 };

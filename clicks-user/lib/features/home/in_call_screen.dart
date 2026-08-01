@@ -9,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/routing/routes.dart';
 import '../settings/ui/cubit/settings_cubit.dart';
 import 'job_in_progress_screen.dart';
+import '../../core/helper/technician_location.dart';
 import 'technician_tracking_screen.dart';
 import 'timer_sos_screen.dart';
 
@@ -74,6 +75,7 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
             // Navigate to live tracking map screen
             final position = context.read<SosCubit>().lastKnownPosition;
             final ti = techInfo ?? state.technicianInfo;
+            final (techLat, techLng) = TechnicianLocation.latLngFrom(ti);
             context.offNamed(
               Routes.technicianTracking,
               arguments: TrackingArgs(
@@ -82,8 +84,8 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
                 customerLat: position?.latitude ?? 25.2854,
                 customerLng: position?.longitude ?? 51.5310,
                 initialPhase: 'en_route',
-                techLat: _parseDouble(ti['latitude']),
-                techLng: _parseDouble(ti['longitude']),
+                techLat: techLat,
+                techLng: techLng,
               ),
             );
           } else if (state is TechnicianArrived) {

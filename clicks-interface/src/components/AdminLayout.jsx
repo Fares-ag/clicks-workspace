@@ -6,6 +6,7 @@ import io from "socket.io-client";
 import AdminSidebar from "./AdminSidebar.jsx";
 import AdminTopBar from "./AdminTopBar.jsx";
 import SOSNotification from "./SOSNotification.jsx";
+import ServiceRequestNotification from "./ServiceRequestNotification.jsx";
 import BusinessJobNotification from "./BusinessJobNotification.jsx";
 import TechnicianJobNotification from "./TechnicianJobNotification.jsx";
 import { apiSlice } from "../store/apiSlice";
@@ -22,6 +23,8 @@ function AdminLayout({ children }) {
     typeof window !== "undefined" ? window.innerWidth <= 900 : false
   );
   const [sosNotification, setSOSNotification] = useState(null);
+  const [serviceRequestNotification, setServiceRequestNotification] =
+    useState(null);
   const [businessJobNotification, setBusinessJobNotification] = useState(null);
   const [technicianJobNotification, setTechnicianJobNotification] = useState(null);
   const [socket, setSocket] = useState(null);
@@ -80,6 +83,18 @@ function AdminLayout({ children }) {
       dispatch(apiSlice.util.invalidateTags(["SOS"]));
       const audio = new Audio("/notification.mp3");
       audio.play().catch(() => {});
+    });
+
+    adminSocket.on("newServiceRequest", (data) => {
+      setServiceRequestNotification(data);
+      dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
+      const audio = new Audio("/notification.mp3");
+      audio.play().catch(() => {});
+    });
+
+    adminSocket.on("serviceRequestCancelled", () => {
+      setServiceRequestNotification(null);
+      dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
     });
 
     adminSocket.on("newBusinessJob", (data) => {
@@ -169,6 +184,34 @@ function AdminLayout({ children }) {
     setSOSNotification(null);
   };
 
+  const handleCreateServiceJob = (requestData) => {
+    navigate("/jobs/new", {
+      state: {
+        serviceRequestData: {
+          service_request_id:
+            requestData.service_request_id ||
+            requestData.id ||
+            requestData._id,
+          customer_id: requestData.customer_id,
+          customer_vehicle_id: requestData.customer_vehicle_id,
+          customer: requestData.customer,
+          vehicle: requestData.vehicle,
+          location: requestData.location,
+          service_type: requestData.service_type,
+          timing: requestData.timing,
+          scheduled_for: requestData.scheduled_for,
+          status: requestData.status,
+        },
+      },
+    });
+    setServiceRequestNotification(null);
+    dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
+  };
+
+  const handleDismissServiceRequest = () => {
+    setServiceRequestNotification(null);
+  };
+
   const handleOpenBusinessJob = (jobData) => {
     if (jobData?.job_id) {
       navigate(`/jobs/${jobData.job_id}`);
@@ -228,7 +271,17 @@ function AdminLayout({ children }) {
         />
       )}
 
-      {!sosNotification && businessJobNotification && (
+      {!sosNotification && serviceRequestNotification && (
+        <ServiceRequestNotification
+          requestData={serviceRequestNotification}
+          onCreateJob={handleCreateServiceJob}
+          onDismiss={handleDismissServiceRequest}
+        />
+      )}
+
+      {!sosNotification &&
+        !serviceRequestNotification &&
+        businessJobNotification && (
         <BusinessJobNotification
           jobData={businessJobNotification}
           onOpenJob={handleOpenBusinessJob}
@@ -236,7 +289,10 @@ function AdminLayout({ children }) {
         />
       )}
 
-      {!sosNotification && !businessJobNotification && technicianJobNotification && (
+      {!sosNotification &&
+        !serviceRequestNotification &&
+        !businessJobNotification &&
+        technicianJobNotification && (
         <TechnicianJobNotification
           jobData={technicianJobNotification}
           onOpenJob={handleOpenTechnicianJob}

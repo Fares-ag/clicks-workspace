@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:typed_data';
 
 import 'package:bloc/bloc.dart';
 import 'package:dio/dio.dart';
 import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 import '../../../../core/config/job_fulfill_status.dart';
@@ -49,6 +50,7 @@ class HomeCubit extends Cubit<HomeState> {
   bool socketConnected = false;
   String? homeHeroUrl;
   bool signatureClearedBanner = false;
+  String? lastActionError;
 
   /// Last GPS fix from location tracking (for live Active Job map).
   double? lastLatitude;
@@ -62,6 +64,15 @@ class HomeCubit extends Cubit<HomeState> {
 
   /// Raw job JSON — REST session or `newJobAssigned` socket payload.
   Map<String, dynamic>? activeJob;
+
+  /// All fulfill-path / unpaid jobs from session (multi-job queue).
+  List<Map<String, dynamic>> activeJobs = [];
+
+  /// When true, [MainShell] should switch to the Home tab (Continue job).
+  bool pendingNavigateHome = false;
+
+  /// Client-side start proximity hint (meters). Server enforces the real limit.
+  static const double startMaxMeters = 200;
 
   /// Recent completed jobs (read-only history).
   List<Map<String, dynamic>> jobHistory = [];
@@ -197,9 +208,9 @@ class HomeCubit extends Cubit<HomeState> {
       } else {
         activeJob = incoming;
       }
-      // Modal is showing — dismiss any OS urgent banner.
+      // Keep beeping until Accept — start alarm even if FCM was missed.
       // ignore: discarded_futures
-      JobNotificationService.instance.cancelUrgentJobNotification();
+      JobNotificationService.instance.startInsistentAlarm();
       _emitLoaded();
       _syncLocationTracking();
       _syncSessionPoll();
@@ -219,6 +230,8 @@ class HomeCubit extends Cubit<HomeState> {
 
     _socketService.onJobCancelled = (data) {
       activeJob = null;
+      // ignore: discarded_futures
+      JobNotificationService.instance.cancelUrgentJobNotification();
       fetchSession();
       _syncLocationTracking();
       _syncSessionPoll();
@@ -226,6 +239,8 @@ class HomeCubit extends Cubit<HomeState> {
 
     _socketService.onJobReassigned = (data) {
       activeJob = null;
+      // ignore: discarded_futures
+      JobNotificationService.instance.cancelUrgentJobNotification();
       fetchSession();
       _syncLocationTracking();
       _syncSessionPoll();
@@ -262,9 +277,24 @@ class HomeCubit extends Cubit<HomeState> {
         final data = response.data as Map;
         final status = data['technician']?['status']?.toString();
         isOnline = status == 'Online' || status == 'On Job';
+        final jobsRaw = data['active_jobs'];
+        if (jobsRaw is List) {
+          activeJobs = jobsRaw
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        } else {
+          activeJobs = [];
+        }
         final job = data['active_job'];
         if (!isLoadingAction) {
-          activeJob = job is Map ? Map<String, dynamic>.from(job) : null;
+          if (job is Map) {
+            activeJob = Map<String, dynamic>.from(job);
+          } else if (activeJobs.isNotEmpty) {
+            activeJob = Map<String, dynamic>.from(activeJobs.first);
+          } else {
+            activeJob = null;
+          }
         }
         sessionLoadFailed = false;
       } else if (response.statusCode == 401) {
@@ -283,6 +313,99 @@ class HomeCubit extends Cubit<HomeState> {
     _emitLoaded();
     _syncLocationTracking();
     _syncSessionPoll();
+  }
+
+  /// Focus a job from the queue (Activities Continue) and jump to Home.
+  Future<bool> continueJob(String jobId) async {
+    final ok = await focusJob(jobId);
+    if (!ok) return false;
+    pendingNavigateHome = true;
+    _emitLoaded();
+    return true;
+  }
+
+  void clearPendingNavigateHome() {
+    pendingNavigateHome = false;
+  }
+
+  /// Set [activeJob] from the queue or by fetching the job.
+  Future<bool> focusJob(String jobId) async {
+    if (jobId.isEmpty) return false;
+    Map<String, dynamic>? fromQueue;
+    for (final j in activeJobs) {
+      if ((j['_id'] ?? j['job_id'])?.toString() == jobId) {
+        fromQueue = j;
+        break;
+      }
+    }
+    if (fromQueue != null) {
+      activeJob = Map<String, dynamic>.from(fromQueue);
+      _emitLoaded();
+      return true;
+    }
+    try {
+      final res = await DioHelper.getData(url: EndPoints.jobById(jobId));
+      if (res.statusCode == 200) {
+        final job = res.data['job'];
+        if (job is Map) {
+          activeJob = Map<String, dynamic>.from(job);
+          _emitLoaded();
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Parse job lat/lng from locationCoordinates or location string.
+  ({double lat, double lng})? jobLatLng([Map<String, dynamic>? job]) {
+    final j = job ?? activeJob;
+    if (j == null) return null;
+    final coords = j['locationCoordinates'];
+    if (coords is Map) {
+      final c = coords['coordinates'];
+      if (c is List && c.length >= 2) {
+        final lng = (c[0] as num?)?.toDouble();
+        final lat = (c[1] as num?)?.toDouble();
+        if (lat != null && lng != null && !(lat == 0 && lng == 0)) {
+          return (lat: lat, lng: lng);
+        }
+      }
+    }
+    final label = (j['location'] ?? '').toString().trim();
+    final m = RegExp(
+      r'(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)',
+    ).firstMatch(label);
+    if (m != null) {
+      final lat = double.tryParse(m.group(1)!);
+      final lng = double.tryParse(m.group(2)!);
+      if (lat != null && lng != null) return (lat: lat, lng: lng);
+    }
+    return null;
+  }
+
+  /// Client hint: tech GPS is within [startMaxMeters] of the job.
+  bool get canStartJob {
+    if (jobStatus != 'arrived') return false;
+    final dest = jobLatLng();
+    final lat = lastLatitude;
+    final lng = lastLongitude;
+    if (dest == null || lat == null || lng == null) return false;
+    final meters = Geolocator.distanceBetween(
+      lat,
+      lng,
+      dest.lat,
+      dest.lng,
+    );
+    return meters <= startMaxMeters;
+  }
+
+  double? get distanceToJobMeters {
+    final dest = jobLatLng();
+    final lat = lastLatitude;
+    final lng = lastLongitude;
+    if (dest == null || lat == null || lng == null) return null;
+    return Geolocator.distanceBetween(lat, lng, dest.lat, dest.lng);
   }
 
   /// Activity tab: all assigned jobs (any status), newest first.
@@ -535,8 +658,26 @@ class HomeCubit extends Cubit<HomeState> {
   Future<void> startJob() async {
     final id = jobId;
     if (id == null) return;
+    double? lat = lastLatitude;
+    double? lng = lastLongitude;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings:
+            const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      lat = pos.latitude;
+      lng = pos.longitude;
+      lastLatitude = lat;
+      lastLongitude = lng;
+    } catch (_) {}
     await _runJobAction(
-      () => DioHelper.postData(url: EndPoints.startJob(id), data: {}),
+      () => DioHelper.postData(
+        url: EndPoints.startJob(id),
+        data: {
+          if (lat != null) 'latitude': lat,
+          if (lng != null) 'longitude': lng,
+        },
+      ),
       optimisticStatus: 'in_progress',
       onSuccess: () {
         activeJob!['job_status'] = 'in_progress';
@@ -577,28 +718,103 @@ class HomeCubit extends Cubit<HomeState> {
     return false;
   }
 
-  Future<bool> uploadCustomerSignature(String filePath) async {
+  Future<bool> uploadCustomerSignatureBytes(Uint8List bytes) async {
     final id = jobId;
     if (id == null) return false;
     try {
       final form = FormData.fromMap({
-        'signature': await MultipartFile.fromFile(filePath, filename: 'signature.png'),
+        'signature': MultipartFile.fromBytes(
+          bytes,
+          filename: 'signature.png',
+          contentType: DioMediaType('image', 'png'),
+        ),
       });
       final res = await DioHelper.postData(
         url: EndPoints.uploadSignature(id),
         data: form,
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
-        activeJob?['customerSignatureUrl'] =
-            res.data['customerSignatureUrl']?.toString() ?? 'ok';
-        activeJob?['customerSignedAt'] =
-            res.data['customerSignedAt']?.toString() ??
-                DateTime.now().toIso8601String();
+        final data = res.data;
+        if (data is Map) {
+          final url = data['customerSignatureUrl']?.toString() ?? '';
+          final signedAt = data['customerSignedAt'];
+          if (url.isNotEmpty && signedAt != null) {
+            activeJob = {
+              ...?activeJob,
+              'customerSignatureUrl': url,
+              'customerSignedAt': signedAt,
+            };
+            signatureClearedBanner = false;
+            _emitLoaded();
+            return true;
+          }
+        }
+        await fetchSession();
+        final url = activeJob?['customerSignatureUrl']?.toString() ?? '';
+        final signedAt = activeJob?['customerSignedAt'];
+        if (url.isEmpty || signedAt == null) {
+          debugPrint('[HomeCubit] signature upload OK but session missing signature');
+          return false;
+        }
         signatureClearedBanner = false;
         _emitLoaded();
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[HomeCubit] uploadCustomerSignature failed: $e');
+      if (e is DioException && e.response != null) {
+        lastActionError = DioHelper.errorMessage(e.response!);
+      }
+    }
+    return false;
+  }
+
+  /// Mobile file-path upload (native). Web uses [uploadCustomerSignatureBytes].
+  Future<bool> uploadCustomerSignature(String filePath) async {
+    if (kIsWeb) return false;
+    final id = jobId;
+    if (id == null) return false;
+    try {
+      final form = FormData.fromMap({
+        'signature': await MultipartFile.fromFile(
+          filePath,
+          filename: 'signature.png',
+        ),
+      });
+      final res = await DioHelper.postData(
+        url: EndPoints.uploadSignature(id),
+        data: form,
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final data = res.data;
+        if (data is Map) {
+          final url = data['customerSignatureUrl']?.toString() ?? '';
+          final signedAt = data['customerSignedAt'];
+          if (url.isNotEmpty && signedAt != null) {
+            activeJob = {
+              ...?activeJob,
+              'customerSignatureUrl': url,
+              'customerSignedAt': signedAt,
+            };
+            signatureClearedBanner = false;
+            _emitLoaded();
+            return true;
+          }
+        }
+        await fetchSession();
+        final url = activeJob?['customerSignatureUrl']?.toString() ?? '';
+        final signedAt = activeJob?['customerSignedAt'];
+        if (url.isEmpty || signedAt == null) return false;
+        signatureClearedBanner = false;
+        _emitLoaded();
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[HomeCubit] uploadCustomerSignature failed: $e');
+      if (e is DioException && e.response != null) {
+        lastActionError = DioHelper.errorMessage(e.response!);
+      }
+    }
     return false;
   }
 
@@ -652,11 +868,13 @@ class HomeCubit extends Cubit<HomeState> {
   }) async {
     final id = jobId;
     if (id == null) return false;
+    lastActionError = null;
+    await fetchSession();
     return _runJobAction(
       () => DioHelper.postData(
         url: EndPoints.completeJob(id),
         data: {
-          if (notes.isNotEmpty) 'completion_notes': notes,
+          'completion_notes': notes,
           if (photoLabels.isNotEmpty) 'completion_photos': photoLabels,
         },
       ),
@@ -673,6 +891,9 @@ class HomeCubit extends Cubit<HomeState> {
     required String description,
     required double price,
     int quantity = 1,
+    String? name,
+    String? notes,
+    double? cost,
     String? receiptImageUrl,
   }) async {
     final id = jobId;
@@ -684,6 +905,9 @@ class HomeCubit extends Cubit<HomeState> {
           'description': description,
           'price': price,
           'quantity': quantity,
+          if (name != null && name.isNotEmpty) 'name': name,
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+          if (cost != null) 'cost': cost,
           if (receiptImageUrl != null && receiptImageUrl.isNotEmpty)
             'receipt_image_url': receiptImageUrl,
         },
@@ -751,14 +975,20 @@ class HomeCubit extends Cubit<HomeState> {
           activeJob!['status'] = previousStatus;
         }
         final err = DioHelper.errorMessage(response);
-        emit(HomeActionError(err ?? 'Action failed'));
+        lastActionError = err ?? 'Action failed';
+        emit(HomeActionError(lastActionError!));
       }
-    } catch (_) {
+    } catch (e) {
       if (optimisticStatus != null && activeJob != null) {
         activeJob!['job_status'] = previousStatus;
         activeJob!['status'] = previousStatus;
       }
-      emit(HomeActionError('Action failed, please try again'));
+      var msg = 'Action failed, please try again';
+      if (e is DioException && e.response != null) {
+        msg = DioHelper.errorMessage(e.response!) ?? msg;
+      }
+      lastActionError = msg;
+      emit(HomeActionError(msg));
     }
 
     isLoadingAction = false;

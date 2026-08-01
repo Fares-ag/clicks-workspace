@@ -75,6 +75,7 @@ app.use("/api/privacy-policy", privacyPolicyRoutes);
 app.use("/api/terms-and-conditions", termsAndConditionsRoutes);
 app.use("/api/receipts", require("./routes/receipts"));
 app.use("/api/sos", require("./routes/sos"));
+app.use("/api/service-requests", require("./routes/serviceRequests"));
 app.use("/api/business", require("./routes/businessPortal"));
 app.use("/api/businesses", require("./routes/businesses"));
 app.use("/api/subscriptions", require("./routes/subscriptions"));

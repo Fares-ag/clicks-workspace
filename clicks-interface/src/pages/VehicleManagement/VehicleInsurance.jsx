@@ -261,7 +261,7 @@ function VehicleInsurance() {
     <div className="vehicle-insurance-container">
       <div className="vehicle-insurance-header-row">
         <span className="vehicle-insurance-title">
-          Vehicle Insurance
+          Subscriptions
         </span>
         <button className="vehicle-insurance-add-btn" onClick={() => setModalOpen(true)}>
           + Add New Subscription
@@ -288,7 +288,7 @@ function VehicleInsurance() {
           pageSize: 5,
           onChange: (newPage) => setPage(newPage)
         }}
-        title="Vehicle Insurance"
+        title="Subscriptions"
         hasBorders={true}
       />
       <AddInsuranceModal

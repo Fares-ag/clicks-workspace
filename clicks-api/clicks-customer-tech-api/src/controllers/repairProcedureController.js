@@ -4,30 +4,41 @@ const fileUploadService = require("../services/fileUploadService");
 
 const createRepairProcedure = async (req, res) => {
   try {
-    const { job_id, technician_id, description, quantity, price } = req.body;
-    
+    const {
+      job_id,
+      technician_id,
+      description,
+      quantity,
+      price,
+      name,
+      notes,
+      cost,
+    } = req.body;
+
     // Check if receipt image is provided
     if (!req.file && !req.body.receipt_image_url) {
-      return res.status(400).json({ 
-        error: "Receipt image is required", 
-        message: "Please upload a receipt image for this repair procedure" 
+      return res.status(400).json({
+        error: "Receipt image is required",
+        message: "Please upload a receipt image for this repair procedure",
       });
     }
-    
+
     let receipt_image_url = req.body.receipt_image_url;
     if (req.file) {
-      const ext = req.file.originalname.split(".").pop();
       const filename = `receipt-images/${Date.now()}_${req.file.originalname}`;
       receipt_image_url = await fileUploadService.uploadFile(req.file, filename);
     }
-    
+
     const repair = new RepairProcedure({
       job_id,
       technician_id,
       description,
       quantity,
       price,
-      receipt_image_url
+      name: name != null ? String(name).trim() : "",
+      notes: notes != null ? String(notes).trim() : "",
+      cost: cost != null && cost !== "" ? Number(cost) : 0,
+      receipt_image_url,
     });
     await repair.save();
     res.status(201).json({ message: "Repair procedure created", repair });
@@ -49,7 +60,10 @@ const getRepairProcedures = async (req, res) => {
 const updateRepairProcedure = async (req, res) => {
   try {
     const { id } = req.params;
-    const update = req.body;
+    const update = { ...req.body };
+    if (update.name != null) update.name = String(update.name).trim();
+    if (update.notes != null) update.notes = String(update.notes).trim();
+    if (update.cost != null && update.cost !== "") update.cost = Number(update.cost);
     const repair = await RepairProcedure.findByIdAndUpdate(id, update, { new: true });
     if (!repair) return res.status(404).json({ error: "Repair procedure not found" });
     res.json({ message: "Repair procedure updated", repair });
@@ -73,5 +87,5 @@ module.exports = {
   createRepairProcedure,
   getRepairProcedures,
   updateRepairProcedure,
-  deleteRepairProcedure
+  deleteRepairProcedure,
 };

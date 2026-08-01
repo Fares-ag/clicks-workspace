@@ -1,6 +1,6 @@
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
-import 'package:clicks_user/features/home/home_screen.dart';
+import 'package:clicks_user/features/services/service_request_sheet.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -157,10 +157,9 @@ class _ServicesScreenState extends State<ServicesScreen> {
                       selectedService.isEmpty
                           ? null
                           : () {
-                            openConfirmVehicleBottomSheet(
+                            openServiceRequestBottomSheet(
                               context,
-                              selectedService.first.serviceType,
-                              isEmergency: false,
+                              serviceType: selectedService.first.serviceType,
                               serviceLabel: selectedService.first.titleKey.tr(),
                             );
                           },

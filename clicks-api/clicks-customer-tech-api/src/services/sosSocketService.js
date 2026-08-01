@@ -1,8 +1,17 @@
 const jwt = require("jsonwebtoken");
-const { SOSRequest, Technician, Job, Customer, CustomerVehicle } = require("../../../clicks-shared/models");
+const {
+  SOSRequest,
+  ServiceRequest,
+  Technician,
+  Job,
+  Customer,
+  CustomerVehicle,
+} = require("../../../clicks-shared/models");
 const { broadcastMs, inCallTimeoutMs } = require("../utils/sosTimeout");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
 const { assertJobAccess } = require("../utils/ownership");
+const { parseJobLocation } = require("../../../clicks-shared/utils/parseJobLocation");
+const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
 
 function socketTechnicianUser(socket) {
   if (!socket?.user?.id) return null;
@@ -565,6 +574,20 @@ function initializeSOSSocket(io) {
           return;
         }
 
+        const pendingImmediateService = await ServiceRequest.findOne({
+          customer_id,
+          timing: "immediate",
+          status: "pending",
+        });
+        if (pendingImmediateService) {
+          emitSosError({
+            message: "You already have a pending service request",
+            code: "SERVICE_REQUEST_ALREADY_ACTIVE",
+            service_request_id: pendingImmediateService._id.toString(),
+          });
+          return;
+        }
+
         const customer = await Customer.findById(customer_id);
         if (!customer) {
           console.error('Customer not found:', customer_id);
@@ -775,7 +798,7 @@ function initializeSOSSocket(io) {
         console.log(`Technician starting en route for job ${job_id}`);
 
         const job = await Job.findById(job_id)
-          .populate('assignedTechnician', 'firstName lastName phone profilePicture');
+          .populate('assignedTechnician', 'firstName lastName phone profilePicture currentLocation');
 
         if (!job) {
           socket.emit("error", { message: "Job not found" });
@@ -810,11 +833,29 @@ function initializeSOSSocket(io) {
             job_id,
             status: "en_route",
             en_route_at: job.en_route_at,
-            technician: {
-              name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-              phone: job.assignedTechnician.phone,
-              photo: job.assignedTechnician.profilePicture
-            }
+            technician: (() => {
+              const tech = job.assignedTechnician;
+              if (!tech) return undefined;
+              const payload = {
+                name: `${tech.firstName} ${tech.lastName}`,
+                phone: tech.phone,
+                photo: tech.profilePicture,
+              };
+              const coords = tech.currentLocation?.coordinates;
+              if (Array.isArray(coords) && coords.length >= 2) {
+                const lng = Number(coords[0]);
+                const lat = Number(coords[1]);
+                if (
+                  Number.isFinite(lat) &&
+                  Number.isFinite(lng) &&
+                  !(lat === 0 && lng === 0)
+                ) {
+                  payload.latitude = lat;
+                  payload.longitude = lng;
+                }
+              }
+              return payload;
+            })(),
           });
           console.log(`Customer ${job.customer_id} notified: technician en route`);
         }
@@ -876,9 +917,10 @@ function initializeSOSSocket(io) {
     });
 
     // ⚡ Technician starts job (arrived → in_progress)
+    // Prefer REST POST /api/jobs/:id/start — this handler mirrors the same gates.
     socket.on("startJob", async (data) => {
       try {
-        const { job_id } = data;
+        const { job_id, latitude, longitude, lat, lng } = data || {};
         console.log(`Technician starting job ${job_id}`);
 
         const job = await Job.findById(job_id);
@@ -895,6 +937,60 @@ function initializeSOSSocket(io) {
         // Job must be in "arrived" status
         if (job.job_status !== "arrived") {
           socket.emit("error", { message: `Cannot start job from status: ${job.job_status}` });
+          return;
+        }
+
+        const otherInProgress = await Job.findOne({
+          assignedTechnician: socket.user.id,
+          job_status: "in_progress",
+          _id: { $ne: job._id },
+        }).select("_id");
+        if (otherInProgress) {
+          socket.emit("error", {
+            message: "Finish your current in-progress job before starting another",
+          });
+          return;
+        }
+
+        const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
+        let jobPoint = null;
+        const coords = job.locationCoordinates?.coordinates;
+        if (Array.isArray(coords) && coords.length >= 2) {
+          jobPoint = { lat: Number(coords[1]), lng: Number(coords[0]) };
+        } else {
+          jobPoint = parseJobLocation(job.location);
+        }
+        if (!jobPoint) {
+          socket.emit("error", {
+            message: "Job location coordinates are missing; cannot verify proximity",
+          });
+          return;
+        }
+
+        let techLat = Number(latitude ?? lat);
+        let techLng = Number(longitude ?? lng);
+        if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
+          const tech = await Technician.findById(socket.user.id).select("currentLocation");
+          const tc = tech?.currentLocation?.coordinates;
+          if (Array.isArray(tc) && tc.length >= 2) {
+            techLng = Number(tc[0]);
+            techLat = Number(tc[1]);
+          }
+        }
+        if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
+          socket.emit("error", { message: "Technician location is required to start the job" });
+          return;
+        }
+
+        const distanceMeters = Math.round(
+          distanceBetween({ lat: techLat, lng: techLng }, jobPoint)
+        );
+        if (distanceMeters > maxMeters) {
+          socket.emit("error", {
+            message: `You must be within ${maxMeters}m of the job location to start`,
+            distanceMeters,
+            maxMeters,
+          });
           return;
         }
 
@@ -1132,7 +1228,10 @@ function initializeSOSSocket(io) {
       
       // Fetch job with all populated fields (+ fcm_token for push)
       const job = await Job.findById(jobId)
-        .populate('assignedTechnician', 'firstName lastName phone profilePicture fcm_token')
+        .populate(
+          "assignedTechnician",
+          "firstName lastName phone profilePicture fcm_token currentLocation"
+        )
         .populate('customer_id', 'first_name last_name phone_number')
         .populate({
           path: 'customer_vehicle_id',
@@ -1211,6 +1310,22 @@ function initializeSOSSocket(io) {
         });
       } catch (fcmErr) {
         console.error("[fcm] notifyAssignedTechnician push error:", fcmErr.message);
+      }
+
+      // Notify customer so waiting / service-request screens can advance
+      if (job.customer_id?._id || job.customer_id) {
+        const customerId = (job.customer_id._id || job.customer_id).toString();
+        const tech = job.assignedTechnician;
+        await notifyCustomerTechnicianAssigned(customerId, {
+          job_id: job._id.toString(),
+          technician: {
+            name: `${tech.firstName || ""} ${tech.lastName || ""}`.trim(),
+            phone: tech.phone,
+            photo: tech.profilePicture,
+            latitude: tech.currentLocation?.coordinates?.[1],
+            longitude: tech.currentLocation?.coordinates?.[0],
+          },
+        });
       }
 
       return socketOk;
@@ -1330,6 +1445,29 @@ function initializeSOSSocket(io) {
     }
   }
 
+  function notifyAdminServiceRequest(payload) {
+    try {
+      console.log(
+        `Broadcasting service request ${payload?.id || payload?._id} to ${adminSockets.size} admin(s)`
+      );
+      adminNamespace.emit("newServiceRequest", payload);
+      return true;
+    } catch (error) {
+      console.error("Error emitting newServiceRequest to admin:", error);
+      return false;
+    }
+  }
+
+  function notifyAdminServiceRequestCancelled(payload) {
+    try {
+      adminNamespace.emit("serviceRequestCancelled", payload);
+      return true;
+    } catch (error) {
+      console.error("Error emitting serviceRequestCancelled to admin:", error);
+      return false;
+    }
+  }
+
   return { 
     customerNamespace, 
     technicianNamespace, 
@@ -1343,6 +1481,8 @@ function initializeSOSSocket(io) {
     notifySosClaimed,
     notifyAdminBusinessJob,
     notifyAdminTechnicianJob,
+    notifyAdminServiceRequest,
+    notifyAdminServiceRequestCancelled,
     customerSockets,
     technicianSockets,
     adminSockets

@@ -697,7 +697,69 @@
               "host": ["{{base_url}}"],
               "path": ["api", "jobs", "technician", "session"]
             },
-            "description": "Get technician's active job for app resume.\n\nUse this when technician opens the app to check if they have an active job.\n\nResponse:\n```json\n{\n  \"technician\": { \"id\", \"name\", \"status\", \"is_active\" },\n  \"active_job\": { ... } | null,\n  \"has_active_job\": true | false\n}\n```\n\nFrontend navigation based on job_status:\n- 'assigned' → New Job Screen\n- 'accepted' → Job Accepted Screen\n- 'en_route' → Navigation Screen\n- 'arrived' → Job Arrived Screen\n- 'in_progress' → Job Working Screen\n- 'completed' → Payment Screen"
+            "description": "Get technician session for app resume.\n\nResponse includes multi-job queue:\n```json\n{\n  \"technician\": { \"id\", \"name\", \"status\", \"is_active\" },\n  \"active_job\": { ... } | null,\n  \"active_jobs\": [ ... ],\n  \"has_active_job\": true | false\n}\n```\n\n`active_jobs` is priority-sorted: in_progress → arrived → en_route → accepted → assigned → unpaid completed.\n\nFrontend navigation based on job_status:\n- 'assigned' → New Job Screen\n- 'accepted' → Job Accepted Screen\n- 'en_route' → Navigation Screen\n- 'arrived' → Job Arrived Screen\n- 'in_progress' → Job Working Screen\n- 'completed' → Payment Screen"
+          }
+        },
+        {
+          "name": "Get Job Activity Detail (Technician)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/jobs/{{job_id}}/activity-detail",
+              "host": ["{{base_url}}"],
+              "path": ["api", "jobs", "{{job_id}}", "activity-detail"]
+            },
+            "description": "Aggregated payload for Activity Details screen: job, repairs[], pricing { total, costTotal, profit }, receipt | null."
+          }
+        },
+        {
+          "name": "Maps Directions (proxy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/maps/directions?origin=25.327,51.489&destination=25.326,51.488&mode=driving",
+              "host": ["{{base_url}}"],
+              "path": ["api", "maps", "directions"],
+              "query": [
+                { "key": "origin", "value": "25.327,51.489" },
+                { "key": "destination", "value": "25.326,51.488" },
+                { "key": "mode", "value": "driving" }
+              ]
+            },
+            "description": "Server-side Google Directions proxy. Requires GOOGLE_MAPS_API_KEY on customer-tech-api."
+          }
+        },
+        {
+          "name": "Maps Geocode (proxy)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{technician_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/maps/geocode?address=Doha&region=qa",
+              "host": ["{{base_url}}"],
+              "path": ["api", "maps", "geocode"],
+              "query": [
+                { "key": "address", "value": "Doha" },
+                { "key": "region", "value": "qa" }
+              ]
+            }
           }
         },
         {

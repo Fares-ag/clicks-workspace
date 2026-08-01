@@ -10,15 +10,21 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 import '../api/end_points/end_points.dart';
 import '../config/app_config.dart';
 import '../helper/cache_helper.dart';
 
-const String kJobUrgentChannelId = 'clicks_job_urgent_v2';
+/// Bumped channel id when sound / insistent behavior changes (Android channels
+/// are immutable after first create).
+const String kJobUrgentChannelId = 'clicks_job_urgent_v3';
 const String kAcceptJobActionId = 'accept_job';
 const int kJobAssignedNotifId = 42001;
 const String kPendingJobIdKey = 'pending_fcm_job_id';
+
+/// Android Notification.FLAG_INSISTENT — sound/vibration repeats until cancel.
+const int kInsistentFlag = 4;
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -56,6 +62,7 @@ class JobNotificationService {
   bool _initialized = false;
   bool _appInForeground = true;
   bool _tokenRefreshWired = false;
+  bool _alarmPlaying = false;
 
   /// Optional UI hook after Accept action or notification tap.
   void Function(String jobId)? onJobAcceptedFromNotification;
@@ -109,7 +116,9 @@ class JobNotificationService {
         onForegroundJobAssigned?.call(
           Map<String, dynamic>.from(message.data),
         );
-        _log('foreground FCM job_assigned → session refresh');
+        // Keep beeping in-app until Accept (modal may also be visible).
+        await showFromRemoteData(message.data);
+        _log('foreground FCM job_assigned → insistent alert');
         return;
       }
       await showFromRemoteData(message.data);
@@ -235,14 +244,42 @@ class JobNotificationService {
 
     const channel = AndroidNotificationChannel(
       kJobUrgentChannelId,
-      'Urgent jobs',
-      description: 'High-priority new job assignments',
+      'Urgent jobs (alarm)',
+      description: 'Repeating alarm until you accept a new job',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
       sound: RawResourceAndroidNotificationSound('job_urgent'),
+      audioAttributesUsage: AudioAttributesUsage.alarm,
     );
     await android.createNotificationChannel(channel);
+  }
+
+  /// Looping system/alarm ringtone (works while Dart isolate is alive).
+  Future<void> startInsistentAlarm() async {
+    if (kIsWeb || _alarmPlaying) return;
+    _alarmPlaying = true;
+    try {
+      await FlutterRingtonePlayer().play(
+        android: AndroidSounds.alarm,
+        ios: IosSounds.alarm,
+        looping: true,
+        volume: 1.0,
+        asAlarm: true,
+      );
+      _log('insistent ringtone started');
+    } catch (e) {
+      _alarmPlaying = false;
+      _log('ringtone start failed: $e');
+    }
+  }
+
+  Future<void> stopInsistentAlarm() async {
+    if (kIsWeb) return;
+    _alarmPlaying = false;
+    try {
+      await FlutterRingtonePlayer().stop();
+    } catch (_) {}
   }
 
   Future<void> showFromRemoteData(
@@ -279,17 +316,22 @@ class JobNotificationService {
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
         kJobUrgentChannelId,
-        'Urgent jobs',
-        channelDescription: 'High-priority new job assignments',
+        'Urgent jobs (alarm)',
+        channelDescription: 'Repeating alarm until you accept a new job',
         importance: Importance.max,
         priority: Priority.max,
-        category: AndroidNotificationCategory.call,
+        category: AndroidNotificationCategory.alarm,
         ongoing: true,
         autoCancel: false,
         fullScreenIntent: true,
         playSound: true,
         enableVibration: true,
-        vibrationPattern: Int64List.fromList([0, 500, 200, 500, 200, 500]),
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        // Keep sound/vibration looping until cancelled (Accept).
+        additionalFlags: Int32List.fromList(<int>[kInsistentFlag]),
+        vibrationPattern: Int64List.fromList(
+          [0, 600, 200, 600, 200, 600, 400, 800],
+        ),
         sound: const RawResourceAndroidNotificationSound('job_urgent'),
         actions: <AndroidNotificationAction>[
           AndroidNotificationAction(
@@ -312,17 +354,23 @@ class JobNotificationService {
       await _ensureChannel();
     }
 
-    await _local.show(
-      kJobAssignedNotifId,
-      strings['title'] ?? 'New job assigned',
-      body,
-      details,
-      payload: payload,
-    );
-    _log('showed urgent notif job=$jobId bg=$fromBackground');
+    // In foreground the top banner handles UX; alarm still loops until Accept.
+    if (!_appInForeground || fromBackground) {
+      await _local.show(
+        kJobAssignedNotifId,
+        strings['title'] ?? 'New job assigned',
+        body,
+        details,
+        payload: payload,
+      );
+    }
+    // Extra looping ringtone while the app/isolate is alive.
+    await startInsistentAlarm();
+    _log('showed insistent urgent notif job=$jobId bg=$fromBackground');
   }
 
   Future<void> cancelUrgentJobNotification() async {
+    await stopInsistentAlarm();
     try {
       await _local.cancel(kJobAssignedNotifId);
     } catch (_) {}

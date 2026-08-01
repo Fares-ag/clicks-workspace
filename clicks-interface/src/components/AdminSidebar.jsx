@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { logout } from "../store/authSlice";
 import { useGetSOSRequestsQuery } from "../store/sosApi";
+import { useGetServiceRequestsQuery } from "../store/serviceRequestApi";
 import PrimaryButton from "./PrimaryButton.jsx";
 import "./AdminSidebar.css";
 
@@ -33,6 +34,11 @@ const navItems = [
     to: "/live-map",
   },
   {
+    label: "Heat Map",
+    icon: "/icons/earnings-chart.svg",
+    to: "/heat-map",
+  },
+  {
     label: "Job Management",
     icon: "/icons/job.svg",
     to: "/jobs",
@@ -47,6 +53,12 @@ const navItems = [
     icon: "/icons/call.svg",
     to: "/sos",
     badge: "sos",
+  },
+  {
+    label: "Service Requests",
+    icon: "/icons/job.svg",
+    to: "/service-requests",
+    badge: "service",
   },
   {
     label: "Performance",
@@ -65,11 +77,6 @@ const navItems = [
   },
   {
     label: "Subscriptions",
-    icon: "/icons/performance.svg",
-    to: "/subscriptions",
-  },
-  {
-    label: "Vehicle Insurance (legacy)",
     icon: "/icons/insurance.svg",
     to: "/vehicle-insurance",
   },
@@ -95,6 +102,12 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
   );
   const sosCount =
     (pendingSos?.pagination?.total || 0) + (inCallSos?.pagination?.total || 0);
+
+  const { data: pendingService } = useGetServiceRequestsQuery(
+    { page: 1, limit: 1, status: "pending" },
+    { pollingInterval: 15000 }
+  );
+  const serviceCount = pendingService?.pagination?.total || 0;
 
   const handleLogout = () => {
     dispatch(logout());
@@ -130,6 +143,14 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
                 aria-label={`${sosCount} open SOS`}
               >
                 {sosCount > 99 ? "99+" : sosCount}
+              </span>
+            )}
+            {item.badge === "service" && serviceCount > 0 && (
+              <span
+                className="sidebar-badge"
+                aria-label={`${serviceCount} pending service requests`}
+              >
+                {serviceCount > 99 ? "99+" : serviceCount}
               </span>
             )}
           </NavLink>

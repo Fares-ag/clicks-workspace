@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import '../../core/routing/routes.dart';
 import '../home/job_in_progress_screen.dart';
 import '../home/technician_tracking_screen.dart';
+import '../services/service_waiting_screen.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -60,6 +61,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
       final activeSos = session['active_sos'];
       final activeJob = session['active_job'];
+      final activeServiceRequest = session['active_service_request'];
       final sosCubit = context.read<SosCubit>();
 
       // Restore SOS cubit + last known location so tracking/in-call work.
@@ -153,6 +155,51 @@ class _SplashScreenState extends State<SplashScreen> {
                 final uri = Uri.parse('tel:$phone');
                 if (await canLaunchUrl(uri)) await launchUrl(uri);
               },
+            ),
+          );
+          return;
+        }
+      }
+
+      // Restore pending / assigned service request (non-SOS)
+      if (activeServiceRequest is Map && activeJob is! Map) {
+        final srId = activeServiceRequest['_id']?.toString() ??
+            activeServiceRequest['id']?.toString() ??
+            '';
+        final status = activeServiceRequest['status']?.toString() ?? '';
+        if (srId.isNotEmpty &&
+            (status == 'pending' || status == 'assigned')) {
+          final coords = activeServiceRequest['location']?['coordinates'];
+          if (coords is List && coords.length >= 2) {
+            final lng = (coords[0] as num).toDouble();
+            final lat = (coords[1] as num).toDouble();
+            sosCubit.lastKnownPosition = Position(
+              latitude: lat,
+              longitude: lng,
+              timestamp: DateTime.now(),
+              accuracy: 0,
+              altitude: 0,
+              altitudeAccuracy: 0,
+              heading: 0,
+              headingAccuracy: 0,
+              speed: 0,
+              speedAccuracy: 0,
+            );
+          }
+          DateTime? scheduledFor;
+          final rawSched = activeServiceRequest['scheduled_for'];
+          if (rawSched != null) {
+            scheduledFor = DateTime.tryParse(rawSched.toString());
+          }
+          if (!mounted) return;
+          context.offNamed(
+            Routes.serviceWaiting,
+            arguments: ServiceWaitingArgs(
+              requestId: srId,
+              serviceType:
+                  activeServiceRequest['service_type']?.toString() ?? '',
+              timing: activeServiceRequest['timing']?.toString() ?? 'immediate',
+              scheduledFor: scheduledFor,
             ),
           );
           return;

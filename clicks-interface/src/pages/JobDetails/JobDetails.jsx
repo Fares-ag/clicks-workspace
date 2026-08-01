@@ -15,6 +15,25 @@ const JOB_TYPE_MAPPING = {
   keyless_car_opening: "Engines",
 };
 
+function getJobVehicleInfo(job) {
+  if (!job) return null;
+  const cv = job.customer_vehicle_id;
+  if (cv && typeof cv === "object") {
+    return {
+      make: cv.vehicle_make?.makeName || job.vehicleMake || "",
+      model: cv.vehicle_model?.modelName || job.vehicleModel || "",
+      year: cv.year ?? job.vehicleYear ?? null,
+      licensePlate: cv.plate_number || job.licensePlate || "",
+    };
+  }
+  return {
+    make: job.vehicleMake || "",
+    model: job.vehicleModel || "",
+    year: job.vehicleYear ?? null,
+    licensePlate: job.licensePlate || "",
+  };
+}
+
 function JobDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -40,19 +59,47 @@ function JobDetails() {
   const techDropdownRef = useRef(null);
 
   const job = data?.job;
-  const repairs = repairsData?.repairs || [];
+  const repairsFromDetail = data?.repairs;
+  const repairsFromQuery = repairsData?.repairs;
+  const repairs =
+    (repairsFromQuery?.length ? repairsFromQuery : repairsFromDetail) || [];
   const technicians = techniciansData?.technicians || [];
   const jobTypeMapping = JOB_TYPE_MAPPING;
-  const vehicleInfo = data?.vehicleInfo || null;
+  const vehicleInfo = getJobVehicleInfo(job);
   const jobDuration = data?.jobDuration || null;
   const estimateTimes = data?.estimateTimes || { adminEstimateTime: null, technicianEstimateTime: null };
-  const financials = data?.financials || { 
-    currentEstimate: 0, 
-    totalCost: 0, 
+
+  const computedFinancials = React.useMemo(() => {
+    if (!job) return null;
+    const base = Number(job.price) || 0;
+    const distanceFee = job.distance_km ? job.distance_km * 2 : 0;
+    const timeFee =
+      job.dateTime && new Date(job.dateTime).getUTCHours() >= 20 ? 20 : 0;
+    const repairsTotal = repairs.reduce(
+      (s, r) => s + (Number(r.price) || 0) * (Number(r.quantity) || 1),
+      0
+    );
+    const totalCost = repairs.reduce(
+      (s, r) => s + (Number(r.cost) || 0) * (Number(r.quantity) || 1),
+      0
+    );
+    const currentEstimate = base + distanceFee + timeFee + repairsTotal;
+    return {
+      currentEstimate,
+      totalCost,
+      serviceCharge: distanceFee + timeFee,
+      currentProfit: currentEstimate - totalCost,
+      isPaid: job.payment_status === "paid",
+    };
+  }, [job, repairs]);
+
+  const financials = data?.financials || computedFinancials || {
+    currentEstimate: 0,
+    totalCost: 0,
     serviceCharge: 0,
-    currentProfit: 0, 
+    currentProfit: 0,
     isPaid: false,
-    finalAmount: null
+    finalAmount: null,
   };
 
   // Connect to admin socket for cancel job functionality
@@ -94,6 +141,8 @@ function JobDetails() {
   useEffect(() => {
     if (job?.assignedTechnician) {
       setSelectedTechnician(job.assignedTechnician);
+    } else {
+      setSelectedTechnician(null);
     }
     if (job?.estimate) {
       setEstimateValue(job.estimate);
@@ -423,14 +472,14 @@ function JobDetails() {
                     <div className="job-details-info-group">
                       <span className="job-details-label">Make</span>
                       <span className="job-details-value-dark">
-                        {vehicleInfo?.make || 'N/A'}
+                        {vehicleInfo?.make || "N/A"}
                       </span>
                     </div>
                     
                     <div className="job-details-info-group">
                       <span className="job-details-label">Year</span>
                       <span className="job-details-value-dark">
-                        {vehicleInfo?.year || job.vehicleYear || 'N/A'}
+                        {vehicleInfo?.year || "N/A"}
                       </span>
                     </div>
                   </div>
@@ -439,14 +488,14 @@ function JobDetails() {
                     <div className="job-details-info-group">
                       <span className="job-details-label">Model</span>
                       <span className="job-details-value-dark">
-                        {vehicleInfo?.model || 'N/A'}
+                        {vehicleInfo?.model || "N/A"}
                       </span>
                     </div>
                     
                     <div className="job-details-info-group">
                       <span className="job-details-label">Plate Number</span>
                       <span className="job-details-value-dark">
-                        {vehicleInfo?.licensePlate || 'N/A'}
+                        {vehicleInfo?.licensePlate || "N/A"}
                       </span>
                     </div>
                   </div>
@@ -618,7 +667,19 @@ function JobDetails() {
                       </span>
                     </>
                   )}
-                  {!selectedTechnician && (
+                  {!selectedTechnician && job?.legacyTechnicianName?.trim() && (
+                    <>
+                      <img
+                        src="/icons/user.svg"
+                        alt="Technician"
+                        className="job-details-tech-avatar"
+                      />
+                      <span className="job-details-select-text">
+                        {job.legacyTechnicianName.trim()}
+                      </span>
+                    </>
+                  )}
+                  {!selectedTechnician && !job?.legacyTechnicianName?.trim() && (
                     <span className="job-details-select-placeholder">Select a technician</span>
                   )}
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="job-details-select-arrow">
@@ -825,7 +886,17 @@ function JobDetails() {
                             <input 
                               type="text" 
                               className="job-details-input"
-                              value={repair.description || ''}
+                              value={repair.name || repair.description || ''}
+                              readOnly
+                              disabled
+                            />
+                          </div>
+                          <div className="job-details-form-group">
+                            <label className="job-details-form-label">Parts Cost</label>
+                            <input 
+                              type="text" 
+                              className="job-details-input"
+                              value={`QR ${((Number(repair.cost) || 0) * (repair.quantity || 1)).toFixed(2)}`}
                               readOnly
                               disabled
                             />
@@ -973,7 +1044,17 @@ function JobDetails() {
                             <input 
                               type="text" 
                               className="job-details-input"
-                              value={repair.description || ''}
+                              value={repair.name || repair.description || ''}
+                              readOnly
+                              disabled
+                            />
+                          </div>
+                          <div className="job-details-form-group">
+                            <label className="job-details-form-label">Parts Cost</label>
+                            <input 
+                              type="text" 
+                              className="job-details-input"
+                              value={`QR ${((Number(repair.cost) || 0) * (repair.quantity || 1)).toFixed(2)}`}
                               readOnly
                               disabled
                             />

@@ -28,6 +28,7 @@ function AddNewJob() {
   const navigate = useNavigate();
   const location = useLocation();
   const sosData = location.state?.sosData;
+  const serviceRequestData = location.state?.serviceRequestData;
 
   const [formData, setFormData] = useState({
     customer_id: "",
@@ -49,7 +50,8 @@ function AddNewJob() {
     price: "",
     source: "",
     subSource: "",
-    sos_id: ""
+    sos_id: "",
+    service_request_id: "",
   });
 
   const [dateTimePickerOpen, setDateTimePickerOpen] = useState(false);
@@ -135,6 +137,50 @@ function AddNewJob() {
     }
   }, [sosData, sources]);
 
+  // Populate form from Service Request (no claim step)
+  useEffect(() => {
+    if (serviceRequestData) {
+      const appSource =
+        sources.find((s) => s.mainSourceName?.toLowerCase() === "app") ||
+        sources.find((s) => s.mainSourceName?.toLowerCase() === "mobile") ||
+        sources[0];
+      const vehicle = serviceRequestData.vehicle || {};
+      const scheduled =
+        serviceRequestData.timing === "scheduled" &&
+        serviceRequestData.scheduled_for
+          ? new Date(serviceRequestData.scheduled_for)
+          : null;
+
+      setFormData((prev) => ({
+        ...prev,
+        customer_id: serviceRequestData.customer_id || "",
+        customer_vehicle_id: serviceRequestData.customer_vehicle_id || "",
+        clientName: serviceRequestData.customer?.name || "",
+        clientMobileNumber: toLocalDigits(
+          serviceRequestData.customer?.phone || "",
+          prev.countryCode || DEFAULT_COUNTRY_CODE
+        ),
+        vehicleMake: vehicle.make && vehicle.make !== "Unknown" ? vehicle.make : "",
+        vehicleModel:
+          vehicle.model && vehicle.model !== "Unknown" ? vehicle.model : "",
+        vehicleYear:
+          vehicle.year && vehicle.year !== "Unknown" ? String(vehicle.year) : "",
+        licensePlate:
+          vehicle.plate && vehicle.plate !== "Unknown" ? vehicle.plate : "",
+        issue: serviceRequestData.service_type || "",
+        location: serviceRequestData.location?.coordinates || "",
+        dateTime: scheduled && !Number.isNaN(scheduled.getTime())
+          ? scheduled.toISOString()
+          : prev.dateTime,
+        source: appSource?._id || prev.source,
+        service_request_id:
+          serviceRequestData.service_request_id ||
+          serviceRequestData._id ||
+          "",
+      }));
+    }
+  }, [serviceRequestData, sources]);
+
   const handlePhoneChange = (localDigits) => {
     setFormData((prev) => ({ ...prev, clientMobileNumber: localDigits }));
     if (localDigits.length > 0 && !isValidLocalPhone(localDigits)) {
@@ -209,6 +255,9 @@ function AddNewJob() {
       
       if (formData.sos_id) {
         jobData.sos_request_id = formData.sos_id;
+      }
+      if (formData.service_request_id) {
+        jobData.service_request_id = formData.service_request_id;
       }
       
       await createJob(jobData).unwrap();

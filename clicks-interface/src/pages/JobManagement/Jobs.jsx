@@ -92,26 +92,42 @@ function ClientInfoCell({ job }) {
   );
 }
 
-function AssignedTechnicianCell({ technician, navigate }) {
-  if (!technician) {
-    return <span className="job-no-tech">No Technician</span>;
+function AssignedTechnicianCell({ job, navigate }) {
+  const technician = job?.assignedTechnician;
+  const legacyName = job?.legacyTechnicianName?.trim();
+
+  if (technician) {
+    return (
+      <div
+        className="job-tech-cell"
+        onClick={() => navigate(`/technicians/${technician._id}`)}
+      >
+        <img
+          src={technician.profilePicture || technician.profileImage || "/icons/user.svg"}
+          alt="Technician"
+          className="job-tech-img"
+        />
+        <span className="job-tech-name">
+          {technician.firstName} {technician.lastName}
+        </span>
+      </div>
+    );
   }
 
-  return (
-    <div 
-      className="job-tech-cell"
-      onClick={() => navigate(`/technicians/${technician._id}`)}
-    >
-      <img
-        src={technician.profileImage || "/icons/user.svg"}
-        alt="Technician"
-        className="job-tech-img"
-      />
-      <span className="job-tech-name">
-        {technician.firstName} {technician.lastName}
-      </span>
-    </div>
-  );
+  if (legacyName) {
+    return (
+      <div className="job-tech-cell job-tech-cell-legacy" title="Historical import — technician not linked in system">
+        <img
+          src="/icons/user.svg"
+          alt="Technician"
+          className="job-tech-img"
+        />
+        <span className="job-tech-name">{legacyName}</span>
+      </div>
+    );
+  }
+
+  return <span className="job-no-tech">No Technician</span>;
 }
 
 function JobActions({ onView }) {
@@ -207,7 +223,7 @@ function Jobs() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState(null);
 
-  const { data, isLoading, refetch } = useGetJobsQuery({ page, limit: 5, search, status: filters.status || undefined, technician: filters.technician || undefined });
+  const { data, isLoading, refetch } = useGetJobsQuery({ page, limit: 40, search, status: filters.status || undefined, technician: filters.technician || undefined });
   const jobs = data?.jobs || [];
   const total = data?.total || 0;
 
@@ -291,8 +307,8 @@ function Jobs() {
       dataIndex: "assignedTechnician",
       width: "15%",
       render: (row) => (
-        <AssignedTechnicianCell 
-          technician={row.assignedTechnician}
+        <AssignedTechnicianCell
+          job={row}
           navigate={navigate}
         />
       )
@@ -353,9 +369,11 @@ function Jobs() {
         <span className="jobs-title">
           Job Management
         </span>
-        <button className="jobs-add-btn" onClick={() => navigate("/jobs/new")}>
-          + Add New Job
-        </button>
+        <div className="jobs-header-actions">
+          <button className="jobs-add-btn" onClick={() => navigate("/jobs/new")}>
+            + Add New Job
+          </button>
+        </div>
       </div>
       <DataTable
         columns={columns}
@@ -375,7 +393,7 @@ function Jobs() {
         pagination={{
           current: page,
           total: total,
-          pageSize: 5,
+          pageSize: 40,
           onChange: (newPage) => setPage(newPage)
         }}
         title="Jobs"

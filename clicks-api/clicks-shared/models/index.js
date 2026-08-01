@@ -17,6 +17,7 @@ module.exports = {
   CustomerVehicle: require("./CustomerVehicle"),
   Job: require("./Job"),
   SOSRequest: require("./SOSRequest"),
+  ServiceRequest: require("./ServiceRequest"),
   Source: require("./Source"),
   Technician: require("./Technician"),
   Vehicle: require("./Vehicle"),

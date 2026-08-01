@@ -4,6 +4,7 @@ import 'package:clicks_user/features/home/in_call_screen.dart';
 import 'package:clicks_user/features/home/timer_sos_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
 import 'package:clicks_user/features/my_cars/my_cars_screen.dart';
+import 'package:clicks_user/features/services/service_waiting_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:responsive_builder/responsive_builder.dart';
@@ -125,6 +126,11 @@ class AppRouter {
                   serviceLabel: serviceLabel,
                 ),
               ),
+        );
+      case Routes.serviceWaiting:
+        final args = settings.arguments as ServiceWaitingArgs;
+        return MaterialPageRoute(
+          builder: (_) => getScreen(ServiceWaitingScreen(args: args)),
         );
       case Routes.activityDetails:
         final job = settings.arguments as JobDto;

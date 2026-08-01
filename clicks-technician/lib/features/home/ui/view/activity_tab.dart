@@ -2,15 +2,14 @@ import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/activity_details_screen.dart';
-import 'package:clicks_technician/features/home/ui/view/add_job_screen.dart';
-import 'package:clicks_technician/features/home/ui/view/add_subscription_screen.dart';
-import 'package:clicks_technician/features/home/ui/view/job_display.dart';
+import 'package:clicks_technician/features/home/ui/view/widgets/activity_calendar_sheet.dart';
+import 'package:clicks_technician/features/home/ui/view/widgets/activity_job_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:intl/intl.dart';
 
-/// Activities listing with month calendar + status pills + view details.
+/// Activities listing — Figma card layout, calendar filter, pagination.
 class ActivityTab extends StatefulWidget {
   const ActivityTab({super.key});
 
@@ -19,9 +18,7 @@ class ActivityTab extends StatefulWidget {
 }
 
 class _ActivityTabState extends State<ActivityTab> {
-  static const _pageSize = 5;
-  /// Calendar columns: Sun → Sat (matches Dart `weekday % 7` padding).
-  static const _weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  static const _pageSize = 4;
   int _page = 0;
   DateTime? _filterDay;
   late DateTime _month;
@@ -54,55 +51,43 @@ class _ActivityTabState extends State<ActivityTab> {
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
+  void _openCalendar(List<Map<String, dynamic>> allJobs) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
+      ),
+      builder: (ctx) => ActivityCalendarSheet(
+        initialMonth: _month,
+        markedDays: _daysWithJobs(allJobs),
+        selectedDay: _filterDay,
+        onMonthChanged: (m) => setState(() => _month = m),
+        onDaySelected: (day) => setState(() {
+          _filterDay = day;
+          if (day != null) {
+            _month = DateTime(day.year, day.month);
+          }
+          _page = 0;
+        }),
+        onClear: () => setState(() {
+          _filterDay = null;
+          _page = 0;
+        }),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'add_sub',
-            onPressed: () {
-              final cubit = context.read<HomeCubit>();
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => AddSubscriptionScreen(cubit: cubit),
-                ),
-              );
-            },
-            backgroundColor: Colors.white,
-            foregroundColor: ColorsManager.mainColor,
-            label: const Text('Subscription'),
-            icon: const Icon(Icons.card_membership_outlined),
-          ),
-          SizedBox(height: 10.h),
-          FloatingActionButton.extended(
-            heroTag: 'add_job',
-            onPressed: () {
-              final cubit = context.read<HomeCubit>();
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => AddJobScreen(cubit: cubit),
-                ),
-              );
-            },
-            backgroundColor: ColorsManager.mainColor,
-            foregroundColor: Colors.white,
-            label: const Text('Add job'),
-            icon: const Icon(Icons.add),
-          ),
-        ],
-      ),
       body: SafeArea(
         child: BlocBuilder<HomeCubit, HomeState>(
           builder: (context, state) {
             final cubit = context.read<HomeCubit>();
             final allJobs = List<Map<String, dynamic>>.from(cubit.jobHistory);
-            final marked = _daysWithJobs(allJobs);
-            final now = DateTime.now();
 
-            // Default: jobs in the visible month. Tap a day to filter to that day.
             var jobs = allJobs.where((j) {
               final local = _jobDate(j);
               if (local == null) return false;
@@ -121,193 +106,50 @@ class _ActivityTabState extends State<ActivityTab> {
                     (start + _pageSize).clamp(0, jobs.length),
                   );
 
-            // Dart weekday: Mon=1 … Sun=7 → pad so column 0 is Sunday.
-            final firstWeekday =
-                DateTime(_month.year, _month.month, 1).weekday % 7;
-            final daysInMonth =
-                DateTime(_month.year, _month.month + 1, 0).day;
-            final monthLabel = DateFormat('MMMM yyyy').format(_month);
-            final listLabel = _filterDay != null
-                ? DateFormat('EEE, d MMM').format(_filterDay!)
-                : 'Jobs in $monthLabel';
             final emptyLabel = allJobs.isEmpty
-                ? 'No jobs yet. Tap + Add job to create one.'
+                ? 'No activities yet.'
                 : _filterDay != null
                     ? 'No jobs on ${DateFormat('d MMM').format(_filterDay!)}'
-                    : 'No jobs in $monthLabel';
+                    : 'No jobs in ${DateFormat('MMMM yyyy').format(_month)}';
 
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding:
-                      EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+                  padding: EdgeInsets.fromLTRB(16.w, 16.h, 16.w, 8.h),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
                           'Activities',
                           style: TextStyles.font16RegularBlack.copyWith(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 22.sp,
-                          ),
-                        ),
-                      ),
-                      if (_filterDay != null)
-                        TextButton(
-                          onPressed: () => setState(() {
-                            _filterDay = null;
-                            _page = 0;
-                          }),
-                          child: const Text('Show month'),
-                        ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8.w),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Previous month',
-                        onPressed: () => setState(() {
-                          _month = DateTime(_month.year, _month.month - 1);
-                          _filterDay = null;
-                          _page = 0;
-                        }),
-                        icon: const Icon(Icons.chevron_left),
-                      ),
-                      Expanded(
-                        child: Text(
-                          monthLabel,
-                          textAlign: TextAlign.center,
-                          style: TextStyles.font14RegularGrey.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                            fontSize: 15.sp,
+                            fontSize: 24.sp,
+                            color: ColorsManager.blackColor,
                           ),
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Next month',
-                        onPressed: () => setState(() {
-                          _month = DateTime(_month.year, _month.month + 1);
-                          _filterDay = null;
-                          _page = 0;
-                        }),
-                        icon: const Icon(Icons.chevron_right),
+                      _CalendarHeaderButton(
+                        onPressed: () => _openCalendar(allJobs),
+                        active: _filterDay != null,
                       ),
                     ],
                   ),
                 ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(12.w, 0, 12.w, 4.h),
-                  child: Row(
-                    children: _weekdays
-                        .map(
-                          (d) => Expanded(
-                            child: Text(
-                              d,
-                              textAlign: TextAlign.center,
-                              style: TextStyles.font12RegularGrey.copyWith(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 11.sp,
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12.w),
-                  child: GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: firstWeekday + daysInMonth,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 7,
-                      childAspectRatio: 1.05,
-                    ),
-                    itemBuilder: (context, index) {
-                      if (index < firstWeekday) {
-                        return const SizedBox.shrink();
-                      }
-                      final day = index - firstWeekday + 1;
-                      final date = DateTime(_month.year, _month.month, day);
-                      final has = marked.contains(day);
-                      final selected =
-                          _filterDay != null && _sameDay(_filterDay!, date);
-                      final isToday = _sameDay(date, now);
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(8.r),
-                        onTap: () => setState(() {
-                          _filterDay = selected ? null : date;
-                          _page = 0;
-                        }),
-                        child: Container(
-                          margin: EdgeInsets.all(2.w),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? ColorsManager.mainColor
-                                    .withValues(alpha: 0.15)
-                                : null,
-                            border: isToday && !selected
-                                ? Border.all(
-                                    color: ColorsManager.mainColor,
-                                    width: 1.2,
-                                  )
-                                : null,
-                            borderRadius: BorderRadius.circular(8.r),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$day',
-                                style: TextStyles.font12RegularGrey.copyWith(
-                                  color: selected
-                                      ? ColorsManager.mainColor
-                                      : Colors.black87,
-                                  fontWeight: selected || isToday
-                                      ? FontWeight.bold
-                                      : FontWeight.w500,
-                                ),
-                              ),
-                              SizedBox(height: 3.h),
-                              // Always reserve space so day numbers stay aligned.
-                              SizedBox(
-                                width: 5.w,
-                                height: 5.w,
-                                child: has
-                                    ? Container(
-                                        decoration: const BoxDecoration(
-                                          color: ColorsManager.mainColor,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                            ],
-                          ),
+                if (_filterDay != null)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 8.h),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        DateFormat('EEE, d MMM yyyy').format(_filterDay!),
+                        style: TextStyles.font12RegularGrey.copyWith(
+                          color: ColorsManager.greyColor,
+                          fontWeight: FontWeight.w500,
                         ),
-                      );
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(16.w, 10.h, 16.w, 4.h),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      listLabel,
-                      style: TextStyles.font14RegularGrey.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
                       ),
                     ),
                   ),
-                ),
                 Expanded(
                   child: pageJobs.isEmpty
                       ? Center(
@@ -316,41 +158,27 @@ class _ActivityTabState extends State<ActivityTab> {
                             child: Text(
                               emptyLabel,
                               textAlign: TextAlign.center,
-                              style: TextStyles.font14RegularGrey,
+                              style: TextStyles.font14RegularGrey.copyWith(
+                                color: ColorsManager.greyColor,
+                              ),
                             ),
                           ),
                         )
                       : ListView.separated(
-                          padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 100.h),
+                          padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
                           itemCount: pageJobs.length,
-                          separatorBuilder: (_, __) => SizedBox(height: 10.h),
+                          separatorBuilder: (_, __) => SizedBox(height: 12.h),
                           itemBuilder: (context, i) {
                             final job = pageJobs[i];
-                            return ListTile(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12.r),
-                                side: BorderSide(color: ColorsManager.border),
-                              ),
-                              title: Text(
-                                (job['clientName'] ?? 'Customer').toString(),
-                                style: TextStyles.font14RegularGrey.copyWith(
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              subtitle: Text(
-                                JobDisplay.statusLabel(
-                                  (job['job_status'] ?? job['status'] ?? '')
-                                      .toString(),
-                                ),
-                                style: TextStyles.font12RegularGrey,
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
+                            return ActivityJobCard(
+                              job: job,
+                              onViewDetails: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (_) =>
-                                        ActivityDetailsScreen(job: job),
+                                    builder: (_) => ActivityDetailsScreen(
+                                      job: job,
+                                      cubit: cubit,
+                                    ),
                                   ),
                                 );
                               },
@@ -358,32 +186,136 @@ class _ActivityTabState extends State<ActivityTab> {
                           },
                         ),
                 ),
-                if (pageCount > 1)
+                if (jobs.isNotEmpty)
                   Padding(
-                    padding: EdgeInsets.only(bottom: 12.h),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          onPressed: page > 0
-                              ? () => setState(() => _page = page - 1)
-                              : null,
-                          icon: const Icon(Icons.chevron_left),
-                        ),
-                        Text('${page + 1} / $pageCount',
-                            style: TextStyles.font12RegularGrey),
-                        IconButton(
-                          onPressed: page < pageCount - 1
-                              ? () => setState(() => _page = page + 1)
-                              : null,
-                          icon: const Icon(Icons.chevron_right),
-                        ),
-                      ],
+                    padding: EdgeInsets.fromLTRB(16.w, 4.h, 16.w, 8.h),
+                    child: _ActivityPagination(
+                      page: page,
+                      pageCount: pageCount,
+                      onPrevious: page > 0
+                          ? () => setState(() => _page = page - 1)
+                          : null,
+                      onNext: page < pageCount - 1
+                          ? () => setState(() => _page = page + 1)
+                          : null,
                     ),
                   ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _CalendarHeaderButton extends StatelessWidget {
+  const _CalendarHeaderButton({
+    required this.onPressed,
+    required this.active,
+  });
+
+  final VoidCallback onPressed;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8.r),
+        side: BorderSide(
+          color: active ? ColorsManager.mainColor : ColorsManager.border,
+          width: active ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(8.r),
+        child: SizedBox(
+          width: 44.w,
+          height: 44.w,
+          child: Icon(
+            Icons.calendar_today_outlined,
+            size: 22.sp,
+            color: active ? ColorsManager.mainColor : ColorsManager.blackColor,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityPagination extends StatelessWidget {
+  const _ActivityPagination({
+    required this.page,
+    required this.pageCount,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int page;
+  final int pageCount;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _PaginationArrow(enabled: onPrevious != null, onTap: onPrevious),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16.w),
+          child: Text(
+            'Page ${page + 1} of $pageCount',
+            style: TextStyles.font14RegularGrey.copyWith(
+              color: ColorsManager.greyColor,
+              fontWeight: FontWeight.w500,
+              fontSize: 14.sp,
+            ),
+          ),
+        ),
+        _PaginationArrow(
+          enabled: onNext != null,
+          onTap: onNext,
+          forward: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _PaginationArrow extends StatelessWidget {
+  const _PaginationArrow({
+    required this.enabled,
+    required this.onTap,
+    this.forward = false,
+  });
+
+  final bool enabled;
+  final VoidCallback? onTap;
+  final bool forward;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6.r),
+        side: BorderSide(color: ColorsManager.border),
+      ),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(6.r),
+        child: SizedBox(
+          width: 36.w,
+          height: 36.w,
+          child: Icon(
+            forward ? Icons.chevron_right : Icons.chevron_left,
+            size: 22.sp,
+            color: enabled ? ColorsManager.greyColor : ColorsManager.border,
+          ),
         ),
       ),
     );

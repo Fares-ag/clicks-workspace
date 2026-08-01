@@ -9,6 +9,7 @@ import 'package:clicks_technician/features/home/ui/view/earnings_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/home_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/settings_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/incoming_job_modal.dart';
+import 'package:clicks_technician/features/home/ui/view/widgets/incoming_job_top_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -24,6 +25,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
   String? _lastJobStatus;
+  bool _showIncomingDetails = false;
 
   @override
   void initState() {
@@ -54,12 +56,26 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       listener: (context, state) {
         final cubit = context.read<HomeCubit>();
         final status = cubit.jobStatus;
+        // Activities → Continue job: switch to Home tab.
+        if (cubit.pendingNavigateHome) {
+          setState(() {
+            _index = 0;
+            _showIncomingDetails = false;
+          });
+          cubit.clearPendingNavigateHome();
+        }
         // After Accept, jump to Home so the map / job flow is visible.
         if (_lastJobStatus == 'assigned' &&
             status.isNotEmpty &&
             status != 'assigned' &&
             cubit.activeJob != null) {
-          setState(() => _index = 0);
+          setState(() {
+            _index = 0;
+            _showIncomingDetails = false;
+          });
+        }
+        if (status != 'assigned' && _showIncomingDetails) {
+          setState(() => _showIncomingDetails = false);
         }
         _lastJobStatus = status.isEmpty ? null : status;
       },
@@ -69,9 +85,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         final showIncoming =
             cubit.activeJob != null && status == 'assigned';
         if (showIncoming) {
-          // Modal visible — drop any sticky OS urgent banner.
+          // Keep the alarm going while the Accept modal is visible.
           // ignore: discarded_futures
-          JobNotificationService.instance.cancelUrgentJobNotification();
+          JobNotificationService.instance.startInsistentAlarm();
         }
         final onPhotoHome = cubit.activeJob == null || status == 'assigned';
         final photoHome = _index == 0 && onPhotoHome;
@@ -118,6 +134,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                     ),
             ),
             if (showIncoming)
+              Positioned(
+                top: 0,
+                right: 0,
+                left: 0,
+                child: IncomingJobTopBanner(
+                  cubit: cubit,
+                  onExpand: () => setState(() => _showIncomingDetails = true),
+                ),
+              ),
+            if (showIncoming && _showIncomingDetails)
               Positioned.fill(
                 child: IncomingJobModal(cubit: cubit),
               ),

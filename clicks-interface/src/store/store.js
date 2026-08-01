@@ -2,6 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import { apiSlice } from "./apiSlice";
 import authReducer, { setCredentials } from "./authSlice";
 import "./sosApi";
+import "./serviceRequestApi";
 
 // Load auth state from localStorage
 function loadAuthState() {
