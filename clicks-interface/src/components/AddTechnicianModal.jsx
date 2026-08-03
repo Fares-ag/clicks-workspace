@@ -9,6 +9,7 @@ import {
   isValidLocalPhone,
   toE164,
 } from "../utils/phone";
+import { TECHNICIAN_EXPERTISE_OPTIONS } from "../constants/jobTypes";
 
 const initialErrors = {
   firstName: "",
@@ -231,11 +232,7 @@ export default function AddTechnicianModal({ open, onClose, onSuccess }) {
                   <MultiSelectDropdown
                     value={fields.expertise}
                     onChange={(value) => handleChange("expertise", value)}
-                    options={[
-                      { value: "Tires", label: "Tires" },
-                      { value: "Engines", label: "Engines" },
-                      { value: "Gearbox", label: "Gearbox" },
-                    ]}
+                    options={TECHNICIAN_EXPERTISE_OPTIONS}
                     placeholder="Select expertise (must match job types)"
                     error={errors.expertise && touched.expertise}
                   />

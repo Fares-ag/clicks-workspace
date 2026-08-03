@@ -76,11 +76,6 @@ const navItems = [
     to: "/partners",
   },
   {
-    label: "Subscriptions",
-    icon: "/icons/insurance.svg",
-    to: "/vehicle-insurance",
-  },
-  {
     label: "Support Tickets",
     icon: "/icons/li-heart-handshake.svg",
     to: "/support-tickets",

@@ -10,6 +10,7 @@ import {
   toE164,
   toLocalDigits,
 } from "../utils/phone";
+import { JOB_TYPE_OPTIONS } from "../constants/jobTypes";
 import "./AddJobModal.css";
 
 function AddJobModal({ open, onClose, onSuccess, sosData }) {
@@ -256,11 +257,10 @@ function AddJobModal({ open, onClose, onSuccess, sosData }) {
                   <CustomSelect
                     value={formData.jobType}
                     onChange={(value) => setFormData(prev => ({ ...prev, jobType: value }))}
-                    options={[
-                      { value: "Tires", label: "Tires" },
-                      { value: "Engines", label: "Engines" },
-                      { value: "Gearbox", label: "Gearbox" }
-                    ]}
+                    options={JOB_TYPE_OPTIONS.map(({ value, label }) => ({
+                      value,
+                      label,
+                    }))}
                     placeholder="Select Job Type"
                   />
                 </div>

@@ -113,7 +113,7 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | `vehicleMake` / `vehicleModel` / `vehicleYear` / `licensePlate` / `vinNumber` | String / Number | snapshot at job create |
 | `issue` / `location` | String | required (`location` is address text, not GeoJSON) |
 | `dateTime` | Date | required |
-| `jobType` | enum | `Tires` \| `Engines` \| `Gearbox` \| `keyless_car_opening` \| `tire_change` |
+| `jobType` | enum | RSA: `Towing` \| `Jump start` \| `Flat tire` \| `Lockout` \| `Fuel delivery` \| `Battery replacement` \| `Accident assistance` (+ legacy: `Tires` \| `Engines` \| `Gearbox` \| `keyless_car_opening` \| `tire_change`) |
 | `assignedTechnician` | ObjectId→Technician | optional |
 | `price` | Number | required |
 | `source` | ObjectId→Source | required |
@@ -179,8 +179,8 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | --- | --- |
 | Admin.role | `Admin`, `Super Admin`, `Job Dispatcher`, `Coordinator`, `Call Center Agent` |
 | Customer.status | `Active`, `Inactive` |
-| expertise / legacy jobType | `Tires`, `Engines`, `Gearbox` |
-| Job.jobType (extended) | above + `keyless_car_opening`, `tire_change` |
+| expertise / jobType (create) | `Towing`, `Jump start`, `Flat tire`, `Lockout`, `Fuel delivery`, `Battery replacement`, `Accident assistance` |
+| expertise / jobType (legacy) | `Tires`, `Engines`, `Gearbox` (+ job-only: `keyless_car_opening`, `tire_change`) |
 | Technician.applicationStatus | `Approved`, `Rejected`, `Pending` |
 | Technician.currentStatus | `Online`, `Offline`, `On Job` |
 | SOSRequest.status | `pending`, `in_call`, `accepted`, `cancelled`, `expired`, `completed` |
@@ -263,5 +263,5 @@ Typical local: `MONGODB_URI=mongodb://127.0.0.1:27017/clicks node scripts/<scrip
 | VehicleModel uniqueness | Global `modelName` unique (gap) | Compound `{ makeId, modelName }` |
 | Partner domain | Absent | **Partner** + **PartnerEarning** + Job `partner_id` |
 | Subscriptions | Absent | **Subscription** model |
-| Job.jobType | Tires / Engines / Gearbox | + partner job types |
+| Job.jobType | Tires / Engines / Gearbox | + RSA types + partner job types |
 | APIs / Redis / SOS→Job flow | Same | Same |

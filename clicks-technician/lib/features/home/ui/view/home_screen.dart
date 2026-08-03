@@ -1,9 +1,12 @@
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/helper/assets_manager.dart';
+import 'package:clicks_technician/core/permissions/background_location_disclosure.dart';
+import 'package:clicks_technician/core/permissions/permissions_setup_sheet.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/active_job_screen.dart';
+import 'package:clicks_technician/features/home/ui/view/add_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/notifications_popup.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/slide_status_toggle.dart';
 import 'package:flutter/material.dart';
@@ -67,37 +70,9 @@ class _IdleHeroHome extends StatelessWidget {
 
   Future<void> _onSlideComplete(BuildContext context) async {
     if (!cubit.isOnline) {
-      final allow = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(
-            'Allow Location',
-            style: TextStyles.font16RegularBlack
-                .copyWith(fontWeight: FontWeight.bold),
-          ),
-          content: Text(
-            'Clicks needs your location while you are Online so nearby jobs and Live Map work correctly.',
-            style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Not now', style: TextStyles.font14RegularGrey),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(
-                'Allow',
-                style: TextStyles.font14RegularGrey.copyWith(
-                  color: ColorsManager.mainColor,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-      if (allow != true) return;
+      if (!await BackgroundLocationDisclosure.ensureAccepted(context)) return;
+      final ready = await PermissionsSetupSheet.showIfNeeded(context);
+      if (!ready) return;
     }
     await cubit.toggleOnlineStatus();
   }
@@ -136,6 +111,45 @@ class _IdleHeroHome extends StatelessWidget {
                   ),
                 ),
               Container(color: Colors.black.withValues(alpha: 0.2)),
+              Positioned(
+                left: 16.w,
+                bottom: 120.h,
+                child: Material(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(999),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AddJobScreen(cubit: cubit),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(999),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 14.w,
+                        vertical: 10.h,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add, color: Colors.white, size: 20.sp),
+                          SizedBox(width: 6.w),
+                          Text(
+                            'Add job',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14.sp,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               Positioned(
                 right: 16.w,
                 bottom: 120.h,
@@ -229,7 +243,9 @@ class _IdleHeroHome extends StatelessWidget {
                     if (cubit.locationWarning)
                       Padding(
                         padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 0),
-                        child: _locationBanner(),
+                        child: _LocationBanner(
+                          onFix: () => PermissionsSetupSheet.showIfNeeded(context),
+                        ),
                       ),
                     const Spacer(),
                     Padding(
@@ -249,7 +265,7 @@ class _IdleHeroHome extends StatelessWidget {
                               : 'Offline')
                           : 'Socket reconnecting…',
                       style: TextStyles.font12RegularGrey
-                          .copyWith(color: Colors.white70),
+                          .copyWith(color: Colors.white),
                     ),
                     SizedBox(height: 16.h),
                   ],
@@ -340,19 +356,39 @@ Widget _sessionBanner(HomeCubit cubit) {
   );
 }
 
-Widget _locationBanner() {
-  return Container(
-    margin: EdgeInsets.only(bottom: 12.h),
-    padding: EdgeInsets.all(12.w),
-    decoration: BoxDecoration(
+class _LocationBanner extends StatelessWidget {
+  const _LocationBanner({required this.onFix});
+
+  final VoidCallback onFix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
       color: const Color(0xFFFFFAEB),
       borderRadius: BorderRadius.circular(8.r),
-      border: Border.all(color: const Color(0xFFFEC84B)),
-    ),
-    child: Text(
-      'Location unavailable — Live Map may not update. Enable GPS / allow location in the browser.',
-      style: TextStyles.font12RegularGrey
-          .copyWith(color: const Color(0xFFB54708)),
-    ),
-  );
+      child: InkWell(
+        onTap: onFix,
+        borderRadius: BorderRadius.circular(8.r),
+        child: Container(
+          padding: EdgeInsets.all(12.w),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8.r),
+            border: Border.all(color: const Color(0xFFFEC84B)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Location or alerts need setup — tap to fix permissions (Allow all the time + notifications).',
+                  style: TextStyles.font12RegularGrey
+                      .copyWith(color: const Color(0xFFB54708)),
+                ),
+              ),
+              Icon(Icons.chevron_right, color: const Color(0xFFB54708), size: 20.sp),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

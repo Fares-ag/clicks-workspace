@@ -9,7 +9,7 @@ const {
 } = require("../../../clicks-shared/models");
 const { broadcastMs, inCallTimeoutMs } = require("../utils/sosTimeout");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
-const { assertJobAccess } = require("../utils/ownership");
+const { assertJobAccess, sameId } = require("../utils/ownership");
 const { parseJobLocation } = require("../../../clicks-shared/utils/parseJobLocation");
 const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
 
@@ -952,46 +952,51 @@ function initializeSOSSocket(io) {
           return;
         }
 
-        const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
-        let jobPoint = null;
-        const coords = job.locationCoordinates?.coordinates;
-        if (Array.isArray(coords) && coords.length >= 2) {
-          jobPoint = { lat: Number(coords[1]), lng: Number(coords[0]) };
-        } else {
-          jobPoint = parseJobLocation(job.location);
-        }
-        if (!jobPoint) {
-          socket.emit("error", {
-            message: "Job location coordinates are missing; cannot verify proximity",
-          });
-          return;
-        }
+        // Self-created jobs skip GPS proximity (creator === assignee).
+        const isOwnJob = sameId(job.created_by_technician, job.assignedTechnician);
 
-        let techLat = Number(latitude ?? lat);
-        let techLng = Number(longitude ?? lng);
-        if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
-          const tech = await Technician.findById(socket.user.id).select("currentLocation");
-          const tc = tech?.currentLocation?.coordinates;
-          if (Array.isArray(tc) && tc.length >= 2) {
-            techLng = Number(tc[0]);
-            techLat = Number(tc[1]);
+        if (!isOwnJob) {
+          const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
+          let jobPoint = null;
+          const coords = job.locationCoordinates?.coordinates;
+          if (Array.isArray(coords) && coords.length >= 2) {
+            jobPoint = { lat: Number(coords[1]), lng: Number(coords[0]) };
+          } else {
+            jobPoint = parseJobLocation(job.location);
           }
-        }
-        if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
-          socket.emit("error", { message: "Technician location is required to start the job" });
-          return;
-        }
+          if (!jobPoint) {
+            socket.emit("error", {
+              message: "Job location coordinates are missing; cannot verify proximity",
+            });
+            return;
+          }
 
-        const distanceMeters = Math.round(
-          distanceBetween({ lat: techLat, lng: techLng }, jobPoint)
-        );
-        if (distanceMeters > maxMeters) {
-          socket.emit("error", {
-            message: `You must be within ${maxMeters}m of the job location to start`,
-            distanceMeters,
-            maxMeters,
-          });
-          return;
+          let techLat = Number(latitude ?? lat);
+          let techLng = Number(longitude ?? lng);
+          if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
+            const tech = await Technician.findById(socket.user.id).select("currentLocation");
+            const tc = tech?.currentLocation?.coordinates;
+            if (Array.isArray(tc) && tc.length >= 2) {
+              techLng = Number(tc[0]);
+              techLat = Number(tc[1]);
+            }
+          }
+          if (!Number.isFinite(techLat) || !Number.isFinite(techLng)) {
+            socket.emit("error", { message: "Technician location is required to start the job" });
+            return;
+          }
+
+          const distanceMeters = Math.round(
+            distanceBetween({ lat: techLat, lng: techLng }, jobPoint)
+          );
+          if (distanceMeters > maxMeters) {
+            socket.emit("error", {
+              message: `You must be within ${maxMeters}m of the job location to start`,
+              distanceMeters,
+              maxMeters,
+            });
+            return;
+          }
         }
 
         job.job_status = "in_progress";

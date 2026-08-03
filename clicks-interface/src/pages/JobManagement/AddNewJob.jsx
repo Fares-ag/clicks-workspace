@@ -13,16 +13,8 @@ import {
   toE164,
   toLocalDigits,
 } from "../../utils/phone";
-import { useLazyLookupSubscriptionByPlateQuery } from "../../store/subscriptionApi";
 import "./AddNewJob.css";
-
-const JOB_TYPE_MAPPING = {
-  Tires: "Tires",
-  Engines: "Engines",
-  Gearbox: "Gearbox",
-  tire_change: "Tires",
-  keyless_car_opening: "Engines",
-};
+import { JOB_TYPE_MAPPING, JOB_TYPE_OPTIONS, jobTypeLabel } from "../../constants/jobTypes";
 
 function AddNewJob() {
   const navigate = useNavigate();
@@ -57,9 +49,6 @@ function AddNewJob() {
   const [dateTimePickerOpen, setDateTimePickerOpen] = useState(false);
   const dateTimeInputRef = useRef(null);
   const [phoneError, setPhoneError] = useState("");
-  const [plateSubStatus, setPlateSubStatus] = useState(null);
-  const [lookupPlate] = useLazyLookupSubscriptionByPlateQuery();
-  const plateLookupTimer = useRef(null);
 
   const [createJob, { isLoading }] = useCreateJobMutation();
   const { data: techniciansData, refetch: refetchTechnicians } = useGetTechniciansQuery({ limit: 100 });
@@ -196,22 +185,6 @@ function AddNewJob() {
       ...prev,
       [name]: value,
     }));
-    if (name === "licensePlate") {
-      if (plateLookupTimer.current) clearTimeout(plateLookupTimer.current);
-      const plate = String(value || "").trim();
-      if (!plate) {
-        setPlateSubStatus(null);
-        return;
-      }
-      plateLookupTimer.current = setTimeout(async () => {
-        try {
-          const result = await lookupPlate(plate).unwrap();
-          setPlateSubStatus(result);
-        } catch {
-          setPlateSubStatus({ found: false, status: "none" });
-        }
-      }, 400);
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -419,46 +392,6 @@ function AddNewJob() {
                   onChange={handleInputChange}
                   placeholder="Enter license plate"
                 />
-                {plateSubStatus && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      fontSize: 12,
-                      fontFamily: "var(--font-main)",
-                    }}
-                  >
-                    {plateSubStatus.status === "active" && (
-                      <span style={{ color: "#027a48", fontWeight: 600 }}>
-                        Active subscription
-                        {plateSubStatus.expiresAt
-                          ? ` · expires ${new Date(plateSubStatus.expiresAt).toLocaleDateString()}`
-                          : ""}
-                        {plateSubStatus.subscription?.planName
-                          ? ` · ${plateSubStatus.subscription.planName}`
-                          : ""}
-                      </span>
-                    )}
-                    {plateSubStatus.status === "expired" && (
-                      <span style={{ color: "#b54708", fontWeight: 600 }}>
-                        Expired
-                        {plateSubStatus.expiresAt
-                          ? ` on ${new Date(plateSubStatus.expiresAt).toLocaleDateString()}`
-                          : ""}
-                      </span>
-                    )}
-                    {plateSubStatus.status === "cancelled" && (
-                      <span style={{ color: "#b42318", fontWeight: 600 }}>
-                        Subscription cancelled
-                      </span>
-                    )}
-                    {(plateSubStatus.status === "none" || !plateSubStatus.found) &&
-                      plateSubStatus.status !== "active" &&
-                      plateSubStatus.status !== "expired" &&
-                      plateSubStatus.status !== "cancelled" && (
-                        <span style={{ color: "#667085" }}>No subscription</span>
-                      )}
-                  </div>
-                )}
               </div>
 
               <div className="add-new-job-field">
@@ -543,14 +476,9 @@ function AddNewJob() {
                       assignedTechnician: "" // Reset technician when job type changes
                     }));
                   }}
-                  options={Object.entries(jobTypeMapping).map(([jobType, expertise]) => ({
-                    value: jobType,
-                    label:
-                      jobType === "tire_change"
-                        ? `Tire change (${expertise})`
-                        : jobType === "keyless_car_opening"
-                          ? `Keyless car opening (${expertise})`
-                          : `${jobType} (${expertise})`,
+                  options={JOB_TYPE_OPTIONS.map(({ value, label }) => ({
+                    value,
+                    label,
                   }))}
                   placeholder="Select Job Type"
                   searchable
@@ -601,8 +529,8 @@ function AddNewJob() {
                 />
                 {formData.jobType && availableTechnicians.length === 0 && (
                   <p style={{ marginTop: 8, fontSize: 12, color: '#B42318' }}>
-                    No Online/On Job technicians with expertise “{jobTypeMapping[formData.jobType]}”.
-                    Edit the technician and set expertise to Tires, Engines, or Gearbox (same as Job Type), then click Refresh.
+                    No Online/On Job technicians with expertise “{jobTypeLabel(formData.jobType)}”.
+                    Edit the technician and set expertise to match this job type, then click Refresh.
                   </p>
                 )}
               </div>

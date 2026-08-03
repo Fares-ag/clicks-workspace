@@ -15,10 +15,12 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../api/end_points/end_points.dart';
 import '../config/app_config.dart';
 import '../helper/cache_helper.dart';
+import '../../firebase_options.dart';
+import 'urgent_alarm_volume.dart';
 
 /// Bumped channel id when sound / insistent behavior changes (Android channels
 /// are immutable after first create).
-const String kJobUrgentChannelId = 'clicks_job_urgent_v3';
+const String kJobUrgentChannelId = 'clicks_job_urgent_v4';
 const String kAcceptJobActionId = 'accept_job';
 const int kJobAssignedNotifId = 42001;
 const String kPendingJobIdKey = 'pending_fcm_job_id';
@@ -38,14 +40,11 @@ void _log(String msg) {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await Firebase.initializeApp();
-  } catch (_) {
-    return;
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } catch (e) {
+    _log('background Firebase init failed (continuing with local notif): $e');
   }
-  await JobNotificationService.instance.showFromRemoteData(
-    message.data,
-    fromBackground: true,
-  );
+  await JobNotificationService.showUrgentJobFromBackground(message.data);
 }
 
 /// Urgent Android job assignment notifications (FCM + local channel).
@@ -82,7 +81,7 @@ class JobNotificationService {
     }
 
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     } catch (e) {
       _log('Firebase.initializeApp failed (missing google-services?): $e');
       enabled = false;
@@ -102,7 +101,7 @@ class JobNotificationService {
 
     await _ensureChannel();
 
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    // Registered in main() before any await — do not register again here.
 
     FirebaseMessaging.onMessage.listen((message) async {
       final type = message.data['type']?.toString() ?? '';
@@ -165,6 +164,8 @@ class JobNotificationService {
           AndroidFlutterLocalNotificationsPlugin>();
       await android?.requestNotificationsPermission();
       await android?.requestFullScreenIntentPermission();
+      // Required before bypassDnd channel can take effect on Android 6+.
+      await android?.requestNotificationPolicyAccess();
     } catch (e) {
       _log('permission request failed: $e');
     }
@@ -249,6 +250,7 @@ class JobNotificationService {
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
+      bypassDnd: true,
       sound: RawResourceAndroidNotificationSound('job_urgent'),
       audioAttributesUsage: AudioAttributesUsage.alarm,
     );
@@ -282,9 +284,32 @@ class JobNotificationService {
     } catch (_) {}
   }
 
+  /// Entry point for FCM background/killed isolates — does not rely on singleton state.
+  static Future<void> showUrgentJobFromBackground(
+    Map<String, dynamic> data,
+  ) async {
+    await JobNotificationService.instance._showUrgentJobNotification(
+      data,
+      fromBackground: true,
+      forceShow: true,
+    );
+  }
+
   Future<void> showFromRemoteData(
     Map<String, dynamic> data, {
     bool fromBackground = false,
+  }) async {
+    await _showUrgentJobNotification(
+      data,
+      fromBackground: fromBackground,
+      forceShow: fromBackground || !_appInForeground,
+    );
+  }
+
+  Future<void> _showUrgentJobNotification(
+    Map<String, dynamic> data, {
+    required bool fromBackground,
+    required bool forceShow,
   }) async {
     final type = data['type']?.toString() ?? '';
     if (type.isNotEmpty && type != 'job_assigned') return;
@@ -321,6 +346,7 @@ class JobNotificationService {
         importance: Importance.max,
         priority: Priority.max,
         category: AndroidNotificationCategory.alarm,
+        channelBypassDnd: true,
         ongoing: true,
         autoCancel: false,
         fullScreenIntent: true,
@@ -351,11 +377,15 @@ class JobNotificationService {
         const InitializationSettings(android: androidInit),
         onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
       );
+      final android = _local.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      await android?.requestNotificationPolicyAccess();
       await _ensureChannel();
     }
 
-    // In foreground the top banner handles UX; alarm still loops until Accept.
-    if (!_appInForeground || fromBackground) {
+    await UrgentAlarmVolume.boostToMax();
+
+    if (forceShow) {
       await _local.show(
         kJobAssignedNotifId,
         strings['title'] ?? 'New job assigned',
@@ -366,7 +396,7 @@ class JobNotificationService {
     }
     // Extra looping ringtone while the app/isolate is alive.
     await startInsistentAlarm();
-    _log('showed insistent urgent notif job=$jobId bg=$fromBackground');
+    _log('showed insistent urgent notif job=$jobId bg=$fromBackground force=$forceShow');
   }
 
   Future<void> cancelUrgentJobNotification() async {

@@ -6,6 +6,7 @@ const Job = require("../models/Job");
 const Source = require("../models/Source");
 const VehicleMake = require("../models/VehicleMake");
 const VehicleModel = require("../models/VehicleModel");
+const { JOB_TYPES } = require("../../../clicks-shared/constants/jobTypes");
 
 const DEFAULT_COUNTRY_CODE = "+974";
 
@@ -198,7 +199,7 @@ async function createJob(req, res) {
       });
     }
 
-    const allowedTypes = ["Tires", "Engines", "Gearbox"];
+    const allowedTypes = JOB_TYPES;
     if (!allowedTypes.includes(jobType)) {
       return res.status(400).json({ message: "Invalid jobType" });
     }

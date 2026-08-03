@@ -43,6 +43,9 @@ app.*.map.json
 **/firebase-adminsdk-*.json
 **/clicks-*-firebase-adminsdk-*.json
 
+# Google Play publishing — never commit
+/play-store/service-account.json
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

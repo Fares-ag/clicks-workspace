@@ -9,8 +9,8 @@
  * SMSala env:
  *   SMSALA_API_TOKEN   (required)
  *   SMSALA_API_URL     (optional, default https://api2.smsala.com/SendSmsV2)
- *   SMS_FROM / SMSALA_SOURCE_ADDRESS  — registered sender ID
- *   SMSALA_MESSAGE_TYPE     default "1"
+ *   SMS_FROM / SMSALA_SOURCE_ADDRESS  — approved sender ID (Qatar: "Sanad RSA")
+ *   SMSALA_MESSAGE_TYPE     1=Promotional 2=Transactional 3=OTP (default "3")
  *   SMSALA_MESSAGE_ENCODING default "1" (text); use "3" for unicode if needed
  */
 
@@ -70,13 +70,14 @@ async function sendViaSmsala(to, message) {
 
   const url = process.env.SMSALA_API_URL || "https://api2.smsala.com/SendSmsV2";
   const sourceAddress =
-    process.env.SMSALA_SOURCE_ADDRESS || process.env.SMS_FROM || "Clicks";
+    process.env.SMSALA_SOURCE_ADDRESS || process.env.SMS_FROM || "Sanad RSA";
   const destinationAddress = normalizePhone(to);
 
   const payload = [
     {
       apiToken,
-      messageType: process.env.SMSALA_MESSAGE_TYPE || "1",
+      // 1=Promotional 2=Transactional 3=OTP — Qatar rejects unapproved sender IDs
+      messageType: process.env.SMSALA_MESSAGE_TYPE || "3",
       messageEncoding: process.env.SMSALA_MESSAGE_ENCODING || "1",
       destinationAddress,
       sourceAddress,

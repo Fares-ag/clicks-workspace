@@ -40,6 +40,16 @@ flutter build apk --release \
 - FCM: `android/app/google-services.json` (prod Firebase project)
 - Output: `build/app/outputs/flutter-apk/app-release.apk`
 
+## Play Store (automated)
+
+See **[PLAY_STORE.md](./PLAY_STORE.md)** for one-time API + signing setup, then:
+
+```powershell
+.\scripts\publish-play-store.ps1 -Track internal
+```
+
+Requires `play-store/service-account.json`, `android/upload-keystore.jks`, and `android/key.properties`.
+
 ## Release web (optional)
 
 ```bash

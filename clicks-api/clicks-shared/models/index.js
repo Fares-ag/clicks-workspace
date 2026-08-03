@@ -41,4 +41,5 @@ module.exports = {
   Partner: require("./Partner"),
   PartnerEarning: require("./PartnerEarning"),
   PartnerWithdrawal: require("./PartnerWithdrawal"),
+  AccountDeletionRequest: require("./AccountDeletionRequest"),
 };

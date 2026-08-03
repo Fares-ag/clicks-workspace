@@ -13,6 +13,7 @@ const {
 const {
   parseJobLocationToGeoPoint,
 } = require("../../../clicks-shared/utils/parseJobLocation");
+const { JOB_TYPES } = require("../../../clicks-shared/constants/jobTypes");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -1016,7 +1017,7 @@ async function resolveTechnicianAppSource() {
   return source;
 }
 
-/** Technician creates a pending intake job (admin dispatches), stamped with creator. */
+/** Technician creates a job, auto-assigned to themselves (accepted — no admin dispatch). */
 const createTechnicianJob = async (req, res) => {
   try {
     const techId = req.user.id;
@@ -1061,13 +1062,14 @@ const createTechnicianJob = async (req, res) => {
       });
     }
 
-    const allowedTypes = ["Tires", "Engines", "Gearbox"];
+    const allowedTypes = JOB_TYPES;
     if (!allowedTypes.includes(jobType)) {
       return res.status(400).json({ error: "Invalid jobType" });
     }
 
     const source = await resolveTechnicianAppSource();
     const techName = `${technician.firstName || ""} ${technician.lastName || ""}`.trim();
+    const acceptedAt = new Date();
 
     const locationStr = String(location).trim();
     const locationCoordinates = parseJobLocationToGeoPoint(locationStr);
@@ -1090,15 +1092,27 @@ const createTechnicianJob = async (req, res) => {
       price: Number(price),
       source: source._id,
       subSource: subSource ? String(subSource).trim() : "Mobile App",
-      assignedTechnician: null,
-      job_status: "pending",
+      assignedTechnician: technician._id,
+      job_status: "accepted",
+      accepted_at: acceptedAt,
       payment_status: "unpaid",
       created_by_technician: technician._id,
       createdByTechnicianName: techName,
     });
 
+    await setTechnicianStatus(technician._id, "On Job");
+
+    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+    if (typeof notifyPresence === "function") {
+      await notifyPresence(technician._id, "On Job");
+    }
+
     const populated = await Job.findById(job._id)
       .populate("source", "mainSourceName")
+      .populate(
+        "assignedTechnician",
+        "firstName lastName phone profilePicture currentLocation"
+      )
       .lean();
 
     try {
@@ -1108,6 +1122,7 @@ const createTechnicianJob = async (req, res) => {
           job_id: job._id.toString(),
           created_by_technician: technician._id.toString(),
           createdByTechnicianName: techName,
+          assignedTechnician: technician._id.toString(),
           clientName: job.clientName,
           clientMobileNumber: job.clientMobileNumber,
           clientEmail: job.clientEmail || "",
@@ -1122,14 +1137,14 @@ const createTechnicianJob = async (req, res) => {
           jobType: job.jobType || "",
           price: job.price,
           dateTime: job.dateTime,
-          status: "pending",
+          status: "accepted",
         });
       }
     } catch (notifyErr) {
       console.error("Failed to notify admins of technician job:", notifyErr.message);
     }
 
-    res.status(201).json({ message: "Job created", job: populated });
+    res.status(201).json({ message: "Job created and assigned to you", job: populated });
   } catch (err) {
     res.status(500).json({ error: "Failed to create job", details: err.message });
   }

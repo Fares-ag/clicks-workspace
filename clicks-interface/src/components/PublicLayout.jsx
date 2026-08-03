@@ -14,6 +14,7 @@ function PublicLayout({ children }) {
             <Link to="/privacy-policy" className="public-nav-link">Privacy Policy</Link>
             <Link to="/terms-and-conditions" className="public-nav-link">Terms & Conditions</Link>
             <Link to="/support" className="public-nav-link">Support</Link>
+            <Link to="/account-deletion" className="public-nav-link">Delete account</Link>
           </nav>
         </div>
       </header>
@@ -27,6 +28,7 @@ function PublicLayout({ children }) {
             <Link to="/privacy-policy">Privacy Policy</Link>
             <Link to="/terms-and-conditions">Terms & Conditions</Link>
             <Link to="/support">Support</Link>
+            <Link to="/account-deletion">Delete account</Link>
           </div>
         </div>
       </footer>

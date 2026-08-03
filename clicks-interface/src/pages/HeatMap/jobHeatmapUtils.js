@@ -1,3 +1,5 @@
+import { HEATMAP_JOB_TYPES } from "../../constants/jobTypes";
+
 /** Qatar map defaults — same as Live Map */
 
 export const MAP_CENTER = { lat: 25.276987, lng: 51.520008 };
@@ -34,15 +36,7 @@ export const JOB_TYPES = [
 
   { value: "", label: "All types" },
 
-  { value: "Tires", label: "Tires" },
-
-  { value: "Engines", label: "Engines" },
-
-  { value: "Gearbox", label: "Gearbox" },
-
-  { value: "keyless_car_opening", label: "Keyless opening" },
-
-  { value: "tire_change", label: "Tire change" },
+  ...HEATMAP_JOB_TYPES,
 
 ];
 

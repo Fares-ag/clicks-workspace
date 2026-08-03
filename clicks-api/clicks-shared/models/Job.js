@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { ALL_JOB_TYPES } = require("../constants/jobTypes");
 
 const JobSchema = new mongoose.Schema(
   {
@@ -29,13 +30,7 @@ const JobSchema = new mongoose.Schema(
     dateTime: { type: Date, required: true },
     jobType: {
       type: String,
-      enum: [
-        "Tires",
-        "Engines",
-        "Gearbox",
-        "keyless_car_opening",
-        "tire_change",
-      ],
+      enum: ALL_JOB_TYPES,
       required: true
     },
     assignedTechnician: { type: mongoose.Schema.Types.ObjectId, ref: "Technician" },

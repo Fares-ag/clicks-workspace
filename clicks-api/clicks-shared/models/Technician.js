@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { TECHNICIAN_EXPERTISE } = require("../constants/jobTypes");
 
 const TechnicianPerformanceSchema = new mongoose.Schema(
   {
@@ -37,7 +38,7 @@ const TechnicianSchema = new mongoose.Schema(
     assignedVehicle: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" },
     expertise: {
       type: [String],
-      enum: ["Tires", "Engines", "Gearbox"],
+      enum: TECHNICIAN_EXPERTISE,
       default: []
     },
     performance: { type: TechnicianPerformanceSchema },

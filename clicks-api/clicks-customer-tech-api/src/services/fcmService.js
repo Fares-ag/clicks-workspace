@@ -62,7 +62,7 @@ async function sendJobAssignedPush(technician, jobPayload) {
     data[k] = typeof v === "string" ? v : String(v);
   });
   data.type = data.type || "job_assigned";
-  data.channelId = "clicks_job_urgent_v2";
+  data.channelId = "clicks_job_urgent_v4";
 
   try {
     await msg.send({

@@ -19,7 +19,7 @@ import { AdminManagement, AdminDetails } from "./pages/AdminManagement";
 import { Technicians, TechnicianDetails } from "./pages/TechnicianManagement";
 
 // Vehicle Management
-import { Vehicles, VehicleDetails, VehicleMakes, VehicleModels, VehicleInsurance } from "./pages/VehicleManagement";
+import { Vehicles, VehicleDetails, VehicleMakes, VehicleModels } from "./pages/VehicleManagement";
 
 // Job Management
 import Jobs from "./pages/JobManagement";
@@ -51,9 +51,6 @@ import {
   BusinessDetails,
 } from "./pages/BusinessManagement";
 
-// Subscriptions
-import { Subscriptions } from "./pages/Subscriptions";
-
 // Partner Management
 import { Partners, PartnerDetails } from "./pages/PartnerManagement";
 
@@ -68,6 +65,7 @@ import ServiceRequestsInbox from "./pages/ServiceRequests";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import TermsAndConditionsPage from "./pages/TermsAndConditionsPage.jsx";
 import SupportPage from "./pages/SupportPage.jsx";
+import AccountDeletionPage from "./pages/AccountDeletionPage.jsx";
 
 // Demo/Other
 import DemoPage from "./pages/DemoPage.jsx";
@@ -174,16 +172,6 @@ function App() {
           <ProtectedRoute>
             <AdminLayout>
               <Calls />
-            </AdminLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/vehicle-insurance"
-        element={
-          <ProtectedRoute>
-            <AdminLayout>
-              <VehicleInsurance />
             </AdminLayout>
           </ProtectedRoute>
         }
@@ -309,16 +297,6 @@ function App() {
         }
       />
       <Route
-        path="/subscriptions"
-        element={
-          <ProtectedRoute>
-            <AdminLayout>
-              <Subscriptions />
-            </AdminLayout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/jobs"
         element={
           <ProtectedRoute>
@@ -392,6 +370,7 @@ function App() {
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/terms-and-conditions" element={<TermsAndConditionsPage />} />
       <Route path="/support" element={<SupportPage />} />
+      <Route path="/account-deletion" element={<AccountDeletionPage />} />
       <Route
         path="/demo"
         element={

@@ -384,9 +384,29 @@ class HomeCubit extends Cubit<HomeState> {
     return null;
   }
 
+  /// True when this tech created the active job (GPS start gate skipped).
+  bool get isOwnCreatedJob {
+    final job = activeJob;
+    if (job == null) return false;
+    final creator = job['created_by_technician'];
+    final creatorId = creator is Map
+        ? (creator['_id'] ?? creator['id'])?.toString()
+        : creator?.toString();
+    if (creatorId == null || creatorId.isEmpty) return false;
+    final tid = technicianId;
+    if (tid.isNotEmpty && creatorId == tid) return true;
+    final assigned = job['assignedTechnician'];
+    final assignedId = assigned is Map
+        ? (assigned['_id'] ?? assigned['id'])?.toString()
+        : assigned?.toString();
+    return assignedId != null && assignedId == creatorId;
+  }
+
   /// Client hint: tech GPS is within [startMaxMeters] of the job.
+  /// Own-created jobs can start at [arrived] without GPS.
   bool get canStartJob {
     if (jobStatus != 'arrived') return false;
+    if (isOwnCreatedJob) return true;
     final dest = jobLatLng();
     final lat = lastLatitude;
     final lng = lastLongitude;
@@ -660,16 +680,18 @@ class HomeCubit extends Cubit<HomeState> {
     if (id == null) return;
     double? lat = lastLatitude;
     double? lng = lastLongitude;
-    try {
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings:
-            const LocationSettings(accuracy: LocationAccuracy.high),
-      );
-      lat = pos.latitude;
-      lng = pos.longitude;
-      lastLatitude = lat;
-      lastLongitude = lng;
-    } catch (_) {}
+    if (!isOwnCreatedJob) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings:
+              const LocationSettings(accuracy: LocationAccuracy.high),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+        lastLatitude = lat;
+        lastLongitude = lng;
+      } catch (_) {}
+    }
     await _runJobAction(
       () => DioHelper.postData(
         url: EndPoints.startJob(id),
@@ -819,16 +841,27 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<bool> createJobCard(Map<String, dynamic> body) async {
+    lastActionError = null;
     try {
       final res = await DioHelper.postData(
         url: EndPoints.createTechnicianJob,
         data: body,
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
+        await fetchSession();
         await fetchHistory();
+        pendingNavigateHome = true;
+        _emitLoaded();
         return true;
       }
-    } catch (_) {}
+      lastActionError = DioHelper.errorMessage(res) ?? 'Failed to create job';
+    } catch (e) {
+      var msg = 'Failed to create job';
+      if (e is DioException && e.response != null) {
+        msg = DioHelper.errorMessage(e.response!) ?? msg;
+      }
+      lastActionError = msg;
+    }
     return false;
   }
 
@@ -1212,6 +1245,9 @@ class HomeCubit extends Cubit<HomeState> {
           (Platform.isIOS || Platform.isAndroid) &&
           permission != LocationPermission.always) {
         locationWarning = true;
+        if (request && Platform.isAndroid) {
+          await Geolocator.openAppSettings();
+        }
         return false;
       }
 
@@ -1230,6 +1266,15 @@ class HomeCubit extends Cubit<HomeState> {
     }
     // ignore: discarded_futures
     _hydrateFromPendingNotification();
+  }
+
+  /// Clear location warning after user returns from Android Settings.
+  Future<void> recheckLocationPermission() async {
+    final ok = await _ensureLocationPermission(requireAlways: true);
+    if (ok && locationWarning) {
+      locationWarning = false;
+      _emitLoaded();
+    }
   }
 
   // ─── Cleanup ─────────────────────────────────────────────────────────────────

@@ -40,8 +40,8 @@ Wired in `clicks-customer-tech-api/src/services/smsService.js`.
 | `SMS_PROVIDER` | `smsala` (staging/prod) or `console` (local) |
 | `SMSALA_API_TOKEN` | From [SMSala ManageApi](https://dashboard.smsala.com/ManageApi) |
 | `SMSALA_API_URL` | `https://api2.smsala.com/SendSmsV2` (default) |
-| `SMSALA_SOURCE_ADDRESS` / `SMS_FROM` | Registered sender ID |
-| `SMSALA_MESSAGE_TYPE` | `1` (default) |
+| `SMSALA_SOURCE_ADDRESS` / `SMS_FROM` | Approved sender ID (Qatar account: `Sanad RSA` — `Clicks` is rejected) |
+| `SMSALA_MESSAGE_TYPE` | `1` Promotional / `2` Transactional / `3` OTP (use `3` for OTPs) |
 | `SMSALA_MESSAGE_ENCODING` | `1` text; unicode if Arabic |
 
 Restrict SMSala Allowed IP to the **VPS egress IP** (do not leave `0.0.0.0`).

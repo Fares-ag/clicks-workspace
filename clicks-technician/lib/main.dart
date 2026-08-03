@@ -1,4 +1,5 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_root.dart';
@@ -14,6 +15,10 @@ import 'core/routing/routes.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Must register synchronously before any await — required for background FCM.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
   await EasyLocalization.ensureInitialized();
 
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -35,7 +40,7 @@ void main() async {
   };
 
   await JobNotificationService.instance.init();
-  await JobNotificationService.instance.requestPermissions();
+  // Full permission wizard runs after login (MainShell) and before going Online.
 
   // Prefer dart-define; on Android fall back to Manifest Maps key.
   final mapsKey = await MapsApiKey.resolve();

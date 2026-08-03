@@ -4,7 +4,7 @@ const {
   ServiceRequest,
   Technician,
 } = require("../../../clicks-shared/models");
-const { assertJobAccess } = require("../utils/ownership");
+const { assertJobAccess, sameId } = require("../utils/ownership");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
 const {
   parseJobLocation,
@@ -366,31 +366,37 @@ const startJob = async (req, res) => {
       });
     }
 
-    const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
-    const jobPoint = resolveJobLatLng(job);
-    if (!jobPoint) {
-      return res.status(400).json({
-        error: "Job location coordinates are missing; cannot verify proximity",
-      });
-    }
+    // Self-created jobs skip GPS proximity (creator === assignee).
+    const isOwnJob = sameId(job.created_by_technician, job.assignedTechnician);
+    let distanceMeters = null;
 
-    const technician = await Technician.findById(req.user.id).select(
-      "currentLocation"
-    );
-    const techPoint = resolveTechLatLng(req.body || {}, technician);
-    if (!techPoint) {
-      return res.status(400).json({
-        error: "Technician location is required to start the job",
-      });
-    }
+    if (!isOwnJob) {
+      const maxMeters = Number(process.env.JOB_START_MAX_METERS || 200);
+      const jobPoint = resolveJobLatLng(job);
+      if (!jobPoint) {
+        return res.status(400).json({
+          error: "Job location coordinates are missing; cannot verify proximity",
+        });
+      }
 
-    const distanceMeters = Math.round(distanceBetween(techPoint, jobPoint));
-    if (distanceMeters > maxMeters) {
-      return res.status(400).json({
-        error: `You must be within ${maxMeters}m of the job location to start`,
-        distanceMeters,
-        maxMeters,
-      });
+      const technician = await Technician.findById(req.user.id).select(
+        "currentLocation"
+      );
+      const techPoint = resolveTechLatLng(req.body || {}, technician);
+      if (!techPoint) {
+        return res.status(400).json({
+          error: "Technician location is required to start the job",
+        });
+      }
+
+      distanceMeters = Math.round(distanceBetween(techPoint, jobPoint));
+      if (distanceMeters > maxMeters) {
+        return res.status(400).json({
+          error: `You must be within ${maxMeters}m of the job location to start`,
+          distanceMeters,
+          maxMeters,
+        });
+      }
     }
 
     job.job_status = "in_progress";
@@ -412,7 +418,7 @@ const startJob = async (req, res) => {
     res.json({
       message: "Job started",
       job_status: job.job_status,
-      distanceMeters,
+      ...(distanceMeters != null ? { distanceMeters } : { gpsSkipped: true }),
     });
   } catch (err) {
     res.status(500).json({ error: "Start job failed", details: err.message });

@@ -10,6 +10,7 @@ import {
   toE164,
   toLocalDigits,
 } from "../utils/phone";
+import { TECHNICIAN_EXPERTISE_OPTIONS } from "../constants/jobTypes";
 
 export default function EditTechnicianModal({
   open,
@@ -244,11 +245,7 @@ export default function EditTechnicianModal({
                   <MultiSelectDropdown
                     value={fields.expertise || []}
                     onChange={(value) => handleChange("expertise", value)}
-                    options={[
-                      { value: "Tires", label: "Tires" },
-                      { value: "Engines", label: "Engines" },
-                      { value: "Gearbox", label: "Gearbox" },
-                    ]}
+                    options={TECHNICIAN_EXPERTISE_OPTIONS}
                     placeholder="Select expertise (must match job types)"
                     error={errors.expertise && touched.expertise}
                   />

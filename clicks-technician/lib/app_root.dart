@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import 'core/helper/app_context.dart';
+import 'core/notifications/notification_lifecycle.dart';
 import 'core/routing/router.dart';
 import 'core/routing/routes.dart';
 import 'core/theme/colors_manager.dart';
@@ -18,7 +19,8 @@ class AppRoot extends StatelessWidget {
       /// Sets the design size for screens util.
       designSize: const Size(375, 812),
       builder:
-          (context, child) => MaterialApp(
+          (context, child) => NotificationLifecycleObserver(
+            child: MaterialApp(
             /// Sets the navigator key for the application.
             navigatorKey: AppContext.navigatorKey,
 
@@ -136,6 +138,7 @@ class AppRoot extends StatelessWidget {
 
             onGenerateRoute: AppRouter.generateRoute,
             initialRoute: (kDebugMode) ? Routes.splash : Routes.splash,
+            ),
           ),
     );
   }

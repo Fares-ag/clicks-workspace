@@ -12,7 +12,15 @@ import {
 } from "../../utils/phone";
 import "./NewJob.css";
 
-const JOB_TYPES = ["Tires", "Engines", "Gearbox"];
+const JOB_TYPES = [
+  { value: "Towing", label: "Towing" },
+  { value: "Jump start", label: "Jump start / Battery boost" },
+  { value: "Flat tire", label: "Flat tire / Tire change" },
+  { value: "Lockout", label: "Lockout / Key locked in car" },
+  { value: "Fuel delivery", label: "Fuel delivery" },
+  { value: "Battery replacement", label: "Battery replacement" },
+  { value: "Accident assistance", label: "Accident assistance" },
+];
 
 function toLocalInputValue(date) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -357,8 +365,8 @@ function NewJob() {
               >
                 <option value="">Select type</option>
                 {JOB_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>

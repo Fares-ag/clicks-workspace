@@ -6,14 +6,7 @@ import { useGetTechniciansQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import io from "socket.io-client";
 import "./JobDetails.css";
-
-const JOB_TYPE_MAPPING = {
-  Tires: "Tires",
-  Engines: "Engines",
-  Gearbox: "Gearbox",
-  tire_change: "Tires",
-  keyless_car_opening: "Engines",
-};
+import { JOB_TYPE_MAPPING } from "../../constants/jobTypes";
 
 function getJobVehicleInfo(job) {
   if (!job) return null;

@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Alarm-stream volume boost + DND bypass for urgent job alerts -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:label="Clicks Technician"
@@ -28,7 +32,7 @@
         <!-- Data-only FCM: client shows urgent local notification -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="clicks_job_urgent_v3" />
+            android:value="clicks_job_urgent_v4" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

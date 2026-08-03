@@ -1,4 +1,5 @@
 import 'package:clicks_technician/core/components/app_button.dart';
+import 'package:clicks_technician/core/components/vehicle_make_model_fields.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/helper/maps_launcher.dart';
 import 'package:clicks_technician/core/helper/phone_launcher.dart';
@@ -448,17 +449,6 @@ class _VehicleBlock extends StatelessWidget {
   void _showVehicleSheet(BuildContext context, Map<String, dynamic> job) {
     final canEdit =
         cubit.jobStatus == 'arrived' || cubit.jobStatus == 'in_progress';
-    final makeCtrl = TextEditingController(
-        text: (job['vehicleMake'] ?? '').toString());
-    final modelCtrl = TextEditingController(
-        text: (job['vehicleModel'] ?? '').toString());
-    final yearCtrl = TextEditingController(
-        text: job['vehicleYear']?.toString() ?? '');
-    final plateCtrl = TextEditingController(
-        text: (job['licensePlate'] ?? '').toString());
-    final vinCtrl =
-        TextEditingController(text: (job['vinNumber'] ?? '').toString());
-
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -466,85 +456,162 @@ class _VehicleBlock extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
       ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-                20.w, 20.h, 20.w, MediaQuery.of(ctx).viewInsets.bottom + 20.h),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Vehicle details',
-                    style: TextStyles.font16RegularBlack
-                        .copyWith(fontWeight: FontWeight.bold)),
-                SizedBox(height: 16.h),
-                if (!canEdit) ...[
-                  Text(JobDisplay.vehicleLine(job),
-                      style: TextStyles.font14RegularGrey
-                          .copyWith(color: Colors.black87)),
-                  SizedBox(height: 12.h),
-                  Text('Editable after you arrive',
-                      style: TextStyles.font12RegularGrey),
-                ] else ...[
-                  TextField(
-                      controller: makeCtrl,
-                      decoration: const InputDecoration(labelText: 'Make')),
-                  TextField(
-                      controller: modelCtrl,
-                      decoration: const InputDecoration(labelText: 'Model')),
-                  TextField(
-                      controller: yearCtrl,
-                      decoration: const InputDecoration(labelText: 'Year'),
-                      keyboardType: TextInputType.number),
-                  TextField(
-                      controller: plateCtrl,
-                      decoration: const InputDecoration(labelText: 'Plate')),
-                  TextField(
-                      controller: vinCtrl,
-                      decoration: const InputDecoration(labelText: 'VIN')),
-                  SizedBox(height: 12.h),
-                  AppButton(
-                    onPressed: () async {
-                      final ok = await cubit.updateJobDetails({
-                        'vehicleMake': makeCtrl.text.trim(),
-                        'vehicleModel': modelCtrl.text.trim(),
-                        if (yearCtrl.text.trim().isNotEmpty)
-                          'vehicleYear': int.tryParse(yearCtrl.text.trim()),
-                        'licensePlate': plateCtrl.text.trim(),
-                        'vinNumber': vinCtrl.text.trim(),
-                      });
-                      if (ctx.mounted) Navigator.pop(ctx);
-                      if (cubit.signatureClearedBanner) {
-                        // ignore: use_build_context_synchronously
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Customer must sign again after job edits',
-                            ),
-                          ),
-                        );
-                      }
-                      if (!ok) {
-                        // ignore: use_build_context_synchronously
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Update failed')),
-                        );
-                      }
-                    },
-                    label: 'Save',
-                    margin: 0,
-                    bgColor: ColorsManager.mainColor,
-                    textColor: Colors.white,
-                    height: 44.h,
-                    radius: 10.r,
-                  ),
-                ],
-              ],
+      builder: (ctx) => _VehicleEditSheet(
+        cubit: cubit,
+        job: job,
+        canEdit: canEdit,
+      ),
+    );
+  }
+}
+
+class _VehicleEditSheet extends StatefulWidget {
+  const _VehicleEditSheet({
+    required this.cubit,
+    required this.job,
+    required this.canEdit,
+  });
+
+  final HomeCubit cubit;
+  final Map<String, dynamic> job;
+  final bool canEdit;
+
+  @override
+  State<_VehicleEditSheet> createState() => _VehicleEditSheetState();
+}
+
+class _VehicleEditSheetState extends State<_VehicleEditSheet> {
+  final _vehicleKey = GlobalKey<VehicleMakeModelFieldsState>();
+  final _makeCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
+  final _yearCtrl = TextEditingController();
+  final _plateCtrl = TextEditingController();
+  final _vinCtrl = TextEditingController();
+  bool _useCatalog = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final job = widget.job;
+    _makeCtrl.text = (job['vehicleMake'] ?? '').toString();
+    _modelCtrl.text = (job['vehicleModel'] ?? '').toString();
+    _yearCtrl.text = job['vehicleYear']?.toString() ?? '';
+    _plateCtrl.text = (job['licensePlate'] ?? '').toString();
+    _vinCtrl.text = (job['vinNumber'] ?? '').toString();
+  }
+
+  @override
+  void dispose() {
+    _makeCtrl.dispose();
+    _modelCtrl.dispose();
+    _yearCtrl.dispose();
+    _plateCtrl.dispose();
+    _vinCtrl.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _deco(String label) => InputDecoration(labelText: label);
+
+  Future<void> _save() async {
+    final vs = _vehicleKey.currentState;
+    final make = _useCatalog && vs != null ? vs.make : _makeCtrl.text.trim();
+    final model = _useCatalog && vs != null ? vs.model : _modelCtrl.text.trim();
+    if (make.isEmpty || model.isEmpty) {
+      AppSnackBars.errorSnackBar('Select make and model');
+      return;
+    }
+
+    final ok = await widget.cubit.updateJobDetails({
+      'vehicleMake': make,
+      'vehicleModel': model,
+      if (_yearCtrl.text.trim().isNotEmpty)
+        'vehicleYear': int.tryParse(_yearCtrl.text.trim()),
+      'licensePlate': _plateCtrl.text.trim(),
+      'vinNumber': _vinCtrl.text.trim(),
+    });
+    if (!mounted) return;
+    Navigator.pop(context);
+    if (widget.cubit.signatureClearedBanner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Customer must sign again after job edits')),
+      );
+    }
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Update failed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final job = widget.job;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20.w,
+          20.h,
+          20.w,
+          MediaQuery.of(context).viewInsets.bottom + 20.h,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Vehicle details',
+              style: TextStyles.font16RegularBlack
+                  .copyWith(fontWeight: FontWeight.bold),
             ),
-          ),
-        );
-      },
+            SizedBox(height: 16.h),
+            if (!widget.canEdit) ...[
+              Text(
+                JobDisplay.vehicleLine(job),
+                style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
+              ),
+              SizedBox(height: 12.h),
+              Text('Editable after you arrive', style: TextStyles.font12RegularGrey),
+            ] else ...[
+              VehicleMakeModelFields(
+                key: _vehicleKey,
+                initialMake: (job['vehicleMake'] ?? '').toString(),
+                initialModel: (job['vehicleModel'] ?? '').toString(),
+                onCatalogReady: (ok) => setState(() => _useCatalog = ok),
+              ),
+              if (!_useCatalog)
+                VehicleMakeModelTextFields(
+                  makeController: _makeCtrl,
+                  modelController: _modelCtrl,
+                ),
+              TextField(
+                controller: _yearCtrl,
+                decoration: _deco('Year'),
+                keyboardType: TextInputType.number,
+              ),
+              SizedBox(height: 12.h),
+              TextField(
+                controller: _plateCtrl,
+                decoration: _deco('Plate'),
+              ),
+              SizedBox(height: 12.h),
+              TextField(
+                controller: _vinCtrl,
+                decoration: _deco('VIN'),
+              ),
+              SizedBox(height: 12.h),
+              AppButton(
+                onPressed: _save,
+                label: 'Save',
+                margin: 0,
+                bgColor: ColorsManager.mainColor,
+                textColor: Colors.white,
+                height: 44.h,
+                radius: 10.r,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -664,12 +731,15 @@ class _Actions extends StatelessWidget {
         );
       case 'arrived':
         final near = cubit.canStartJob;
+        final ownJob = cubit.isOwnCreatedJob;
         final dist = cubit.distanceToJobMeters;
-        final distLabel = dist == null
-            ? 'Waiting for GPS…'
-            : near
-                ? 'You are near the job location'
-                : 'Move within ${HomeCubit.startMaxMeters.toInt()}m to start (${dist.round()}m away)';
+        final distLabel = ownJob
+            ? 'Ready to start (GPS not required for your job)'
+            : dist == null
+                ? 'Waiting for GPS…'
+                : near
+                    ? 'You are near the job location'
+                    : 'Move within ${HomeCubit.startMaxMeters.toInt()}m to start (${dist.round()}m away)';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

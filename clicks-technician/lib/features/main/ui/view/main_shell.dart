@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/core/notifications/job_notification_service.dart';
+import 'package:clicks_technician/core/permissions/permissions_setup_sheet.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/activity_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/earnings_tab.dart';
@@ -31,6 +32,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _promptPermissionsIfNeeded());
+  }
+
+  Future<void> _promptPermissionsIfNeeded() async {
+    if (!mounted) return;
+    await PermissionsSetupSheet.showIfNeeded(context);
   }
 
   @override
@@ -45,8 +52,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       state == AppLifecycleState.resumed,
     );
     if (state == AppLifecycleState.resumed) {
-      // Reconnect socket if it dropped while app was backgrounded.
       context.read<HomeCubit>().onAppResumed();
+      // Re-check location after returning from Settings.
+      context.read<HomeCubit>().recheckLocationPermission();
     }
   }
 
