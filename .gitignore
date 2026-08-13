@@ -33,5 +33,6 @@
 # Google / Firebase keys
 clicks-api/clicks-468120-ac337c1b05a9.json
 **/*service*account*.json
+**/*firebase-adminsdk*.json
 **/google-services.json
 

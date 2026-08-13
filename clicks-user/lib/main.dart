@@ -5,15 +5,17 @@ import 'package:clicks_user/core/config/app_config.dart';
 import 'package:clicks_user/core/helper/app_context.dart';
 import 'package:clicks_user/core/helper/google_maps_loader.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/customer_notification_router.dart';
+import 'package:clicks_user/core/services/fcm_notification_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'app_root.dart';
 
 import 'core/helper/cache_helper.dart';
-import 'core/services/fcm_notification_service.dart';
 import 'firebase_options.dart';
 
 void _log(String msg) {
@@ -25,6 +27,10 @@ void _log(String msg) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Must register synchronously before any await — required for background FCM.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
   await EasyLocalization.ensureInitialized();
   await ScreenUtil.ensureScreenSize();
 
@@ -82,10 +88,10 @@ void _initializeFCMInBackground() {
 
       final fcmService = FCMNotificationService.instance;
       fcmService.onNotificationReceived = (data) {
-        _log('📱 Notification received: $data');
+        _log('📱 Notification received: ${data['event'] ?? data['type']}');
       };
       fcmService.onNotificationTapped = (data) {
-        _log('👆 Notification tapped: $data');
+        CustomerNotificationRouter.handleTap(data);
       };
       fcmService.onTokenRefresh = (token) async {
         if (token != null) {

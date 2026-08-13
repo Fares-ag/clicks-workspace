@@ -1027,9 +1027,9 @@ function initializeSOSSocket(io) {
       }
     });
 
-    // ⚡ Technician confirms payment received (completed → paid)
+    // ⚡ Technician confirms payment received (in_progress or legacy completed unpaid)
     // REST confirmPayment is source of truth for payment + receipt; this handler
-    // is notify-only when payment_status is already paid.
+    // is notify-only when payment_status is already paid. Tech stays On Job until complete.
     socket.on("paymentReceived", async (data) => {
       try {
         const { job_id, payment_method } = data;
@@ -1048,9 +1048,9 @@ function initializeSOSSocket(io) {
           return;
         }
 
-        if (job.job_status !== "completed") {
+        if (!["in_progress", "completed"].includes(job.job_status)) {
           socket.emit("error", {
-            message: `Cannot mark payment from status: ${job.job_status}. Job must be marked complete first.`,
+            message: `Cannot mark payment from status: ${job.job_status}. Job must be in progress (or completed unpaid).`,
           });
           return;
         }
@@ -1075,36 +1075,42 @@ function initializeSOSSocket(io) {
           paid_at: job.paid_at,
         });
 
-        const notifyCustomerPaid = (receiptData) => {
-          const customerSocketId = customerSockets.get(
-            job.customer_id?._id?.toString()
-          );
+        const notifyCustomerPaid = async (receiptData) => {
+          const customerId = job.customer_id?._id?.toString();
+          const paymentPayload = {
+            job_id,
+            job_status: job.job_status,
+            payment_status: "paid",
+            total_amount: job.price,
+            receipt: receiptData,
+            technician: job.assignedTechnician
+              ? {
+                  name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
+                  photo: job.assignedTechnician.profilePicture,
+                }
+              : null,
+          };
+          const customerSocketId = customerId
+            ? customerSockets.get(customerId)
+            : null;
           if (customerSocketId) {
-            customerNamespace.to(customerSocketId).emit("jobCompleted", {
-              job_id,
-              job_status: "completed",
-              payment_status: "paid",
-              total_amount: job.price,
-              receipt: receiptData,
-              technician: job.assignedTechnician
-                ? {
-                    name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-                    photo: job.assignedTechnician.profilePicture,
-                  }
-                : null,
-            });
-            console.log(`Customer ${job.customer_id._id} notified: job completed & paid`);
+            customerNamespace.to(customerSocketId).emit(
+              "paymentConfirmed",
+              paymentPayload
+            );
+            console.log(`Customer ${customerId} notified: payment received`);
+          }
+          if (customerId) {
+            await pushCustomerEvent(customerId, "paymentConfirmed", paymentPayload);
           }
         };
 
         // Idempotent notify-only path after REST confirmPayment
         if (job.payment_status === "paid") {
-          await setTechnicianStatus(job.assignedTechnician._id, "Online");
-          await emitAdminTechnicianPresence(job.assignedTechnician._id, "Online");
           const receiptData = buildReceiptData();
           socket.emit("paymentConfirmed", {
             job_id,
-            job_status: "completed",
+            job_status: job.job_status,
             payment_status: "paid",
             receipt: receiptData,
             message: "Payment already confirmed",
@@ -1119,16 +1125,13 @@ function initializeSOSSocket(io) {
         job.paid_at = new Date();
         await job.save();
 
-        await setTechnicianStatus(job.assignedTechnician._id, "Online");
-        await emitAdminTechnicianPresence(job.assignedTechnician._id, "Online");
-
         const receiptData = buildReceiptData();
         receiptData.payment_method = job.payment_method;
         receiptData.paid_at = job.paid_at;
 
         socket.emit("paymentConfirmed", {
           job_id,
-          job_status: "completed",
+          job_status: job.job_status,
           payment_status: "paid",
           receipt: receiptData,
           message: "Payment confirmed successfully",
@@ -1340,20 +1343,43 @@ function initializeSOSSocket(io) {
     }
   }
 
+  async function pushCustomerEvent(customerId, event, data = {}) {
+    try {
+      const { sendCustomerPush } = require("./fcmService");
+      const jobId =
+        data.job_id?.toString?.() ||
+        data.job_id ||
+        data.jobId?.toString?.() ||
+        "";
+      await sendCustomerPush(customerId, {
+        event,
+        type: event,
+        job_id: jobId,
+        sos_id: data.sos_id?.toString?.() || data.sos_id || "",
+        ...data,
+      });
+    } catch (fcmErr) {
+      console.error(`[fcm] customer ${event} push error:`, fcmErr.message);
+    }
+  }
+
   // Notify customer that technician was assigned
   async function notifyCustomerTechnicianAssigned(customerId, data) {
     try {
       console.log(`Notifying customer ${customerId} of technician assignment`);
       const socketId = customerSockets.get(customerId.toString());
-      
+      let socketOk = false;
+
       if (socketId) {
         customerNamespace.to(socketId).emit("technicianAssigned", data);
         console.log(`Customer ${customerId} notified via socket ${socketId}`);
-        return true;
+        socketOk = true;
       } else {
         console.log(`Customer ${customerId} is not connected`);
-        return false;
       }
+
+      await pushCustomerEvent(customerId, "technicianAssigned", data);
+      return socketOk;
     } catch (error) {
       console.error("Error notifying customer:", error);
       return false;
@@ -1365,15 +1391,18 @@ function initializeSOSSocket(io) {
     try {
       console.log(`Notifying customer ${customerId} of technician acceptance`);
       const socketId = customerSockets.get(customerId.toString());
-      
+      let socketOk = false;
+
       if (socketId) {
-        customerNamespace.to(socketId).emit("technicianAccepted", data);
+        customerNamespace.to(customerId).emit("technicianAccepted", data);
         console.log(`Customer ${customerId} notified of acceptance via socket ${socketId}`);
-        return true;
+        socketOk = true;
       } else {
         console.log(`Customer ${customerId} is not connected`);
-        return false;
       }
+
+      await pushCustomerEvent(customerId, "technicianAccepted", data);
+      return socketOk;
     } catch (error) {
       console.error("Error notifying customer of acceptance:", error);
       return false;
@@ -1398,14 +1427,20 @@ function initializeSOSSocket(io) {
     const customerSocketId = customerSockets.get(
       String(customer_id || sos.customer_id)
     );
+    const sosPayload = {
+      sos_id: String(sos_id),
+      status: "in_call",
+      message:
+        "An operator is reviewing your request and will call you shortly",
+    };
     if (customerSocketId) {
-      customerNamespace.to(customerSocketId).emit("sosInCall", {
-        sos_id: String(sos_id),
-        status: "in_call",
-        message:
-          "An operator is reviewing your request and will call you shortly",
-      });
+      customerNamespace.to(customerSocketId).emit("sosInCall", sosPayload);
     }
+    await pushCustomerEvent(
+      String(customer_id || sos.customer_id),
+      "sosInCall",
+      sosPayload
+    );
     return true;
   }
 
@@ -1413,9 +1448,16 @@ function initializeSOSSocket(io) {
   async function notifyCustomerJobEvent(customerId, event, data) {
     try {
       const socketId = customerSockets.get(String(customerId));
-      if (!socketId) return false;
-      customerNamespace.to(socketId).emit(event, data);
-      return true;
+      let socketOk = false;
+      if (socketId) {
+        customerNamespace.to(socketId).emit(event, data);
+        socketOk = true;
+      }
+      const { CUSTOMER_PUSH_EVENTS } = require("./fcmService");
+      if (CUSTOMER_PUSH_EVENTS.has(event)) {
+        await pushCustomerEvent(customerId, event, data);
+      }
+      return socketOk;
     } catch (error) {
       console.error(`Error emitting ${event} to customer:`, error);
       return false;

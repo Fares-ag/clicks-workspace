@@ -66,7 +66,10 @@ const JobSchema = new mongoose.Schema(
     task_description: { type: String },
     rejection_reasons: [{ type: String }],
     rejection_description: { type: String, maxlength: 500 },
-    payment_method: { type: String, enum: ["card", "wallet", "cash"] },
+    payment_method: {
+      type: String,
+      enum: ["card", "wallet", "cash", "fawran"],
+    },
     rating: { type: Number, min: 1, max: 5 },
     rating_description: { type: String, maxlength: 500, default: "" },
     sos_request_id: { type: mongoose.Schema.Types.ObjectId, ref: "SOSRequest" },

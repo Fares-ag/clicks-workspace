@@ -3,7 +3,10 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import '../../firebase_options.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -12,14 +15,18 @@ void _log(String msg) {
   }
 }
 
-/// Background message handler - must be a top-level function
+/// Background message handler — must be a top-level function registered in main().
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    _log('⚠️ Background Firebase init failed: $e');
+  }
   _log('🔔 Background message received: ${message.messageId}');
-  _log('🔔 Background data: ${message.data}');
-
-  // Show notification from background isolate
   await _showNotificationFromBackground(message);
 }
 
@@ -123,8 +130,7 @@ class FCMNotificationService {
     // Request permission (Android POST_NOTIFICATIONS + iOS/Firebase)
     await _requestPermission();
 
-    // Set up background message handler
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    // Registered in main() before any await — do not register again here.
 
     // Handle foreground messages
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);

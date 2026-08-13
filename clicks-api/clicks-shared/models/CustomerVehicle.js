@@ -8,7 +8,8 @@ const CustomerVehicleSchema = new mongoose.Schema(
     vehicle_model: { type: mongoose.Schema.Types.ObjectId, ref: "VehicleModel", required: true },
     year: { type: Number, required: true },
     vehicle_color: { type: String, required: true },
-    plate_number: { type: String, required: true }
+    plate_number: { type: String, default: "" },
+    vin_number: { type: String, default: "" },
   },
   { timestamps: true }
 );

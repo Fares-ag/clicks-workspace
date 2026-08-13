@@ -92,6 +92,11 @@ async function checkPrivacyPolicyApi(label, url) {
       "Security and data handling",
       "HTTPS/TLS",
       "do not sell",
+      "Sanad Technician",
+      "com.clicks.tech",
+      "Sanad RSA",
+      "com.roya.clicks_user",
+      "Clicks",
     ],
     `${label} covers Play-required topics`
   );
@@ -112,7 +117,15 @@ async function checkPublicPrivacyPage() {
     pass("Static privacy policy file in repo");
     includesAll(
       localHtml,
-      ["background location", "Location data", "Security and data handling"],
+      [
+        "background location",
+        "Location data",
+        "Security and data handling",
+        "Sanad Technician",
+        "com.clicks.tech",
+        "Sanad RSA",
+        "com.roya.clicks_user",
+      ],
       "Static file includes location + security sections"
     );
   } else {

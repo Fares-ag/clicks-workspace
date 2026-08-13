@@ -221,11 +221,24 @@ class HomeCubit extends Cubit<HomeState> {
     _socketService.onJobStartedConfirmed = (data) => _mergeJobStatus(data);
 
     _socketService.onPaymentConfirmed = (data) {
-      activeJob = null;
+      // Payment is mid-job now — keep active job and mark paid.
+      // Only clear if the job is already completed (legacy unpaid-complete path).
+      final status = (data is Map
+              ? (data['job_status'] ?? data['status'])
+              : null)
+          ?.toString();
+      if (status == 'completed') {
+        activeJob = null;
+        fetchHistory();
+      } else if (activeJob != null) {
+        activeJob!['payment_status'] = 'paid';
+        if (data is Map && data['payment_method'] != null) {
+          activeJob!['payment_method'] = data['payment_method'];
+        }
+      }
       _emitLoaded();
       _syncLocationTracking();
       _syncSessionPoll();
-      fetchHistory();
     };
 
     _socketService.onJobCancelled = (data) {
@@ -913,8 +926,8 @@ class HomeCubit extends Cubit<HomeState> {
       ),
       optimisticStatus: 'completed',
       onSuccess: () {
-        activeJob!['job_status'] = 'completed';
-        activeJob!['status'] = 'completed';
+        activeJob = null;
+        fetchHistory();
         fetchHomeMeta();
       },
     );
@@ -974,10 +987,12 @@ class HomeCubit extends Cubit<HomeState> {
         data: {'payment_method': paymentMethod},
       ),
       onSuccess: () {
-        // Best-effort customer socket notify; REST already resets tech to Online.
+        // Best-effort customer socket notify; stay On Job until Complete.
         _socketService.paymentReceived(id, paymentMethod: paymentMethod);
-        activeJob = null;
-        fetchHistory();
+        if (activeJob != null) {
+          activeJob!['payment_status'] = 'paid';
+          activeJob!['payment_method'] = paymentMethod;
+        }
         fetchHomeMeta();
       },
     );

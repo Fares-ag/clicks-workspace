@@ -112,10 +112,9 @@ class MyCarsCubit extends Cubit<MyCarsState> {
           "vehicle_make": selectedMake!.sId,
           "vehicle_model": selectedModel!.sId,
           "year": num.parse(yearController.text),
-          "vehicle_color": colorController.text,
-          "plate_number": plateNumberController.text,
-          if (vinNumberController.text.trim().isNotEmpty)
-            "vin_number": vinNumberController.text.trim(),
+          "vehicle_color": colorController.text.trim(),
+          "plate_number": plateNumberController.text.trim(),
+          "vin_number": vinNumberController.text.trim(),
         },
       );
 
@@ -140,10 +139,9 @@ class MyCarsCubit extends Cubit<MyCarsState> {
           "vehicle_make": selectedMake!.sId,
           "vehicle_model": selectedModel!.sId,
           "year": num.parse(yearController.text),
-          "vehicle_color": colorController.text,
-          "plate_number": plateNumberController.text,
-          if (vinNumberController.text.trim().isNotEmpty)
-            "vin_number": vinNumberController.text.trim(),
+          "vehicle_color": colorController.text.trim(),
+          "plate_number": plateNumberController.text.trim(),
+          "vin_number": vinNumberController.text.trim(),
         },
       );
 

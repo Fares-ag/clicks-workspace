@@ -28,7 +28,11 @@ class MyCarsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new, size: 18.sp, color: Colors.black87),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: const Border(
@@ -701,7 +705,7 @@ class _AddEditCarForm extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
 
-                  // ── Plate Number ──
+                  // ── Plate Number (optional) ──
                   _label('my_cars.plate_number'.tr()),
                   TextFormField(
                     controller: cubit.plateNumberController,
@@ -714,13 +718,10 @@ class _AddEditCarForm extends StatelessWidget {
                       errorBorder: _outline(Colors.red),
                       contentPadding: const EdgeInsets.all(12),
                     ),
-                    validator: (v) => (v?.trim().isEmpty ?? true)
-                        ? 'my_cars.plate_required'.tr()
-                        : null,
                   ),
                   const SizedBox(height: 16),
 
-                  // ── VIN Number ──
+                  // ── VIN Number (optional) ──
                   _label('my_cars.vin_number'.tr()),
                   TextFormField(
                     controller: cubit.vinNumberController,

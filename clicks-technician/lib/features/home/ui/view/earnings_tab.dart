@@ -532,7 +532,7 @@ class _WeeklyEarningChart extends StatelessWidget {
           ),
           SizedBox(height: 18.h),
           SizedBox(
-            height: 160.h,
+            height: 172.h,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -547,86 +547,112 @@ class _WeeklyEarningChart extends StatelessWidget {
                         style: TextStyles.font12RegularGrey
                             .copyWith(fontSize: 10.sp),
                       ),
-                      Text(
-                        '0',
-                        style: TextStyles.font12RegularGrey
-                            .copyWith(fontSize: 10.sp),
+                      // Leave room so the axis "0" sits above day labels.
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 18.h),
+                        child: Text(
+                          '0',
+                          style: TextStyles.font12RegularGrey
+                              .copyWith(fontSize: 10.sp),
+                        ),
                       ),
                     ],
                   ),
                 ),
                 SizedBox(width: 8.w),
                 Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: bars.map((b) {
-                      final ratio =
-                          axisMax <= 0 ? 0.0 : (b.amount / axisMax).clamp(0.0, 1.0);
-                      final h = math.max(6.0, 110.0 * ratio);
-                      final highlight = b.amount == maxAmt && maxAmt > 0;
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 3.w),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              if (highlight)
-                                Container(
-                                  margin: EdgeInsets.only(bottom: 6.h),
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 6.w,
-                                    vertical: 2.h,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: ColorsManager.mainColor,
-                                    borderRadius: BorderRadius.circular(6.r),
-                                  ),
-                                  child: Text(
-                                    b.amount.toStringAsFixed(0),
-                                    style: TextStyles.font12RegularGrey.copyWith(
-                                      color: Colors.white,
-                                      fontSize: 9.sp,
-                                      fontWeight: FontWeight.w600,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final labelGap = 8.h;
+                      final labelH = 14.h;
+                      final hasHighlight = maxAmt > 0;
+                      final badgeReserve = hasHighlight ? 28.h : 0.0;
+                      final maxBarH = math.max(
+                        6.0,
+                        constraints.maxHeight -
+                            labelGap -
+                            labelH -
+                            badgeReserve,
+                      );
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: bars.map((b) {
+                          final ratio = axisMax <= 0
+                              ? 0.0
+                              : (b.amount / axisMax).clamp(0.0, 1.0);
+                          final h = math.max(6.0, maxBarH * ratio);
+                          final highlight = b.amount == maxAmt && maxAmt > 0;
+                          return Expanded(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 3.w),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (highlight)
+                                    Container(
+                                      margin: EdgeInsets.only(bottom: 6.h),
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 6.w,
+                                        vertical: 2.h,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: ColorsManager.mainColor,
+                                        borderRadius:
+                                            BorderRadius.circular(6.r),
+                                      ),
+                                      child: Text(
+                                        b.amount.toStringAsFixed(0),
+                                        style: TextStyles.font12RegularGrey
+                                            .copyWith(
+                                          color: Colors.white,
+                                          fontSize: 9.sp,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  Container(
+                                    height: h,
+                                    decoration: BoxDecoration(
+                                      gradient: highlight
+                                          ? const LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Color(0xFFD64545),
+                                                Color(0xFF981F1F),
+                                              ],
+                                            )
+                                          : null,
+                                      color: highlight
+                                          ? null
+                                          : const Color(0xFFEDEDED),
+                                      borderRadius: BorderRadius.circular(6.r),
                                     ),
                                   ),
-                                ),
-                              Container(
-                                height: h.h,
-                                decoration: BoxDecoration(
-                                  gradient: highlight
-                                      ? const LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Color(0xFFD64545),
-                                            Color(0xFF981F1F),
-                                          ],
-                                        )
-                                      : null,
-                                  color: highlight
-                                      ? null
-                                      : const Color(0xFFEDEDED),
-                                  borderRadius: BorderRadius.circular(6.r),
-                                ),
+                                  SizedBox(height: labelGap),
+                                  Text(
+                                    b.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.clip,
+                                    style: TextStyles.font12RegularGrey.copyWith(
+                                      fontSize: 10.sp,
+                                      height: 1.1,
+                                      fontWeight: highlight
+                                          ? FontWeight.w700
+                                          : FontWeight.w400,
+                                      color: highlight
+                                          ? ColorsManager.mainColor
+                                          : ColorsManager.greyColor,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              SizedBox(height: 8.h),
-                              Text(
-                                b.label,
-                                style: TextStyles.font12RegularGrey.copyWith(
-                                  fontSize: 10.sp,
-                                  fontWeight: highlight
-                                      ? FontWeight.w700
-                                      : FontWeight.w400,
-                                  color: highlight
-                                      ? ColorsManager.mainColor
-                                      : ColorsManager.greyColor,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                            ),
+                          );
+                        }).toList(),
                       );
-                    }).toList(),
+                    },
                   ),
                 ),
               ],

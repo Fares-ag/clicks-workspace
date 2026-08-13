@@ -2,6 +2,13 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "redirects": [
+    {
+      "source": "/privacy-policy",
+      "destination": "/privacy-policy.html",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
@@ -20,6 +27,13 @@
         { "key": "Cache-Control", "value": "no-store, must-revalidate" },
         { "key": "CDN-Cache-Control", "value": "no-store" },
         { "key": "Cloudflare-CDN-Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/privacy-policy.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" }
       ]
     },
     {

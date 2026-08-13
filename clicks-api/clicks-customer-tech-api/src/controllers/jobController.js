@@ -532,6 +532,11 @@ const markCompleted = async (req, res) => {
         error: `Cannot complete job with status: ${job.job_status}`,
       });
     }
+    if (job.payment_status !== "paid") {
+      return res.status(400).json({
+        error: "Payment must be collected before completing the job",
+      });
+    }
     if (!job.customerSignatureUrl || !job.customerSignedAt) {
       return res.status(400).json({
         error: "Customer signature is required before completing the job",
@@ -551,6 +556,17 @@ const markCompleted = async (req, res) => {
     job.job_status = "completed";
     job.completed_at = job.completed_at || new Date();
     await job.save();
+
+    if (job.customer_id) {
+      const notify = req.app.get("notifyCustomerJobEvent");
+      if (typeof notify === "function") {
+        await notify(job.customer_id.toString(), "jobCompleted", {
+          job_id: job._id.toString(),
+          job_status: "completed",
+          payment_status: job.payment_status,
+        });
+      }
+    }
 
     try {
       const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
@@ -635,7 +651,41 @@ const markCompleted = async (req, res) => {
       }
     }
 
-    res.json({ message: "Job marked as completed", job_status: job.job_status });
+    // Safety: ensure a receipt exists (normally created at Collect Payment).
+    let receipt = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+    if (!receipt) {
+      const repairs = await RepairProcedure.find({ job_id: id });
+      const pricing = computeJobPricing(job, repairs);
+      receipt = await Receipt.create({
+        job_id: job._id,
+        customer_id: job.customer_id,
+        technician_id: job.assignedTechnician,
+        total_amount: pricing.total,
+        payment_status: "paid",
+        items: repairs.map((r) => ({
+          description: r.description,
+          quantity: r.quantity,
+          price: r.price,
+          receipt_image_url: r.receipt_image_url,
+        })),
+      });
+    }
+
+    // Tech returns Online only after complete (payment no longer ends the job).
+    if (job.assignedTechnician) {
+      await setTechnicianStatus(job.assignedTechnician, "Online");
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(job.assignedTechnician, "Online");
+      }
+    }
+
+    res.json({
+      message: "Job marked as completed",
+      job_status: job.job_status,
+      payment_status: job.payment_status,
+      receipt,
+    });
   } catch (err) {
     res.status(500).json({ error: "Mark completed failed", details: err.message });
   }
@@ -724,15 +774,6 @@ const cancelJobByTechnician = async (req, res) => {
 };
 
 const confirmPayment = async (req, res) => {
-  const notifyTechnicianOnline = async (job) => {
-    if (!job?.assignedTechnician) return;
-    await setTechnicianStatus(job.assignedTechnician, "Online");
-    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-    if (typeof notifyPresence === "function") {
-      await notifyPresence(job.assignedTechnician, "Online");
-    }
-  };
-
   try {
     const { id } = req.params;
     const { payment_method, notes } = req.body || {};
@@ -741,16 +782,16 @@ const confirmPayment = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    // P2-02: payment can only be collected on a completed job
-    if (job.job_status !== "completed") {
+    // Payment is collected during in_progress (before complete). Legacy unpaid
+    // completed jobs can still be paid to clear the queue.
+    if (!["in_progress", "completed"].includes(job.job_status)) {
       return res.status(400).json({
-        error: `Cannot collect payment for job with status: ${job.job_status}. Job must be completed first.`,
+        error: `Cannot collect payment for job with status: ${job.job_status}. Job must be in progress (or completed unpaid).`,
       });
     }
-    // Idempotency — already paid
+    // Idempotency — already paid (do not set Online; tech stays On Job until complete)
     if (job.payment_status === "paid") {
       const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
-      await notifyTechnicianOnline(job);
       return res.json({
         message: "Payment already confirmed",
         job_status: job.job_status,
@@ -761,7 +802,7 @@ const confirmPayment = async (req, res) => {
     }
     job.payment_status = "paid";
     job.paid_at = new Date();
-    if (payment_method && ["cash", "card", "wallet"].includes(payment_method)) {
+    if (payment_method && ["cash", "card", "wallet", "fawran"].includes(payment_method)) {
       job.payment_method = payment_method;
     } else if (!job.payment_method) {
       job.payment_method = "cash";
@@ -787,7 +828,19 @@ const confirmPayment = async (req, res) => {
       notes: notes || undefined,
     });
     await receipt.save();
-    await notifyTechnicianOnline(job);
+
+    if (job.customer_id) {
+      const notify = req.app.get("notifyCustomerJobEvent");
+      if (typeof notify === "function") {
+        await notify(job.customer_id.toString(), "paymentConfirmed", {
+          job_id: job._id.toString(),
+          job_status: job.job_status,
+          payment_status: "paid",
+          total_amount: pricing.total,
+        });
+      }
+    }
+
     res.json({
       message: "Payment confirmed",
       job_status: job.job_status,
@@ -801,10 +854,9 @@ const confirmPayment = async (req, res) => {
     if (err.code === 11000) {
       const existing = await Receipt.findOne({ job_id: req.params.id }).sort({ issued_at: -1 });
       const job = await Job.findById(req.params.id);
-      if (job) await notifyTechnicianOnline(job);
       return res.json({
         message: "Payment already confirmed",
-        job_status: "completed",
+        job_status: job?.job_status || "in_progress",
         payment_status: "paid",
         receipt: existing,
       });

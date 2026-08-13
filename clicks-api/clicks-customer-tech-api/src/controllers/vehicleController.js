@@ -3,25 +3,52 @@ const { assertVehicleOwner } = require("../utils/ownership");
 
 const addVehicle = async (req, res) => {
   try {
-    const { vehicle_make, vehicle_type, vehicle_model, year, vehicle_color, plate_number } = req.body;
-    // Get customer_id from authenticated user
-    const customer_id = req.user.id;
-
-    if (!vehicle_make || !vehicle_type || !vehicle_model || !year || !vehicle_color || !plate_number) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-    const existing = await CustomerVehicle.findOne({ plate_number });
-    if (existing) {
-      return res.status(409).json({ error: "Plate number already registered" });
-    }
-    const vehicle = new CustomerVehicle({
-      customer_id,
+    const {
       vehicle_make,
       vehicle_type,
       vehicle_model,
       year,
       vehicle_color,
-      plate_number
+      plate_number,
+      vin_number,
+    } = req.body;
+    // Get customer_id from authenticated user
+    const customer_id = req.user.id;
+
+    if (!vehicle_make || !vehicle_model || !year || !vehicle_color) {
+      return res.status(400).json({ error: "Make, model, year, and color are required" });
+    }
+
+    let resolvedType = vehicle_type;
+    if (!resolvedType) {
+      const fallbackType = await VehicleType.findOne({ isActive: true }).sort({
+        typeName: 1,
+      });
+      if (!fallbackType) {
+        return res.status(400).json({ error: "No vehicle type configured" });
+      }
+      resolvedType = fallbackType._id;
+    }
+
+    const plate = plate_number != null ? String(plate_number).trim() : "";
+    const vin = vin_number != null ? String(vin_number).trim() : "";
+
+    if (plate) {
+      const existing = await CustomerVehicle.findOne({ plate_number: plate });
+      if (existing) {
+        return res.status(409).json({ error: "Plate number already registered" });
+      }
+    }
+
+    const vehicle = new CustomerVehicle({
+      customer_id,
+      vehicle_make,
+      vehicle_type: resolvedType,
+      vehicle_model,
+      year,
+      vehicle_color,
+      plate_number: plate,
+      vin_number: vin,
     });
     await vehicle.save();
     res.status(201).json({ message: "Vehicle added successfully", vehicle });

@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyCsBkv6H-JgQgCDs3w8x_Ax4spwVO1aN7Y</string>
+	<string>AIzaSyCh6RqS-plxGw50P1RtaaFF6_xYc_5yIrs</string>
 	<key>GCM_SENDER_ID</key>
-	<string>1076454306293</string>
+	<string>405834083597</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>com.roya.clicksUser</string>
 	<key>PROJECT_ID</key>
-	<string>clicks-d2da9</string>
+	<string>clicks-customer</string>
 	<key>STORAGE_BUCKET</key>
-	<string>clicks-d2da9.firebasestorage.app</string>
+	<string>clicks-customer.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1076454306293:ios:668dc0964f6913490a70bc</string>
+	<string>1:405834083597:ios:71760a0df6eba119cd1444</string>
 </dict>
 </plist>

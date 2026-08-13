@@ -26,10 +26,13 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  late final ActivityCubit _activityCubit =
+      ActivityCubit(ActivityRepository())..loadHistory();
+
   late final List<Widget> screens = [
     HomeScreen(),
-    BlocProvider(
-      create: (_) => ActivityCubit(ActivityRepository())..loadHistory(),
+    BlocProvider.value(
+      value: _activityCubit,
       child: const ActivityScreen(),
     ),
     ServicesScreen(),
@@ -52,6 +55,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _activityCubit.close();
     super.dispose();
   }
 

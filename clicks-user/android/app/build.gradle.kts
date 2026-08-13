@@ -9,6 +9,11 @@ plugins {
     id("com.github.triplet.play") version "3.10.1"
 }
 
+// Apply Google Services only when google-services.json is present (graceful degrade).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Read Google Maps API key from local.properties
 val localPropertiesFile = rootProject.file("local.properties")
 val localProperties = Properties()
@@ -86,4 +91,16 @@ play {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+
+// shared_preferences_android pulls androidx.datastore 1.1.7, whose
+// libdatastore_shared_counter.so fails Google Play's 16 KB page-size check.
+// Force 1.2.1+ which ships a rebuilt native lib (see androidx/datastore 1.2.1).
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "androidx.datastore") {
+            useVersion("1.2.1")
+            because("Fix 16KB page-size alignment for libdatastore_shared_counter.so")
+        }
+    }
 }

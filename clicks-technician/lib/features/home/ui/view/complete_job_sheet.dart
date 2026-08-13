@@ -33,6 +33,9 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
 
   String get _draftKey => 'task_draft_${widget.cubit.jobId ?? 'none'}';
 
+  bool get _isPaid =>
+      widget.cubit.activeJob?['payment_status']?.toString() == 'paid';
+
   bool _hasValidSignature() {
     return (widget.cubit.activeJob?['customerSignatureUrl']
                 ?.toString()
@@ -44,6 +47,15 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_isPaid) {
+        AppSnackBars.errorSnackBar(
+          'Collect payment before completing the job',
+        );
+        Navigator.of(context).pop();
+      }
+    });
     _restoreDraft();
     _refreshTotal();
   }
@@ -143,6 +155,14 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
       await _refreshTotal();
     }
     setState(() => _submitting = true);
+    if (!_isPaid) {
+      setState(() => _submitting = false);
+      AppSnackBars.errorSnackBar(
+        'Collect payment before completing the job',
+      );
+      if (mounted) Navigator.pop(context);
+      return;
+    }
     final ok = await widget.cubit.completeJob(
       notes: _notesCtrl.text.trim(),
     );
@@ -151,7 +171,7 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
       if (mounted) {
         AppSnackBars.errorSnackBar(
           widget.cubit.lastActionError ??
-              'Could not complete — collect customer signature first, then try again',
+              'Could not complete — collect payment and customer signature first',
         );
       }
       return;
@@ -376,28 +396,24 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
                     .copyWith(color: const Color(0xFFB54708)),
               ),
             ),
-          OutlinedButton(
-            onPressed: _submitting ? null : _collectSignature,
-            style: OutlinedButton.styleFrom(
-              minimumSize: Size(double.infinity, 48.h),
-              side: BorderSide(color: ColorsManager.border),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.r),
+          if (!_hasValidSignature()) ...[
+            OutlinedButton(
+              onPressed: _submitting ? null : _collectSignature,
+              style: OutlinedButton.styleFrom(
+                minimumSize: Size(double.infinity, 48.h),
+                side: BorderSide(color: ColorsManager.border),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10.r),
+                ),
+              ),
+              child: Text(
+                'Collect customer signature',
+                style: TextStyles.font14RegularGrey
+                    .copyWith(color: Colors.black87),
               ),
             ),
-            child: Text(
-              ((widget.cubit.activeJob?['customerSignatureUrl']
-                              ?.toString()
-                              .isNotEmpty ??
-                          false) &&
-                      !widget.cubit.signatureClearedBanner)
-                  ? 'Signature collected ✓'
-                  : 'Collect customer signature',
-              style: TextStyles.font14RegularGrey
-                  .copyWith(color: Colors.black87),
-            ),
-          ),
-          SizedBox(height: 10.h),
+            SizedBox(height: 10.h),
+          ],
           OutlinedButton(
             onPressed: _submitting ? null : _saveDraft,
             style: OutlinedButton.styleFrom(
@@ -414,7 +430,7 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           SizedBox(height: 10.h),
           AppButton(
             isLoading: _submitting || widget.cubit.isLoadingAction,
-            onPressed: _submitting ? null : _complete,
+            onPressed: (_submitting || !_isPaid) ? null : _complete,
             label: 'Complete Job',
             margin: 0,
             width: double.infinity,

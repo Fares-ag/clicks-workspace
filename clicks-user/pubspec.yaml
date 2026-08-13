@@ -2,7 +2,7 @@ name: clicks_user
 description: "A new Flutter project."
 publish_to: "none"
 
-version: 1.1.2+12
+version: 1.1.6+16
 
 environment:
   sdk: ^3.7.2

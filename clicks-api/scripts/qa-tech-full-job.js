@@ -139,16 +139,18 @@ async function preflightCleanup(techToken) {
     if (!id) continue;
 
     if (status === "in_progress") {
+      if (job.payment_status !== "paid") {
+        await json("POST", `${TECH_URL}/api/jobs/${id}/payment`, {
+          token: techToken,
+          body: { payment_method: "cash" },
+        });
+      }
       const form = new FormData();
       form.append("signature", new Blob([MIN_PNG], { type: "image/png" }), "sign.png");
       await json("POST", `${TECH_URL}/api/jobs/${id}/signature`, { token: techToken, form });
       await json("POST", `${TECH_URL}/api/jobs/${id}/complete`, {
         token: techToken,
         body: { notes: "QA cleanup complete" },
-      });
-      await json("POST", `${TECH_URL}/api/jobs/${id}/payment`, {
-        token: techToken,
-        body: { payment_method: "cash" },
       });
       step("cleanup in_progress job", true, id);
     } else if (status === "completed" && job.payment_status !== "paid") {
@@ -280,15 +282,21 @@ async function main() {
 
   r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
     token: techToken,
-    body: { notes: "QA completion" },
+    body: { notes: "QA should fail — unpaid" },
   });
-  step("complete job", r.status === 200, `status=${r.status}`);
+  step("reject complete before payment", r.status === 400, `status=${r.status}`);
 
   r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/payment`, {
     token: techToken,
     body: { payment_method: "cash" },
   });
-  step("confirm payment", r.status === 200, `status=${r.status}`);
+  step("confirm payment", r.status === 200, `status=${r.status} paid=${r.data?.payment_status}`);
+
+  r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
+    token: techToken,
+    body: { notes: "QA completion" },
+  });
+  step("complete job", r.status === 200, `status=${r.status}`);
 
   r = await json("GET", `${TECH_URL}/api/jobs/${jobId}/activity-detail`, { token: techToken });
   const detailOk =

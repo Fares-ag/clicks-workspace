@@ -121,7 +121,7 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | `partner_id` | ObjectId→Partner | attribution when job credits a partner |
 | `job_status` | enum | `pending` → … → `completed` \| `cancelled` |
 | `payment_status` | `unpaid` \| `paid` | default unpaid |
-| `payment_method` | `card` \| `wallet` \| `cash` | optional |
+| `payment_method` | `card` \| `wallet` \| `cash` \| `fawran` | optional |
 | lifecycle `*_at` stamps | Date | `assigned_at` … `paid_at` |
 | `rating` / `rating_description` | Number 1–5 / String | optional |
 | `sos_request_id` | ObjectId→SOSRequest | optional |
@@ -186,7 +186,7 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | SOSRequest.status | `pending`, `in_call`, `accepted`, `cancelled`, `expired`, `completed` |
 | Job.job_status | `pending` → `assigned` → `accepted` → `en_route` → `arrived` → `in_progress` → `completed` \| `cancelled` |
 | Job.payment_status | `unpaid`, `paid` |
-| Job.payment_method | `card`, `wallet`, `cash` |
+| Job.payment_method | `card`, `wallet`, `cash`, `fawran` |
 | Job.businessCutType | `revenue`, `profit` |
 | Business.cutType | `revenue`, `profit` |
 | BusinessUser.role | `owner`, `staff` |

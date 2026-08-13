@@ -142,10 +142,17 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
     }
   }
 
+  void _goHome() {
+    context.offAllNamed(Routes.home);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isScheduled = widget.args.timing == 'scheduled';
     final label = widget.args.serviceLabel ?? widget.args.serviceType;
+    final statusLine = isScheduled
+        ? 'services.scheduled_service'.tr(namedArgs: {'service': label})
+        : 'services.submitted_service'.tr(namedArgs: {'service': label});
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -170,7 +177,7 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
                 Text(
                   isScheduled
                       ? 'services.booking_confirmed'.tr()
-                      : 'services.request_received'.tr(),
+                      : 'services.waiting_for_dispatch'.tr(),
                   style: TextStyles.font28Bold.copyWith(fontSize: 28.sp),
                   textAlign: TextAlign.center,
                 ),
@@ -186,7 +193,7 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
                     border: Border.all(color: const Color(0xFFFFE0E0)),
                   ),
                   child: Text(
-                    label,
+                    statusLine,
                     style: TextStyles.font12RegularBlack.copyWith(
                       color: ColorsManager.mainColor,
                       fontWeight: FontWeight.w600,
@@ -225,6 +232,27 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
                       ),
                     ),
                   ),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50.h,
+                  child: FilledButton(
+                    onPressed: _busy ? null : _goHome,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ColorsManager.mainColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10.r),
+                      ),
+                    ),
+                    child: Text(
+                      'services.go_to_home'.tr(),
+                      style: TextStyles.font14Medium.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 12.h),
                 SizedBox(
                   width: double.infinity,
                   height: 50.h,

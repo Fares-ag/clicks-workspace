@@ -96,8 +96,10 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
     final status = cubit.jobStatus;
     final title = switch (status) {
       'arrived' => 'You have Arrived!',
-      'in_progress' => 'Job In Progress',
-      'completed' => 'Collect Payment',
+      'in_progress' => cubit.activeJob?['payment_status'] == 'paid'
+          ? 'Job In Progress'
+          : 'Collect Payment',
+      'completed' => 'Job Completed',
       'en_route' => 'En Route',
       _ => 'Active Job',
     };
@@ -758,9 +760,7 @@ class _Actions extends StatelessWidget {
                   : () async {
                       await cubit.startJob();
                       if (!context.mounted) return;
-                      if (cubit.jobStatus == 'in_progress') {
-                        _openComplete(context);
-                      } else if (cubit.lastActionError != null) {
+                      if (cubit.lastActionError != null) {
                         AppSnackBars.errorSnackBar(cubit.lastActionError!);
                       }
                     },
@@ -775,6 +775,21 @@ class _Actions extends StatelessWidget {
           ],
         );
       case 'in_progress':
+        final paid = cubit.activeJob?['payment_status'] == 'paid';
+        if (!paid) {
+          return AppButton(
+            isLoading: cubit.isLoadingAction,
+            onPressed:
+                cubit.isLoadingAction ? null : () => _showPayment(context),
+            label: 'Collect Payment',
+            margin: 0,
+            width: double.infinity,
+            bgColor: ColorsManager.mainColor,
+            textColor: Colors.white,
+            height: 48.h,
+            radius: 10.r,
+          );
+        }
         return AppButton(
           isLoading: cubit.isLoadingAction,
           onPressed: cubit.isLoadingAction
@@ -789,21 +804,10 @@ class _Actions extends StatelessWidget {
           radius: 10.r,
         );
       case 'completed':
-        final paid = cubit.activeJob?['payment_status'] == 'paid';
-        if (paid) {
-          return Text('Payment received', style: TextStyles.font14RegularGrey);
-        }
-        return AppButton(
-          isLoading: cubit.isLoadingAction,
-          onPressed:
-              cubit.isLoadingAction ? null : () => _showPayment(context),
-          label: 'Collect Payment',
-          margin: 0,
-          width: double.infinity,
-          bgColor: ColorsManager.mainColor,
-          textColor: Colors.white,
-          height: 48.h,
-          radius: 10.r,
+        return Text(
+          'Job completed',
+          style: TextStyles.font14RegularGrey,
+          textAlign: TextAlign.center,
         );
       default:
         return const SizedBox.shrink();
@@ -811,6 +815,12 @@ class _Actions extends StatelessWidget {
   }
 
   void _openComplete(BuildContext context) {
+    if (cubit.activeJob?['payment_status']?.toString() != 'paid') {
+      AppSnackBars.errorSnackBar(
+        'Collect payment before completing the job',
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => BlocProvider.value(
@@ -851,12 +861,17 @@ class _Actions extends StatelessWidget {
                   ),
                 ],
                 SizedBox(height: 12.h),
-                ...['cash', 'card', 'wallet'].map(
+                ...[
+                  ('cash', 'Cash'),
+                  ('card', 'Card'),
+                  ('wallet', 'Wallet'),
+                  ('fawran', 'Fawran'),
+                ].map(
                   (method) => ListTile(
-                    title: Text(method[0].toUpperCase() + method.substring(1)),
+                    title: Text(method.$2),
                     onTap: () {
                       Navigator.pop(ctx);
-                      cubit.confirmPayment(paymentMethod: method);
+                      cubit.confirmPayment(paymentMethod: method.$1);
                     },
                   ),
                 ),
