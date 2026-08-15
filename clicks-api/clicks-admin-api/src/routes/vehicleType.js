@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
+const { requireOps, requireFullAdmin } = require("../middleware/rbac");
 const {
   getVehicleTypes,
   getActiveVehicleTypes,
@@ -10,9 +11,9 @@ const {
 } = require("../controllers/vehicleTypeController");
 
 router.get("/active", getActiveVehicleTypes); // public catalog
-router.get("/", authenticateToken, getVehicleTypes);
-router.post("/", authenticateToken, createVehicleType);
-router.put("/:id", authenticateToken, updateVehicleType);
-router.delete("/:id", authenticateToken, deleteVehicleType);
+router.get("/", authenticateToken, requireOps, getVehicleTypes);
+router.post("/", authenticateToken, requireFullAdmin, createVehicleType);
+router.put("/:id", authenticateToken, requireFullAdmin, updateVehicleType);
+router.delete("/:id", authenticateToken, requireFullAdmin, deleteVehicleType);
 
 module.exports = router;

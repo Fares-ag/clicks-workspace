@@ -1,11 +1,15 @@
+import 'package:clicks_technician/core/api/dio_helper.dart';
+import 'package:clicks_technician/core/api/end_points/end_points.dart';
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/components/vehicle_make_model_fields.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
+import 'package:clicks_technician/features/welcome/logic/services/welcome_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:geolocator/geolocator.dart';
 
 class AddJobScreen extends StatefulWidget {
   const AddJobScreen({super.key, required this.cubit});
@@ -31,6 +35,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
   String _jobType = 'Flat tire';
   bool _saving = false;
   bool _useCatalog = true;
+  bool _fetchingLocation = false;
 
   @override
   void dispose() {
@@ -49,6 +54,50 @@ class _AddJobScreenState extends State<AddJobScreen> {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    if (_fetchingLocation) return;
+    setState(() => _fetchingLocation = true);
+    try {
+      final position = await WelcomeService.determinePosition();
+      final lat = position.latitude.toStringAsFixed(6);
+      final lng = position.longitude.toStringAsFixed(6);
+      var label = '$lat, $lng';
+      try {
+        final res = await DioHelper.getData(
+          url: EndPoints.mapsGeocode,
+          query: {'latlng': '$lat,$lng', 'region': 'qa'},
+        );
+        final results = res.data is Map ? res.data['results'] : null;
+        if (results is List && results.isNotEmpty) {
+          final formatted = results.first['formatted_address']?.toString();
+          if (formatted != null && formatted.isNotEmpty) {
+            label = formatted;
+          }
+        }
+      } catch (_) {}
+      _location.text = label;
+      if (mounted) {
+        AppSnackBars.successSnackBar('Current location added');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final message = e.toString().replaceFirst('Exception: ', '');
+      if (message.contains('Location services are disabled')) {
+        AppSnackBars.errorSnackBar('Turn on location services to use GPS');
+        await Geolocator.openLocationSettings();
+      } else if (message.contains('permanently denied')) {
+        AppSnackBars.errorSnackBar('Allow location in Settings to use GPS');
+        await Geolocator.openAppSettings();
+      } else {
+        AppSnackBars.errorSnackBar(
+          message.isNotEmpty ? message : 'Could not get current location',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _fetchingLocation = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -130,6 +179,69 @@ class _AddJobScreenState extends State<AddJobScreen> {
     );
   }
 
+  Widget _locationField() {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 12.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _location,
+            maxLines: 2,
+            style: const TextStyle(color: Colors.white),
+            cursorColor: Colors.white,
+            decoration: _inputDeco('Location *').copyWith(
+              hintText: 'Address or tap Use current location',
+              hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+              suffixIcon: IconButton(
+                tooltip: 'Use current location',
+                onPressed:
+                    _fetchingLocation || _saving ? null : _useCurrentLocation,
+                icon: _fetchingLocation
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.my_location, color: Colors.white),
+              ),
+            ),
+          ),
+          SizedBox(height: 8.h),
+          OutlinedButton.icon(
+            onPressed: _fetchingLocation || _saving ? null : _useCurrentLocation,
+            icon: _fetchingLocation
+                ? SizedBox(
+                    width: 18.w,
+                    height: 18.w,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Icon(Icons.my_location, size: 18.sp, color: Colors.white),
+            label: Text(
+              _fetchingLocation ? 'Getting location…' : 'Use current location',
+              style: TextStyles.font14RegularGrey.copyWith(color: Colors.white),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: _fieldBorder),
+              backgroundColor: _fieldFill,
+              padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 12.w),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.r),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -165,7 +277,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
           _field('Year', _year, type: TextInputType.number),
           _field('Plate', _plate),
           _field('VIN', _vin),
-          _field('Location *', _location),
+          _locationField(),
           _field('Issue *', _issue, maxLines: 3),
           _field('Price *', _price, type: TextInputType.number),
           DropdownButtonFormField<String>(

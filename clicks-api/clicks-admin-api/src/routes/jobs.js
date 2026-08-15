@@ -12,13 +12,13 @@ router.post("/", authenticateToken, requireOps, jobController.createJob);
 router.get(
   "/heatmap",
   authenticateToken,
-  requireOps,
+  requireFullAdmin,
   jobHeatmapController.getJobHeatmap
 );
 router.get(
   "/nearby",
   authenticateToken,
-  requireOps,
+  requireFullAdmin,
   jobHeatmapController.getJobsNearby
 );
 router.post(

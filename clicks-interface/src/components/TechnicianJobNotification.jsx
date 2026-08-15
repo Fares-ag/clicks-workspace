@@ -1,8 +1,14 @@
 import React from "react";
 import "./SOSNotification.css";
 import "./BusinessJobNotification.css";
+import NotificationQueueNote from "./NotificationQueueNote.jsx";
 
-function TechnicianJobNotification({ jobData, onOpenJob, onDismiss }) {
+function TechnicianJobNotification({
+  jobData,
+  onOpenJob,
+  onDismiss,
+  queueCount = 0,
+}) {
   const vehicle = jobData.vehicle || {};
   const location = jobData.location || {};
   const techLabel = jobData.createdByTechnicianName?.trim() || "Technician";
@@ -37,6 +43,8 @@ function TechnicianJobNotification({ jobData, onOpenJob, onDismiss }) {
         </div>
 
         <div className="sos-content">
+          <NotificationQueueNote queueCount={queueCount} />
+
           <div className="sos-section">
             <h3 className="sos-section-title">Customer Information</h3>
             <div className="sos-info-row">

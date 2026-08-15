@@ -15,6 +15,34 @@ import "./AdminLayout.css";
 
 const { Content } = Layout;
 
+const NOTIFICATION_TYPES = {
+  SOS: "sos",
+  SERVICE_REQUEST: "serviceRequest",
+  BUSINESS_JOB: "businessJob",
+  TECHNICIAN_JOB: "technicianJob",
+};
+
+function notificationId(type, data) {
+  switch (type) {
+    case NOTIFICATION_TYPES.SOS:
+      return String(data.sos_id || data.id || data._id || "");
+    case NOTIFICATION_TYPES.BUSINESS_JOB:
+    case NOTIFICATION_TYPES.TECHNICIAN_JOB:
+      return String(data.job_id || data.id || data._id || "");
+    case NOTIFICATION_TYPES.SERVICE_REQUEST:
+      return String(
+        data.service_request_id || data.id || data._id || ""
+      );
+    default:
+      return String(Date.now());
+  }
+}
+
+function playNotificationSound() {
+  const audio = new Audio("/notification.mp3");
+  audio.play().catch(() => {});
+}
+
 function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth > 900 : true
@@ -22,15 +50,18 @@ function AdminLayout({ children }) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 900 : false
   );
-  const [sosNotification, setSOSNotification] = useState(null);
-  const [serviceRequestNotification, setServiceRequestNotification] =
-    useState(null);
-  const [businessJobNotification, setBusinessJobNotification] = useState(null);
-  const [technicianJobNotification, setTechnicianJobNotification] = useState(null);
+  const [notificationQueue, setNotificationQueue] = useState([]);
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { user, token } = useSelector((state) => state.auth);
+
+  const activeNotification = notificationQueue[0] ?? null;
+  const queueCount = notificationQueue.length;
+
+  const dequeueNotification = () => {
+    setNotificationQueue((queue) => queue.slice(1));
+  };
 
   useEffect(() => {
     let wasMobile = window.innerWidth <= 900;
@@ -79,75 +110,122 @@ function AdminLayout({ children }) {
     });
 
     adminSocket.on("newSOSRequest", (data) => {
-      setSOSNotification(data);
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type: NOTIFICATION_TYPES.SOS,
+          data,
+          id: notificationId(NOTIFICATION_TYPES.SOS, data),
+        },
+      ]);
       dispatch(apiSlice.util.invalidateTags(["SOS"]));
-      const audio = new Audio("/notification.mp3");
-      audio.play().catch(() => {});
+      playNotificationSound();
     });
 
     adminSocket.on("newServiceRequest", (data) => {
-      setServiceRequestNotification(data);
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type: NOTIFICATION_TYPES.SERVICE_REQUEST,
+          data,
+          id: notificationId(NOTIFICATION_TYPES.SERVICE_REQUEST, data),
+        },
+      ]);
       dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
-      const audio = new Audio("/notification.mp3");
-      audio.play().catch(() => {});
+      playNotificationSound();
     });
 
-    adminSocket.on("serviceRequestCancelled", () => {
-      setServiceRequestNotification(null);
+    adminSocket.on("serviceRequestCancelled", (data) => {
+      const cancelledId = data?.service_request_id || data?.id || data?._id;
+      setNotificationQueue((queue) => {
+        if (cancelledId) {
+          return queue.filter(
+            (item) =>
+              !(
+                item.type === NOTIFICATION_TYPES.SERVICE_REQUEST &&
+                item.id === String(cancelledId)
+              )
+          );
+        }
+        return queue.filter(
+          (item) => item.type !== NOTIFICATION_TYPES.SERVICE_REQUEST
+        );
+      });
       dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
     });
 
     adminSocket.on("newBusinessJob", (data) => {
-      setBusinessJobNotification(data);
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type: NOTIFICATION_TYPES.BUSINESS_JOB,
+          data,
+          id: notificationId(NOTIFICATION_TYPES.BUSINESS_JOB, data),
+        },
+      ]);
       dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
-      const audio = new Audio("/notification.mp3");
-      audio.play().catch(() => {});
+      playNotificationSound();
     });
 
     adminSocket.on("newTechnicianJob", (data) => {
-      setTechnicianJobNotification(data);
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type: NOTIFICATION_TYPES.TECHNICIAN_JOB,
+          data,
+          id: notificationId(NOTIFICATION_TYPES.TECHNICIAN_JOB, data),
+        },
+      ]);
       dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
-      const audio = new Audio("/notification.mp3");
-      audio.play().catch(() => {});
+      playNotificationSound();
     });
 
     adminSocket.on("sosExpired", () => {
-      // Auto-expiry disabled — refresh badge only.
       dispatch(apiSlice.util.invalidateTags(["SOS"]));
     });
 
     adminSocket.on("sosClaimed", (data) => {
       const myId = String(userId);
       if (String(data.admin_id) !== myId) {
-        setSOSNotification((current) => {
-          if (current && String(current.sos_id) === String(data.sos_id)) {
-            return null;
-          }
-          return current;
-        });
+        setNotificationQueue((queue) =>
+          queue.filter(
+            (item) =>
+              !(
+                item.type === NOTIFICATION_TYPES.SOS &&
+                item.id === String(data.sos_id)
+              )
+          )
+        );
         message.info("SOS claimed by another dispatcher");
       }
       dispatch(apiSlice.util.invalidateTags(["SOS"]));
     });
 
     adminSocket.on("sosCancelled", (data) => {
-      setSOSNotification((current) => {
-        if (current && String(current.sos_id) === String(data.sos_id)) {
-          return null;
-        }
-        return current;
-      });
+      setNotificationQueue((queue) =>
+        queue.filter(
+          (item) =>
+            !(
+              item.type === NOTIFICATION_TYPES.SOS &&
+              item.id === String(data.sos_id)
+            )
+        )
+      );
       dispatch(apiSlice.util.invalidateTags(["SOS"]));
     });
 
     adminSocket.on("error", (err) => {
       if (err?.code === "SOS_ALREADY_CLAIMED") {
         message.error("SOS already claimed by another dispatcher");
-        setSOSNotification(null);
+        setNotificationQueue((queue) =>
+          queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
+        );
         dispatch(apiSlice.util.invalidateTags(["SOS"]));
       } else if (err?.code === "SOS_UNAVAILABLE") {
         message.error("SOS is no longer available");
-        setSOSNotification(null);
+        setNotificationQueue((queue) =>
+          queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
+        );
         dispatch(apiSlice.util.invalidateTags(["SOS"]));
       }
     });
@@ -176,40 +254,45 @@ function AdminLayout({ children }) {
     }
 
     navigate("/jobs/new", { state: { sosData } });
-    setSOSNotification(null);
+    dequeueNotification();
     dispatch(apiSlice.util.invalidateTags(["SOS"]));
   };
 
   const handleDismissNotification = () => {
-    setSOSNotification(null);
+    dequeueNotification();
   };
 
-  const handleCreateServiceJob = (requestData) => {
-    navigate("/jobs/new", {
-      state: {
-        serviceRequestData: {
-          service_request_id:
-            requestData.service_request_id ||
-            requestData.id ||
-            requestData._id,
-          customer_id: requestData.customer_id,
-          customer_vehicle_id: requestData.customer_vehicle_id,
-          customer: requestData.customer,
-          vehicle: requestData.vehicle,
-          location: requestData.location,
-          service_type: requestData.service_type,
-          timing: requestData.timing,
-          scheduled_for: requestData.scheduled_for,
-          status: requestData.status,
+  const handleOpenServiceLead = (requestData) => {
+    const leadId = requestData.lead_id;
+    if (leadId) {
+      navigate(`/leads/${leadId}`);
+    } else {
+      navigate("/leads/new", {
+        state: {
+          serviceRequestData: {
+            service_request_id:
+              requestData.service_request_id ||
+              requestData.id ||
+              requestData._id,
+            customer_id: requestData.customer_id,
+            customer_vehicle_id: requestData.customer_vehicle_id,
+            customer: requestData.customer,
+            vehicle: requestData.vehicle,
+            location: requestData.location,
+            service_type: requestData.service_type,
+            timing: requestData.timing,
+            scheduled_for: requestData.scheduled_for,
+            status: requestData.status,
+          },
         },
-      },
-    });
-    setServiceRequestNotification(null);
-    dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
+      });
+    }
+    dequeueNotification();
+    dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "Lead"]));
   };
 
   const handleDismissServiceRequest = () => {
-    setServiceRequestNotification(null);
+    dequeueNotification();
   };
 
   const handleOpenBusinessJob = (jobData) => {
@@ -218,12 +301,13 @@ function AdminLayout({ children }) {
     } else {
       navigate("/jobs");
     }
-    setBusinessJobNotification(null);
+    dequeueNotification();
     dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
   };
 
   const handleDismissBusinessJob = () => {
-    setBusinessJobNotification(null);
+    dequeueNotification();
+    dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
   };
 
   const handleOpenTechnicianJob = (jobData) => {
@@ -232,12 +316,12 @@ function AdminLayout({ children }) {
     } else {
       navigate("/jobs");
     }
-    setTechnicianJobNotification(null);
+    dequeueNotification();
     dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
   };
 
   const handleDismissTechnicianJob = () => {
-    setTechnicianJobNotification(null);
+    dequeueNotification();
   };
 
   return (
@@ -263,38 +347,37 @@ function AdminLayout({ children }) {
         </Content>
       </Layout>
 
-      {sosNotification && (
+      {activeNotification?.type === NOTIFICATION_TYPES.SOS && (
         <SOSNotification
-          sosData={sosNotification}
+          sosData={activeNotification.data}
+          queueCount={queueCount}
           onCreateJob={handleCreateJob}
           onDismiss={handleDismissNotification}
         />
       )}
 
-      {!sosNotification && serviceRequestNotification && (
+      {activeNotification?.type === NOTIFICATION_TYPES.SERVICE_REQUEST && (
         <ServiceRequestNotification
-          requestData={serviceRequestNotification}
-          onCreateJob={handleCreateServiceJob}
+          requestData={activeNotification.data}
+          queueCount={queueCount}
+          onCreateJob={handleOpenServiceLead}
           onDismiss={handleDismissServiceRequest}
         />
       )}
 
-      {!sosNotification &&
-        !serviceRequestNotification &&
-        businessJobNotification && (
+      {activeNotification?.type === NOTIFICATION_TYPES.BUSINESS_JOB && (
         <BusinessJobNotification
-          jobData={businessJobNotification}
+          jobData={activeNotification.data}
+          queueCount={queueCount}
           onOpenJob={handleOpenBusinessJob}
           onDismiss={handleDismissBusinessJob}
         />
       )}
 
-      {!sosNotification &&
-        !serviceRequestNotification &&
-        !businessJobNotification &&
-        technicianJobNotification && (
+      {activeNotification?.type === NOTIFICATION_TYPES.TECHNICIAN_JOB && (
         <TechnicianJobNotification
-          jobData={technicianJobNotification}
+          jobData={activeNotification.data}
+          queueCount={queueCount}
           onOpenJob={handleOpenTechnicianJob}
           onDismiss={handleDismissTechnicianJob}
         />

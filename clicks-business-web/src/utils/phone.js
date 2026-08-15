@@ -1,6 +1,15 @@
 /** Qatar-first phone helpers — same rules as Flutter business app / admin Add Job. */
 export const DEFAULT_COUNTRY_CODE = "+974";
 
+export const COUNTRY_CODES = [
+  { value: "+974", label: "+974" },
+  { value: "+971", label: "+971" },
+  { value: "+966", label: "+966" },
+  { value: "+973", label: "+973" },
+  { value: "+968", label: "+968" },
+  { value: "+965", label: "+965" },
+];
+
 export function toLocalDigits(raw, countryCode = DEFAULT_COUNTRY_CODE) {
   let digits = String(raw || "").replace(/\D/g, "");
   const cc = String(countryCode || "").replace(/\D/g, "");

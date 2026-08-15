@@ -7,18 +7,9 @@ function BusinessTopBar({ onToggleSidebar }) {
   const business = useSelector((state) => state.auth.business);
 
   const displayName = user?.name || business?.name || "Business user";
-  const cutPercent = business?.cutPercent;
-  const cutType = business?.cutType || "revenue";
   const subtitle =
-    business?.name && user?.name
-      ? [
-          business.name,
-          cutPercent != null && cutPercent !== ""
-            ? `${cutType} cut ${cutPercent}%`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")
+    business?.name && user?.name && business.name !== user.name
+      ? business.name
       : null;
 
   return (

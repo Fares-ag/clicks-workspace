@@ -11,6 +11,10 @@ function mapSos(doc) {
       : null;
   const claimed =
     o.claimed_by && typeof o.claimed_by === "object" ? o.claimed_by : null;
+  const job =
+    o.job_id && typeof o.job_id === "object" ? o.job_id : null;
+  const jobId = job?._id?.toString() || o.job_id?.toString() || null;
+  const jobStatus = job?.job_status || null;
 
   const [longitude, latitude] = o.location?.coordinates || [0, 0];
 
@@ -18,6 +22,8 @@ function mapSos(doc) {
     sos_id: o._id.toString(),
     _id: o._id.toString(),
     status: o.status,
+    job_status: jobStatus,
+    display_status: jobId && jobStatus ? jobStatus : o.status,
     customer_id: customer?._id?.toString() || o.customer_id?.toString(),
     customer_vehicle_id:
       vehicle?._id?.toString() || o.customer_vehicle_id?.toString(),
@@ -57,7 +63,7 @@ function mapSos(doc) {
         : null,
     claimed_at: o.claimed_at,
     cancel_reason: o.cancel_reason,
-    job_id: o.job_id?.toString() || null,
+    job_id: jobId,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };
@@ -73,15 +79,6 @@ const getSOSRequests = async (req, res) => {
     const filter = {};
     if (status) {
       filter.status = status;
-    } else {
-      // Default inbox: actionable + recently expired (last 7 days)
-      filter.$or = [
-        { status: { $in: ["pending", "in_call"] } },
-        {
-          status: "expired",
-          updatedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        },
-      ];
     }
 
     let query = SOSRequest.find(filter)
@@ -94,6 +91,7 @@ const getSOSRequests = async (req, res) => {
         ],
       })
       .populate("claimed_by", "firstName lastName email")
+      .populate("job_id", "job_status")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
@@ -114,6 +112,8 @@ const getSOSRequests = async (req, res) => {
           r.vehicle?.plate,
           r.sos_id,
           r.status,
+          r.display_status,
+          r.job_status,
         ]
           .filter(Boolean)
           .join(" ")
@@ -147,7 +147,8 @@ const getSOSById = async (req, res) => {
           { path: "vehicle_model", select: "modelName" },
         ],
       })
-      .populate("claimed_by", "firstName lastName email");
+      .populate("claimed_by", "firstName lastName email")
+      .populate("job_id", "job_status");
 
     if (!sos) {
       return res.status(404).json({ error: "SOS not found" });
@@ -196,7 +197,8 @@ const claimSOS = async (req, res) => {
           { path: "vehicle_model", select: "modelName" },
         ],
       })
-      .populate("claimed_by", "firstName lastName email");
+      .populate("claimed_by", "firstName lastName email")
+      .populate("job_id", "job_status");
 
     try {
       const customerTechApiUrl =

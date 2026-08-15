@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './SOSNotification.css';
+import NotificationQueueNote from './NotificationQueueNote.jsx';
 
-function SOSNotification({ sosData, onCreateJob, onDismiss }) {
+function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
   const [timeLeft, setTimeLeft] = useState(60);
 
   useEffect(() => {
@@ -39,6 +40,8 @@ function SOSNotification({ sosData, onCreateJob, onDismiss }) {
 
         {/* Content */}
         <div className="sos-content">
+          <NotificationQueueNote queueCount={queueCount} />
+
           {/* Timer — promise window, not an expiry */}
           <div className="sos-timer">
             <span className="sos-timer-label">

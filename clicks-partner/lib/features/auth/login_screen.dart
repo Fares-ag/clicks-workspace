@@ -80,13 +80,21 @@ class _LoginScreenState extends State<LoginScreen> {
   InputDecoration _decoration(String hint, {Widget? prefix}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: GoogleFonts.dmSans(color: Colors.black26, fontSize: 14),
+      hintStyle: GoogleFonts.dmSans(color: AppColors.muted, fontSize: 14),
       filled: true,
       fillColor: Colors.white,
       prefixIcon: prefix,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.inputBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.inputBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
@@ -215,9 +223,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             foregroundColor: Colors.white,
                             disabledBackgroundColor:
                                 AppColors.primary.withValues(alpha: 0.7),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            minimumSize: const Size.fromHeight(48),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           onPressed: _loading ? null : _submit,

@@ -39,7 +39,15 @@ function Login() {
     }
     try {
       const res = await login({ email, password }).unwrap();
-      dispatch(setCredentials(res));
+      dispatch(
+        setCredentials({
+          ...res,
+          user: {
+            ...res.user,
+            role: res.user?.role?.trim?.() ?? res.user?.role,
+          },
+        })
+      );
       navigate("/dashboard");
     } catch (err) {
       setError("Invalid email or password. Please try again.");

@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
+const { requireFullAdmin } = require("../middleware/rbac");
 const {
   getFAQs,
   getActiveFAQs,
@@ -10,9 +11,9 @@ const {
 } = require("../controllers/faqController");
 
 router.get("/active", getActiveFAQs); // public
-router.get("/", authenticateToken, getFAQs);
-router.post("/", authenticateToken, createFAQ);
-router.put("/:id", authenticateToken, updateFAQ);
-router.delete("/:id", authenticateToken, deleteFAQ);
+router.get("/", authenticateToken, requireFullAdmin, getFAQs);
+router.post("/", authenticateToken, requireFullAdmin, createFAQ);
+router.put("/:id", authenticateToken, requireFullAdmin, updateFAQ);
+router.delete("/:id", authenticateToken, requireFullAdmin, deleteFAQ);
 
 module.exports = router;

@@ -60,6 +60,17 @@
   margin-right: 10px;
 }
 
+.admin-role {
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary, #667085);
+  margin-right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-secondary-light, #f2f4f7);
+}
+
 .arrow-down-icon {
   width: 20px;
   height: 20px;

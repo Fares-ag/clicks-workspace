@@ -8,6 +8,8 @@
   "required": "مطلوب",
   "login_failed": "فشل تسجيل الدخول",
   "partner": "الشريك",
+  "dashboard": "لوحة التحكم",
+  "dashboard_subtitle": "صندوق شراكتك",
   "refresh": "تحديث",
   "sign_out": "تسجيل الخروج",
   "try_again": "إعادة المحاولة",

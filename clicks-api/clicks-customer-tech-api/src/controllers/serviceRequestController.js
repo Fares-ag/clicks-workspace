@@ -4,6 +4,9 @@ const {
   Customer,
   CustomerVehicle,
 } = require("../../../clicks-shared/models");
+const {
+  ensureLeadFromServiceRequest,
+} = require("../../../clicks-shared/services/leadFromServiceRequest");
 
 function mapServiceRequest(doc) {
   if (!doc) return null;
@@ -191,6 +194,8 @@ async function createServiceRequest(req, res) {
       });
 
     const payload = mapServiceRequest(populated);
+
+    await ensureLeadFromServiceRequest(populated);
 
     const notify = req.app.get("notifyAdminServiceRequest");
     if (typeof notify === "function") {

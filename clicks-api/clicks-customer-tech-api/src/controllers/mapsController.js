@@ -44,14 +44,14 @@ exports.getDirections = async (req, res) => {
 
 exports.geocode = async (req, res) => {
   try {
-    const { address, region = "qa" } = req.query;
-    if (!address) {
-      return res.status(400).json({ error: "address is required" });
+    const { address, latlng, region = "qa" } = req.query;
+    if (!address && !latlng) {
+      return res.status(400).json({ error: "address or latlng is required" });
     }
-    const data = await proxyGoogleMaps("/geocode/json", {
-      address: String(address),
-      region: String(region),
-    });
+    const query = { region: String(region) };
+    if (latlng) query.latlng = String(latlng);
+    else query.address = String(address);
+    const data = await proxyGoogleMaps("/geocode/json", query);
     res.json(data);
   } catch (err) {
     res.status(err.status || 500).json({

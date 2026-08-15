@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { logout } from "../store/authSlice";
+import { filterNavItemsForRole, useAdminRole } from "../utils/adminRoles";
 import { useGetSOSRequestsQuery } from "../store/sosApi";
 import { useGetServiceRequestsQuery } from "../store/serviceRequestApi";
+import { useGetLeadsQuery } from "../store/leadApi";
+import { useGetJobsQuery } from "../store/jobApi";
 import PrimaryButton from "./PrimaryButton.jsx";
 import "./AdminSidebar.css";
 
@@ -42,6 +45,13 @@ const navItems = [
     label: "Job Management",
     icon: "/icons/job.svg",
     to: "/jobs",
+    badge: "businessJobs",
+  },
+  {
+    label: "Leads",
+    icon: "/icons/job.svg",
+    to: "/leads",
+    badge: "leads",
   },
   {
     label: "Business Management",
@@ -85,6 +95,11 @@ const navItems = [
 function AdminSidebar({ isOpen = true, onNavigate }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { role } = useAdminRole();
+  const visibleNavItems = useMemo(() => {
+    if (!role) return [];
+    return filterNavItemsForRole(navItems, role);
+  }, [role]);
 
   // Open SOS count (pending + in_call) for red nav badge
   const { data: pendingSos } = useGetSOSRequestsQuery(
@@ -104,6 +119,18 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
   );
   const serviceCount = pendingService?.pagination?.total || 0;
 
+  const { data: openLeadsData } = useGetLeadsQuery(
+    { page: 1, limit: 1, open: true },
+    { pollingInterval: 30000 }
+  );
+  const leadsCount = openLeadsData?.openCount ?? 0;
+
+  const { data: pendingBusinessJobs } = useGetJobsQuery(
+    { page: 1, limit: 1, status: "pending", businessPortal: true },
+    { pollingInterval: 15000, skip: !role }
+  );
+  const businessJobCount = pendingBusinessJobs?.total ?? 0;
+
   const handleLogout = () => {
     dispatch(logout());
     navigate("/login");
@@ -117,7 +144,7 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
         </NavLink>
       </div>
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
+        {visibleNavItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -132,6 +159,14 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
               className="sidebar-icon"
             />
             <span className="sidebar-label">{item.label}</span>
+            {item.badge === "businessJobs" && businessJobCount > 0 && (
+              <span
+                className="sidebar-badge"
+                aria-label={`${businessJobCount} pending business portal jobs`}
+              >
+                {businessJobCount > 99 ? "99+" : businessJobCount}
+              </span>
+            )}
             {item.badge === "sos" && sosCount > 0 && (
               <span
                 className="sidebar-badge"
@@ -146,6 +181,14 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
                 aria-label={`${serviceCount} pending service requests`}
               >
                 {serviceCount > 99 ? "99+" : serviceCount}
+              </span>
+            )}
+            {item.badge === "leads" && leadsCount > 0 && (
+              <span
+                className="sidebar-badge"
+                aria-label={`${leadsCount} open leads`}
+              >
+                {leadsCount > 99 ? "99+" : leadsCount}
               </span>
             )}
           </NavLink>

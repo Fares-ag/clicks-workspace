@@ -54,9 +54,16 @@ function ServiceRequestsInbox() {
     status: row.status,
   });
 
-  const handleCreateJob = (row) => {
-    if (row.status !== "pending") return;
-    navigate("/jobs/new", { state: { serviceRequestData: toJobPayload(row) } });
+  const handleOpenLead = (row) => {
+    if (row.lead_id) {
+      navigate(`/leads/${row.lead_id}`);
+      return;
+    }
+    if (row.status === "pending") {
+      navigate("/leads/new", { state: { serviceRequestData: toJobPayload(row) } });
+      return;
+    }
+    navigate("/service-requests");
   };
 
   const columns = [
@@ -125,14 +132,14 @@ function ServiceRequestsInbox() {
       key: "actions",
       width: "12%",
       render: (row) => {
-        const canJob = row.status === "pending";
+        const canOpen = row.status === "pending" || row.lead_id;
         return (
           <button
             className="sos-action-btn"
-            disabled={!canJob}
-            onClick={() => handleCreateJob(row)}
+            disabled={!canOpen && row.status !== "assigned"}
+            onClick={() => handleOpenLead(row)}
           >
-            {canJob ? "Create job" : "View only"}
+            {row.status === "pending" || row.lead_id ? "Open lead" : "View only"}
           </button>
         );
       },
@@ -145,7 +152,7 @@ function ServiceRequestsInbox() {
         <div>
           <span className="sos-inbox-title">Service Requests</span>
           <p className="sos-inbox-subtitle">
-            Non-emergency service bookings. Create a job to assign a technician — no SOS claim step.
+            Non-emergency service bookings. Open the linked lead — convert to a job when the customer commits.
           </p>
         </div>
         <div className="sos-inbox-filters">

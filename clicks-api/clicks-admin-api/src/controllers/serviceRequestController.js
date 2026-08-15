@@ -1,6 +1,7 @@
 const ServiceRequest = require("../models/ServiceRequest");
+const Lead = require("../models/Lead");
 
-function mapServiceRequest(doc) {
+function mapServiceRequest(doc, leadBySrId = {}) {
   if (!doc) return null;
   const o = doc.toObject ? doc.toObject() : doc;
   const customer =
@@ -46,6 +47,10 @@ function mapServiceRequest(doc) {
       coordinates: `${latitude}, ${longitude}`,
     },
     job_id: o.job_id?.toString() || null,
+    lead_id:
+      leadBySrId[o._id?.toString()] ||
+      o.lead_id?.toString?.() ||
+      null,
     cancel_reason: o.cancel_reason || null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
@@ -88,10 +93,18 @@ const getServiceRequests = async (req, res) => {
       .limit(limit);
 
     let docs = await query;
+    const srIds = docs.map((d) => d._id);
+    const leads = await Lead.find({
+      service_request_id: { $in: srIds },
+    }).select("_id service_request_id");
+    const leadBySrId = Object.fromEntries(
+      leads.map((l) => [l.service_request_id.toString(), l._id.toString()])
+    );
+
     if (search) {
       const q = search.toLowerCase();
       docs = docs.filter((d) => {
-        const mapped = mapServiceRequest(d);
+        const mapped = mapServiceRequest(d, leadBySrId);
         const hay = [
           mapped.service_type,
           mapped.customer?.name,
@@ -111,7 +124,7 @@ const getServiceRequests = async (req, res) => {
       : await ServiceRequest.countDocuments(filter);
 
     res.json({
-      requests: docs.map(mapServiceRequest),
+      requests: docs.map((d) => mapServiceRequest(d, leadBySrId)),
       pagination: { page, limit, total },
     });
   } catch (err) {
@@ -136,7 +149,13 @@ const getServiceRequestById = async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: "Service request not found" });
     }
-    res.json({ request: mapServiceRequest(doc) });
+    const linkedLead = await Lead.findOne({
+      service_request_id: doc._id,
+    }).select("_id");
+    const leadBySrId = linkedLead
+      ? { [doc._id.toString()]: linkedLead._id.toString() }
+      : {};
+    res.json({ request: mapServiceRequest(doc, leadBySrId) });
   } catch (err) {
     res.status(500).json({
       error: "Failed to fetch service request",

@@ -1,15 +1,17 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { apiSlice } from "./apiSlice";
 import authReducer, { setCredentials } from "./authSlice";
+import { hydrateAuthState } from "../utils/authRole";
 import "./sosApi";
 import "./serviceRequestApi";
+import "./leadApi";
 
 // Load auth state from localStorage
 function loadAuthState() {
   try {
     const serializedState = localStorage.getItem("auth");
     if (!serializedState) return undefined;
-    return JSON.parse(serializedState);
+    return hydrateAuthState(JSON.parse(serializedState));
   } catch (e) {
     return undefined;
   }

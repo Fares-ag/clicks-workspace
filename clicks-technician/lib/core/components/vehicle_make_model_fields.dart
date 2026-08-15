@@ -27,6 +27,10 @@ class VehicleMakeModelFields extends StatefulWidget {
 
 class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
   final _otherModelCtrl = TextEditingController();
+  final _makeCtrl = TextEditingController();
+  final _modelCtrl = TextEditingController();
+  final _makeFocus = FocusNode();
+  final _modelFocus = FocusNode();
 
   List<Map<String, dynamic>> _makes = [];
   List<Map<String, dynamic>> _models = [];
@@ -51,12 +55,18 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
     super.initState();
     _selectedMake = _emptyToNull(widget.initialMake);
     _selectedModel = _emptyToNull(widget.initialModel);
+    if (_selectedMake != null) _makeCtrl.text = _selectedMake!;
+    if (_selectedModel != null) _modelCtrl.text = _selectedModel!;
     _loadMakes();
   }
 
   @override
   void dispose() {
     _otherModelCtrl.dispose();
+    _makeCtrl.dispose();
+    _modelCtrl.dispose();
+    _makeFocus.dispose();
+    _modelFocus.dispose();
     super.dispose();
   }
 
@@ -93,6 +103,10 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
     if (_selectedMake != null && !makeNames.contains(_selectedMake)) {
       _selectedMake = null;
       _selectedModel = null;
+      _makeCtrl.clear();
+      _modelCtrl.clear();
+    } else if (_selectedMake != null) {
+      _makeCtrl.text = _selectedMake!;
     }
 
     if (_selectedMake != null) {
@@ -142,9 +156,11 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
       if (modelNames.contains(initial)) {
         _selectedModel = initial;
         _modelIsOther = false;
+        _modelCtrl.text = initial;
       } else {
         _selectedModel = 'Other';
         _modelIsOther = true;
+        _modelCtrl.text = 'Other';
         _otherModelCtrl.text = initial;
       }
     }
@@ -173,52 +189,167 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
     return names;
   }
 
-  Widget _dropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
+  InputDecoration _fieldDeco(
+    String label, {
     bool enabled = true,
+    FocusNode? focusNode,
   }) {
-    final borderColor =
-        widget.lightOnDark ? const Color(0x44FFFFFF) : null;
-    final fillColor =
-        widget.lightOnDark ? const Color(0x22FFFFFF) : null;
+    final borderColor = widget.lightOnDark ? const Color(0x44FFFFFF) : null;
+    final fillColor = widget.lightOnDark ? const Color(0x22FFFFFF) : null;
     final textColor = widget.lightOnDark ? Colors.white : null;
     final labelColor = widget.lightOnDark ? Colors.white70 : null;
+    return InputDecoration(
+      labelText: label,
+      hintText: enabled ? 'Type to search or scroll' : 'Select a make first',
+      hintStyle: widget.lightOnDark
+          ? const TextStyle(color: Colors.white38, fontSize: 13)
+          : const TextStyle(fontSize: 13, color: Colors.black38),
+      suffixIcon: IconButton(
+        tooltip: 'Show all',
+        icon: Icon(
+          Icons.arrow_drop_down,
+          color: widget.lightOnDark ? Colors.white70 : null,
+        ),
+        onPressed: enabled && focusNode != null
+            ? () {
+                if (focusNode.hasFocus) {
+                  focusNode.unfocus();
+                }
+                focusNode.requestFocus();
+              }
+            : null,
+      ),
+      labelStyle: labelColor != null ? TextStyle(color: labelColor) : null,
+      floatingLabelStyle:
+          textColor != null ? TextStyle(color: textColor) : null,
+      filled: widget.lightOnDark,
+      fillColor: fillColor,
+      enabledBorder: borderColor != null
+          ? OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10.r),
+              borderSide: BorderSide(color: borderColor),
+            )
+          : OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+      focusedBorder: borderColor != null
+          ? OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10.r),
+              borderSide: const BorderSide(color: Colors.white),
+            )
+          : OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
+    );
+  }
 
+  Iterable<String> _filterItems(List<String> items, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return items;
+    final starts = items.where((e) => e.toLowerCase().startsWith(q));
+    final contains = items.where(
+      (e) => !e.toLowerCase().startsWith(q) && e.toLowerCase().contains(q),
+    );
+    return [...starts, ...contains];
+  }
+
+  String? _bestMatch(List<String> items, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    for (final e in items) {
+      if (e.toLowerCase() == q) return e;
+    }
+    final starts = items.where((e) => e.toLowerCase().startsWith(q)).toList();
+    if (starts.length == 1) return starts.first;
+    return null;
+  }
+
+  Widget _searchable({
+    required String label,
+    required TextEditingController controller,
+    required FocusNode focusNode,
+    required List<String> items,
+    required ValueChanged<String> onSelected,
+    bool enabled = true,
+  }) {
+    final textColor = widget.lightOnDark ? Colors.white : null;
     return Padding(
       padding: EdgeInsets.only(bottom: 12.h),
-      child: DropdownButtonFormField<String>(
-        value: value != null && items.contains(value) ? value : null,
-        isExpanded: true,
-        dropdownColor: widget.lightOnDark ? const Color(0xFF5C1515) : null,
-        style: textColor != null ? TextStyle(color: textColor) : null,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: labelColor != null ? TextStyle(color: labelColor) : null,
-          floatingLabelStyle:
-              textColor != null ? TextStyle(color: textColor) : null,
-          filled: widget.lightOnDark,
-          fillColor: fillColor,
-          enabledBorder: borderColor != null
-              ? OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10.r),
-                  borderSide: BorderSide(color: borderColor),
-                )
-              : OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-          focusedBorder: borderColor != null
-              ? OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10.r),
-                  borderSide: const BorderSide(color: Colors.white),
-                )
-              : OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10.r)),
-        ),
-        items: items
-            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-            .toList(),
-        onChanged: enabled ? onChanged : null,
+      child: RawAutocomplete<String>(
+        textEditingController: controller,
+        focusNode: focusNode,
+        optionsBuilder: (value) {
+          if (!enabled) return const Iterable<String>.empty();
+          return _filterItems(items, value.text);
+        },
+        onSelected: onSelected,
+        displayStringForOption: (v) => v,
+        fieldViewBuilder: (context, textController, fieldFocus, onFieldSubmitted) {
+          return TextField(
+            controller: textController,
+            focusNode: fieldFocus,
+            enabled: enabled,
+            style: textColor != null ? TextStyle(color: textColor) : null,
+            cursorColor: widget.lightOnDark ? Colors.white : null,
+            decoration: _fieldDeco(
+              label,
+              enabled: enabled,
+              focusNode: fieldFocus,
+            ),
+            onSubmitted: (value) {
+              final match = _bestMatch(items, value);
+              if (match != null) {
+                onSelected(match);
+                onFieldSubmitted();
+              }
+            },
+            onEditingComplete: () {
+              final match = _bestMatch(items, textController.text);
+              if (match != null) onSelected(match);
+            },
+          );
+        },
+        optionsViewBuilder: (context, onOptionSelected, options) {
+          final list = options.toList();
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 6,
+              color: widget.lightOnDark ? const Color(0xFF5C1515) : Colors.white,
+              borderRadius: BorderRadius.circular(10.r),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: 240.h, minWidth: 280.w),
+                child: list.isEmpty
+                    ? Padding(
+                        padding: EdgeInsets.all(14.w),
+                        child: Text(
+                          'No matches',
+                          style: TextStyle(
+                            color: widget.lightOnDark
+                                ? Colors.white70
+                                : Colors.black54,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: list.length,
+                        itemBuilder: (context, index) {
+                          final option = list[index];
+                          return ListTile(
+                            dense: true,
+                            title: Text(
+                              option,
+                              style: TextStyle(
+                                color: widget.lightOnDark ? Colors.white : null,
+                              ),
+                            ),
+                            onTap: () => onOptionSelected(option),
+                          );
+                        },
+                      ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -247,18 +378,21 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _dropdown(
+        _searchable(
           label: 'Make *',
-          value: _selectedMake,
+          controller: _makeCtrl,
+          focusNode: _makeFocus,
           items: _makeNames,
-          onChanged: (v) async {
+          onSelected: (v) async {
             setState(() {
               _selectedMake = v;
+              _makeCtrl.text = v;
               _selectedModel = null;
+              _modelCtrl.clear();
               _modelIsOther = false;
               _otherModelCtrl.clear();
             });
-            if (v != null) await _loadModelsForMake(v);
+            await _loadModelsForMake(v);
             _notifyChanged();
           },
         ),
@@ -268,14 +402,16 @@ class VehicleMakeModelFieldsState extends State<VehicleMakeModelFields> {
             child: const LinearProgressIndicator(minHeight: 2),
           )
         else
-          _dropdown(
+          _searchable(
             label: 'Model *',
-            value: _selectedModel,
+            controller: _modelCtrl,
+            focusNode: _modelFocus,
             items: _modelNames,
             enabled: _selectedMake != null,
-            onChanged: (v) {
+            onSelected: (v) {
               setState(() {
                 _selectedModel = v;
+                _modelCtrl.text = v;
                 _modelIsOther = v == 'Other';
                 if (!_modelIsOther) _otherModelCtrl.clear();
               });

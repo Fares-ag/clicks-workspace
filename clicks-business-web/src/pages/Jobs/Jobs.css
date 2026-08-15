@@ -1,17 +1,4 @@
-.jobs-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 8px;
-}
-
-.jobs-page .admin-page-subtitle {
-  margin: 4px 0 0;
+.jobs-header-actions .jobs-refreshing {
+  font-size: 12px;
   color: var(--color-text-secondary);
-  font-size: 14px;
-}
-
-.jobs-page .admin-page-title {
-  margin: 0;
 }

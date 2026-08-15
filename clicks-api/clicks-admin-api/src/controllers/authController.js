@@ -4,10 +4,18 @@ const { hashPassword, comparePassword, generateAccessToken, generateRefreshToken
 const { sendPasswordResetEmail, sendPasswordResetConfirmationEmail } = require("../utils/emailService");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const { str, normaliseEmail } = require("../../../clicks-shared/utils/coerce");
+
+const RESET_MAX_ATTEMPTS = Number(process.env.RESET_MAX_ATTEMPTS || 5);
 
 // Login
 async function login(req, res) {
-  const { email, password } = req.body;
+  // Coerced: {"email":{"$ne":null}} would otherwise match an arbitrary admin.
+  // NOTE: not lower-cased on lookup — existing rows were stored as typed, so
+  // normalising here would lock out anyone who registered with capitals.
+  // Case normalisation + dedupe is a later, separate migration.
+  const email = str(req.body.email, { maxLength: 254 });
+  const password = str(req.body.password, { maxLength: 200 });
   const admin = await Admin.findOne({ email });
   if (!admin) return res.status(401).json({ message: "Invalid credentials" });
 
@@ -46,40 +54,40 @@ function logout(req, res) {
 // Forgot Password - Send OTP/Token via email
 async function forgotPassword(req, res) {
   try {
-    const { email } = req.body;
-    
+    const email = str(req.body.email, { maxLength: 254 });
+
     if (!email) {
       return res.status(400).json({ message: "Email is required" });
     }
-    
+
     const admin = await Admin.findOne({ email });
-    if (!admin) {
-      return res.status(404).json({ message: "Email not found" });
+
+    // Only send when the account exists — but respond identically either way.
+    // The old code returned 404 for unknown emails, which let an attacker
+    // confirm which admin addresses are real before attacking them.
+    if (admin) {
+      // 100000..999999 inclusive-exclusive upper bound; the original excluded
+      // 999999. Kept as-is to avoid changing code length expectations.
+      const resetToken = crypto.randomInt(100000, 999999).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      await PasswordReset.deleteMany({ email });
+      await PasswordReset.create({
+        email,
+        token: resetToken,
+        expiresAt,
+        used: false,
+      });
+
+      await sendPasswordResetEmail(
+        email,
+        `${admin.firstName} ${admin.lastName}`,
+        resetToken
+      );
     }
-    
-    // Generate a 6-digit OTP
-    const resetToken = crypto.randomInt(100000, 999999).toString();
-    
-    // Set expiration to 15 minutes from now
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    
-    // Delete any existing password reset tokens for this email
-    await PasswordReset.deleteMany({ email });
-    
-    // Create new password reset token
-    await PasswordReset.create({
-      email,
-      token: resetToken,
-      expiresAt,
-      used: false
-    });
-    
-    // Send email with OTP
-    await sendPasswordResetEmail(email, `${admin.firstName} ${admin.lastName}`, resetToken);
-    
-    res.json({ 
-      message: "Password reset code sent to email",
-      email: email
+
+    res.json({
+      message: "If an account exists for that address, a reset code has been sent.",
     });
   } catch (error) {
     console.error("Forgot password error:", error);
@@ -93,24 +101,54 @@ async function forgotPassword(req, res) {
 // Reset Password - Verify OTP and update password
 async function resetPassword(req, res) {
   try {
-    const { email, token, newPassword } = req.body;
-    
+    const email = str(req.body.email, { maxLength: 254 });
+    const token = str(req.body.token, { maxLength: 6 });
+    const newPassword = str(req.body.newPassword, { maxLength: 200 });
+
     if (!email || !token || !newPassword) {
-      return res.status(400).json({ 
-        message: "Email, token, and new password are required" 
+      return res.status(400).json({
+        message: "Email, token, and new password are required"
       });
     }
-    
-    // Find the password reset token
-    const resetRecord = await PasswordReset.findOne({ 
-      email, 
-      token, 
-      used: false 
-    });
-    
+    if (!/^\d{6}$/.test(token)) {
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    // Look the record up by email + used only. The supplied token NEVER enters
+    // the filter — that is what allowed `{"token":{"$gt":""}}` to reset any
+    // admin's password without ever reading the emailed code.
+    const resetRecord = await PasswordReset.findOne({
+      email,
+      used: false
+    }).sort({ createdAt: -1 });
+
     if (!resetRecord) {
-      return res.status(400).json({ 
-        message: "Invalid or expired reset token" 
+      return res.status(400).json({
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    if ((resetRecord.attempts || 0) >= RESET_MAX_ATTEMPTS) {
+      await PasswordReset.deleteOne({ _id: resetRecord._id });
+      return res.status(429).json({
+        message: "Too many incorrect attempts. Please request a new code."
+      });
+    }
+
+    // Constant-time comparison so latency does not leak matching digits.
+    const storedBuf = Buffer.from(String(resetRecord.token || ""));
+    const suppliedBuf = Buffer.from(token);
+    const tokenMatches =
+      storedBuf.length === suppliedBuf.length &&
+      crypto.timingSafeEqual(storedBuf, suppliedBuf);
+
+    if (!tokenMatches) {
+      await PasswordReset.updateOne(
+        { _id: resetRecord._id },
+        { $inc: { attempts: 1 } }
+      );
+      return res.status(400).json({
+        message: "Invalid or expired reset token"
       });
     }
     
@@ -158,16 +196,51 @@ async function resetPassword(req, res) {
 }
 
 // Refresh Token
-function refreshToken(req, res) {
-  const { refreshToken } = req.body;
-  if (!refreshToken) return res.status(401).json({ message: "No refresh token" });
+async function refreshToken(req, res) {
+  const rt = req.body && req.body.refreshToken;
+  if (!rt || typeof rt !== "string") {
+    return res.status(401).json({ message: "No refresh token" });
+  }
+
   const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
-  jwt.verify(refreshToken, secret, (err, user) => {
-    if (err) return res.status(403).json({ message: "Invalid refresh token" });
-    const accessToken = generateAccessToken({ id: user.id, role: user.role, email: user.email });
-    res.json({ accessToken });
-  });
+  if (!secret) {
+    return res.status(503).json({ message: "Auth is not configured" });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(rt, secret, { algorithms: ["HS256"] });
+  } catch (err) {
+    // 401, not 403 — the admin console's interceptor treats 403 as
+    // "permission denied" and 401 as "re-authenticate".
+    return res.status(401).json({ message: "Invalid refresh token" });
+  }
+
+  try {
+    // Role and status come from the DATABASE, never from the token being
+    // refreshed. Previously this copied `user.role` straight off the old
+    // token, so a demoted or deactivated admin kept minting valid access
+    // tokens carrying their former role for the full 7-day refresh window.
+    const admin = await Admin.findById(decoded.id).select("_id role isActive email");
+    if (!admin) {
+      return res.status(401).json({ message: "Account no longer exists" });
+    }
+    if (admin.isActive === false) {
+      return res.status(403).json({ message: "Account is deactivated" });
+    }
+
+    const accessToken = generateAccessToken({
+      id: String(admin._id),
+      role: admin.role,
+      email: admin.email,
+    });
+    return res.json({ accessToken });
+  } catch (err) {
+    console.error("refreshToken failed:", err.message);
+    return res.status(503).json({ message: "Auth temporarily unavailable" });
+  }
 }
+
 
 module.exports = {
   login,

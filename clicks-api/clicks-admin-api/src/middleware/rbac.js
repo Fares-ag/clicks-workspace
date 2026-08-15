@@ -1,7 +1,8 @@
 /**
  * Minimal admin RBAC.
- * Super Admin / Admin: full access
- * Job Dispatcher / Coordinator / Call Center Agent: ops (jobs, techs, live map, customers, vehicles, dashboard) but not admin CRUD or settlements delete
+ * Super Admin / Admin: full access (admin CRUD, partners, businesses, config, finance, deletes)
+ * Job Dispatcher / Coordinator / Call Center Agent: ops workflow only
+ * (jobs, SOS, service requests, leads, techs, vehicles, live map, clients, support tickets)
  */
 
 const FULL_ACCESS = new Set(["Super Admin", "Admin"]);

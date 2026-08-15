@@ -53,6 +53,8 @@ clicks-customer-tech-api ──┘
 | Domain | Model | Mongo collection | Role |
 | --- | --- | --- | --- |
 | Core ops | SOSRequest | `sosrequests` | Emergency roadside request with geo broadcast + claim lifecycle |
+| Core ops | Lead | `leads` | Pre-job inquiry (admin phone/walk-in + app Service Request) |
+| Core ops | ServiceRequest | `servicerequests` | Customer app non-emergency booking; auto-creates Lead |
 | Core ops | Job | `jobs` | Work order: assignment, status machine, payment, rating, B2B cut, partner attribution |
 
 ### Fleet & catalog
@@ -184,6 +186,8 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | Technician.applicationStatus | `Approved`, `Rejected`, `Pending` |
 | Technician.currentStatus | `Online`, `Offline`, `On Job` |
 | SOSRequest.status | `pending`, `in_call`, `accepted`, `cancelled`, `expired`, `completed` |
+| Lead.status | `new`, `contacted`, `qualified`, `converted`, `lost` |
+| ServiceRequest.status | `pending`, `assigned`, `cancelled`, `completed` |
 | Job.job_status | `pending` → `assigned` → `accepted` → `en_route` → `arrived` → `in_progress` → `completed` \| `cancelled` |
 | Job.payment_status | `unpaid`, `paid` |
 | Job.payment_method | `card`, `wallet`, `cash`, `fawran` |
@@ -238,6 +242,21 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | `scripts/seed-hatla2ee-vehicle-catalog.js` | Hatla2ee Qatar make/model catalog (~170 makes / ~2413 models) |
 
 Typical local: `MONGODB_URI=mongodb://127.0.0.1:27017/clicks node scripts/<script>.js`
+
+---
+
+## Lead → Job pipeline
+
+| Collection | Purpose |
+| --- | --- |
+| `leads` | Admin/dispatcher inquiries before a committed Job exists |
+| `servicerequests` | Customer app non-emergency requests; auto-creates linked Lead |
+
+**Lead.status:** `new` → `contacted` → `qualified` → `converted` \| `lost`
+
+**Conversion:** `POST /api/leads/:id/convert` creates Job with `lead_id`; linked ServiceRequest → `assigned`.
+
+**Unchanged direct Job paths:** SOS claim → `/jobs/new`, business portal, technician Add Job.
 
 ---
 

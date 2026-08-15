@@ -1,0 +1,467 @@
+{
+  "passed": 92,
+  "failed": 0,
+  "results": [
+    {
+      "id": "UI Admin can /dashboard",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /admin-management",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /technicians",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /vehicles",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /live-map",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /heat-map",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /jobs",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /leads",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /businesses",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /sos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /service-requests",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /performance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /sources",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /partners",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Admin can /support-tickets",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /dashboard",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /admin-management",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /technicians",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /vehicles",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /live-map",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /heat-map",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /jobs",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /leads",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /businesses",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /sos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /service-requests",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /performance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /sources",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /partners",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Super Admin can /support-tickets",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /dashboard",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /technicians",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /vehicles",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /live-map",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /jobs",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /jobs/new",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /leads",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /leads/new",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /sos",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /service-requests",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /clients",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher allow /support-tickets",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI Job Dispatcher deny /admin-management",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /heat-map",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /performance",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /sources",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /businesses",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /partners",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI Job Dispatcher deny /vehicle-makes",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "id": "UI unknown role denied /jobs",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI null role denied /dashboard",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "UI dispatcher sidebar count",
+      "ok": true,
+      "detail": "expected 9 visible (clients is URL-only), got 9: /dashboard, /technicians, /vehicles, /live-map, /jobs, /leads, /sos, /service-requests, /support-tickets"
+    },
+    {
+      "id": "FULL_ACCESS has Admin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "FULL_ACCESS has Super Admin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "FULL_ACCESS excludes Job Dispatcher",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "OPS_ACCESS includes Job Dispatcher",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "OPS_ACCESS includes Coordinator",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "requireOps allows Job Dispatcher",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "requireOps blocks unknown role",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "requireFullAdmin blocks Job Dispatcher",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "requireFullAdmin allows Admin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "Route scan: auth-only handlers",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "id": "Admin API reachable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "Live admin login",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "Live Job Dispatcher login",
+      "ok": true,
+      "detail": "qa-job-dispatcher@clicks.local"
+    },
+    {
+      "id": "API dispatcher allow GET /api/dashboard/summary",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/dashboard/job-completion",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/jobs?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/leads?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/sos?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/service-requests?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/technicians?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/technicians/live-map",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/vehicles?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/customers?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/sources?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher allow GET /api/vehicle-makes?limit=1",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API dispatcher deny GET /api/dashboard/earnings",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/dashboard/technician-performance",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/performance",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/admins?limit=1",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/partners?limit=1",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/businesses?limit=1",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/jobs/heatmap",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny DELETE /api/customers/000000000000000000000000",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny DELETE /api/vehicles/000000000000000000000000",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny POST /api/sources",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny DELETE /api/jobs/000000000000000000000000",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny POST /api/jobs/import",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API dispatcher deny GET /api/technicians/000000000000000000000000/settlements",
+      "ok": true,
+      "detail": "expected 403, got 403"
+    },
+    {
+      "id": "API full admin allow GET /api/partners",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "id": "API full admin allow GET /api/dashboard/earnings",
+      "ok": true,
+      "detail": "status 200"
+    }
+  ],
+  "at": "2026-08-15T15:23:16.974Z"
+}

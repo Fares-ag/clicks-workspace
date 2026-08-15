@@ -1,21 +1,41 @@
 import React from "react";
 import "./SOSNotification.css";
 import "./BusinessJobNotification.css";
+import NotificationQueueNote from "./NotificationQueueNote.jsx";
 
-function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
+function formatJobWhen(dateTime) {
+  if (!dateTime) return "—";
+  try {
+    return new Date(dateTime).toLocaleString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(dateTime);
+  }
+}
+
+function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0 }) {
   const vehicle = jobData.vehicle || {};
   const location = jobData.location || {};
-  const businessLabel = jobData.businessName?.trim() || "Business";
+  const companyName =
+    jobData.businessName?.trim() ||
+    jobData.companyName?.trim() ||
+    "Unknown business";
+  const portalLabel = jobData.sourceLabel || "Business Portal";
 
   return (
-    <div className="sos-notification-overlay">
-      <div className="sos-notification-modal">
-        <div className="sos-header">
-          <div className="biz-job-header-titles">
-            <h2 className="sos-header-title">New Business Job</h2>
-            <span className="biz-job-header-tag" title="Business portal job">
-              {businessLabel}
-            </span>
+    <div className="sos-notification-overlay biz-portal-overlay">
+      <div className="sos-notification-modal biz-portal-modal">
+        <div className="sos-header biz-portal-header">
+          <div className="biz-portal-header-main">
+            <span className="biz-portal-source-pill">{portalLabel}</span>
+            <h2 className="sos-header-title biz-portal-title">New job submitted</h2>
+            <p className="biz-portal-company-name">{companyName}</p>
           </div>
           <button className="sos-close-btn" onClick={onDismiss} type="button">
             <svg
@@ -37,8 +57,50 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
         </div>
 
         <div className="sos-content">
+          <NotificationQueueNote queueCount={queueCount} />
+
+          <div className="biz-portal-alert-banner">
+            <span className="biz-portal-alert-label">Action required</span>
+            <span className="biz-portal-alert-text">
+              A partner business submitted a new job through the portal. Review details
+              and assign a technician.
+            </span>
+          </div>
+
           <div className="sos-section">
-            <h3 className="sos-section-title">Customer Information</h3>
+            <h3 className="sos-section-title">Submission details</h3>
+            <div className="sos-info-row">
+              <div className="sos-info-group">
+                <span className="sos-info-label">Source</span>
+                <span className="sos-info-value biz-portal-source-value">
+                  {portalLabel}
+                </span>
+              </div>
+              <div className="sos-info-group">
+                <span className="sos-info-label">Company</span>
+                <span className="sos-info-value biz-portal-company-value">
+                  {companyName}
+                </span>
+              </div>
+            </div>
+            <div className="sos-info-row">
+              <div className="sos-info-group">
+                <span className="sos-info-label">Scheduled</span>
+                <span className="sos-info-value">
+                  {formatJobWhen(jobData.dateTime)}
+                </span>
+              </div>
+              <div className="sos-info-group">
+                <span className="sos-info-label">Status</span>
+                <span className="sos-info-value biz-portal-status-pending">
+                  Pending assignment
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="sos-section">
+            <h3 className="sos-section-title">Customer information</h3>
             <div className="sos-info-row">
               <div className="sos-info-group">
                 <span className="sos-info-label">Name</span>
@@ -47,7 +109,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
                 </span>
               </div>
               <div className="sos-info-group">
-                <span className="sos-info-label">Contact Number</span>
+                <span className="sos-info-label">Contact number</span>
                 <span className="sos-info-value">
                   {jobData.clientMobileNumber || "Unknown"}
                 </span>
@@ -56,7 +118,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
           </div>
 
           <div className="sos-section">
-            <h3 className="sos-section-title">Vehicle Details</h3>
+            <h3 className="sos-section-title">Vehicle details</h3>
             <div className="sos-info-row">
               <div className="sos-info-column">
                 <div className="sos-info-group">
@@ -68,7 +130,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
                   <span className="sos-info-value">{vehicle.year || "—"}</span>
                 </div>
                 <div className="sos-info-group">
-                  <span className="sos-info-label">License Plate</span>
+                  <span className="sos-info-label">License plate</span>
                   <span className="sos-info-value">{vehicle.plate || "—"}</span>
                 </div>
               </div>
@@ -80,7 +142,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
                   </span>
                 </div>
                 <div className="sos-info-group">
-                  <span className="sos-info-label">Job Type</span>
+                  <span className="sos-info-label">Job type</span>
                   <span className="sos-info-value">
                     {jobData.jobType || "—"}
                   </span>
@@ -88,7 +150,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
                 <div className="sos-info-group">
                   <span className="sos-info-label">Price</span>
                   <span className="sos-info-value">
-                    {jobData.price != null ? `${jobData.price} QAR` : "—"}
+                    {jobData.price != null ? `QR ${jobData.price}` : "—"}
                   </span>
                 </div>
               </div>
@@ -103,17 +165,17 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss }) {
           <div className="sos-section">
             <h3 className="sos-section-title">Location</h3>
             <span className="sos-info-value">
-              {location.address || "Unknown"}
+              {location.address || jobData.location || "Unknown"}
             </span>
           </div>
 
           <div className="sos-actions">
             <button
               type="button"
-              className="sos-btn-create-job"
+              className="sos-btn-create-job biz-portal-btn-primary"
               onClick={() => onOpenJob(jobData)}
             >
-              Open job
+              View job &amp; assign technician
             </button>
           </div>
         </div>

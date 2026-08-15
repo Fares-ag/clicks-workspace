@@ -1,7 +1,6 @@
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
-import 'package:clicks_technician/features/home/ui/view/add_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/activity_details_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/activity_calendar_sheet.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/activity_job_card.dart';
@@ -83,24 +82,6 @@ class _ActivityTabState extends State<ActivityTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      floatingActionButton: BlocBuilder<HomeCubit, HomeState>(
-        builder: (context, _) {
-          final cubit = context.read<HomeCubit>();
-          return FloatingActionButton.extended(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => AddJobScreen(cubit: cubit),
-                ),
-              );
-            },
-            backgroundColor: ColorsManager.mainColor,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.add),
-            label: const Text('Add job'),
-          );
-        },
-      ),
       body: SafeArea(
         child: BlocBuilder<HomeCubit, HomeState>(
           builder: (context, state) {

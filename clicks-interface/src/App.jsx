@@ -61,6 +61,14 @@ import { SupportTickets, TicketDetails } from "./pages/SupportTickets";
 import SOSInbox from "./pages/SOSInbox";
 import ServiceRequestsInbox from "./pages/ServiceRequests";
 
+// Lead Management
+import {
+  Leads,
+  AddNewLead,
+  LeadDetails,
+  ConvertLead,
+} from "./pages/LeadManagement";
+
 // Public Pages
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import TermsAndConditionsPage from "./pages/TermsAndConditionsPage.jsx";
@@ -322,6 +330,46 @@ function App() {
           <ProtectedRoute>
             <AdminLayout>
               <JobDetails />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/leads"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <Leads />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/leads/new"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <AddNewLead />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/leads/:id/convert"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <ConvertLead />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/leads/:id"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <LeadDetails />
             </AdminLayout>
           </ProtectedRoute>
         }

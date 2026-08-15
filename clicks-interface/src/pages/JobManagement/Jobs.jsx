@@ -370,8 +370,8 @@ function Jobs() {
           Job Management
         </span>
         <div className="jobs-header-actions">
-          <button className="jobs-add-btn" onClick={() => navigate("/jobs/new")}>
-            + Add New Job
+          <button className="jobs-add-btn" onClick={() => navigate("/leads/new")}>
+            + Add New Lead
           </button>
         </div>
       </div>

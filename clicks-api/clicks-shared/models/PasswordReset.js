@@ -5,6 +5,9 @@ const PasswordResetSchema = new mongoose.Schema({
   token: { type: String, required: true },
   expiresAt: { type: Date, required: true },
   used: { type: Boolean, default: false },
+  // Brute-force guard. Incremented atomically on each wrong guess in
+  // authController.resetPassword; the record is destroyed at 5.
+  attempts: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now }
 });
 

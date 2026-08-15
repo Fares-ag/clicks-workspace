@@ -1,0 +1,177 @@
+{
+  "date": "2026-08-15",
+  "adminUrl": "http://localhost:5000",
+  "passed": 42,
+  "failed": 0,
+  "phase0": "PASS",
+  "results": {
+    "setup admin login": {
+      "ok": true,
+      "detail": ""
+    },
+    "setup seed Demo Partner": {
+      "ok": true,
+      "detail": "6a8081d6ab1d0987fa4f6a86"
+    },
+    "setup Google source": {
+      "ok": true,
+      "detail": "6a6269ce74d23d5c798b854d"
+    },
+    "A1 list partners": {
+      "ok": true,
+      "detail": "count=1"
+    },
+    "A1 filter active": {
+      "ok": true,
+      "detail": "count=1"
+    },
+    "A2 search by name": {
+      "ok": true,
+      "detail": ""
+    },
+    "A3 create partner": {
+      "ok": true,
+      "detail": "6a808251062f3b5629eddea6"
+    },
+    "A4 duplicate name": {
+      "ok": true,
+      "detail": "status=409"
+    },
+    "A5 short password": {
+      "ok": true,
+      "detail": "status=400"
+    },
+    "A6 partner login (new)": {
+      "ok": true,
+      "detail": ""
+    },
+    "F2 bad password": {
+      "ok": true,
+      "detail": ""
+    },
+    "F1 dashboard": {
+      "ok": true,
+      "detail": "status=active"
+    },
+    "F3 change password": {
+      "ok": true,
+      "detail": "status=200"
+    },
+    "F3 old password fails": {
+      "ok": true,
+      "detail": ""
+    },
+    "F3 new password works": {
+      "ok": true,
+      "detail": ""
+    },
+    "F4 update phone": {
+      "ok": true,
+      "detail": "+9745556865499"
+    },
+    "F5 session/logout": {
+      "ok": true,
+      "detail": "N/A — Flutter-only; portal JWT validated above"
+    },
+    "F6 i18n": {
+      "ok": true,
+      "detail": "SKIP — optional manual"
+    },
+    "B1 detail + earnings + withdrawals": {
+      "ok": true,
+      "detail": ""
+    },
+    "B2 edit terms + formula cap": {
+      "ok": true,
+      "detail": "cap=14500"
+    },
+    "C1 accrual happy path": {
+      "ok": true,
+      "detail": "accrued=500, job=6a808254062f3b5629eddece"
+    },
+    "C2 idempotent accrual": {
+      "ok": true,
+      "detail": ""
+    },
+    "C3 wrong job type": {
+      "ok": true,
+      "detail": ""
+    },
+    "C3 non-Google source": {
+      "ok": true,
+      "detail": ""
+    },
+    "C3 wrong subSource": {
+      "ok": true,
+      "detail": ""
+    },
+    "C3 inactive partner": {
+      "ok": true,
+      "detail": ""
+    },
+    "C4 partial cap": {
+      "ok": true,
+      "detail": "accrued=550, status=capped"
+    },
+    "C5 frozen on refresh": {
+      "ok": true,
+      "detail": "status=frozen"
+    },
+    "C6 FCM push": {
+      "ok": true,
+      "detail": "SKIP — requires device + token"
+    },
+    "E1 withdraw while active": {
+      "ok": true,
+      "detail": "Withdrawals are only available when the period is capped or frozen"
+    },
+    "E2 withdraw when capped": {
+      "ok": true,
+      "detail": "amount=4000"
+    },
+    "E3 duplicate pending": {
+      "ok": true,
+      "detail": "status=409"
+    },
+    "E4 approve then pay": {
+      "ok": true,
+      "detail": "paid"
+    },
+    "E5 reject then re-request": {
+      "ok": true,
+      "detail": ""
+    },
+    "E6 pay from pending": {
+      "ok": true,
+      "detail": ""
+    },
+    "D1 start next period": {
+      "ok": true,
+      "detail": "period=2"
+    },
+    "D2 block while active": {
+      "ok": true,
+      "detail": "Cannot start next period from status: active"
+    },
+    "B3 inactive login blocked": {
+      "ok": true,
+      "detail": ""
+    },
+    "B4 reactivate": {
+      "ok": true,
+      "detail": "isActive=true, status=active"
+    },
+    "G1 non-full-admin": {
+      "ok": true,
+      "detail": "status=403"
+    },
+    "G2 partner JWT on admin": {
+      "ok": true,
+      "detail": "status=403"
+    },
+    "G3 portal isolation": {
+      "ok": true,
+      "detail": "demoEarnings=6, qaEarnings=0"
+    }
+  }
+}

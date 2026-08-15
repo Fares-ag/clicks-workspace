@@ -1,21 +1,23 @@
 import React from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGetJobQuery } from "../../store/portalApi";
 import StatusPill from "../../components/StatusPill";
 import { formatDateTime, statusLabel } from "../../utils/phone";
+import "../../styles/add-new-job.css";
 import "./JobDetail.css";
 
 function DetailRow({ label, children }) {
   if (children == null || children === "") return null;
   return (
-    <div className="detail-row">
-      <div className="detail-label">{label}</div>
-      <div className="detail-value">{children}</div>
+    <div className="job-detail-row">
+      <div className="job-detail-label">{label}</div>
+      <div className="job-detail-value">{children}</div>
     </div>
   );
 }
 
 function JobDetail() {
+  const navigate = useNavigate();
   const { id } = useParams();
   const { data, isLoading, isError, isFetching, refetch } = useGetJobQuery(id, {
     pollingInterval: 20000,
@@ -55,17 +57,22 @@ function JobDetail() {
     .join(" ");
 
   return (
-    <div className="job-detail">
-      <div className="job-detail-header">
-        <div>
-          <Link to="/jobs" className="back-link">
-            ← Back to jobs
-          </Link>
-          <h1>Job details</h1>
+    <div className="add-new-job-container job-detail-page">
+      <div className="add-new-job-header job-detail-top">
+        <button
+          type="button"
+          className="add-new-job-back"
+          onClick={() => navigate("/jobs")}
+        >
+          <img src="/icons/long-arrow-left.svg" alt="Back" />
+        </button>
+        <div className="job-detail-heading">
+          <h1 className="add-new-job-title">Job details</h1>
+          <StatusPill status={job.job_status} />
         </div>
         <button
           type="button"
-          className="secondary-btn"
+          className="btn-secondary job-detail-refresh"
           onClick={() => refetch()}
           disabled={isFetching}
         >
@@ -73,46 +80,47 @@ function JobDetail() {
         </button>
       </div>
 
-      <section className="detail-card">
-        <div className="detail-title-row">
-          <div>
-            <h2>{job.clientName || "—"}</h2>
-            <div className="detail-muted">{job.clientMobileNumber}</div>
-            {job.clientEmail ? (
-              <div className="detail-muted">{job.clientEmail}</div>
-            ) : null}
-          </div>
-          <StatusPill status={job.job_status} />
+      <div className="add-new-job-card">
+        <div className="add-new-job-section">
+          <h2 className="add-new-job-section-title">Client Details</h2>
+          <DetailRow label="Name">{job.clientName}</DetailRow>
+          <DetailRow label="Phone">{job.clientMobileNumber}</DetailRow>
+          <DetailRow label="Email">{job.clientEmail}</DetailRow>
         </div>
 
-        <DetailRow label="Status">{statusLabel(job.job_status)}</DetailRow>
-        {job.payment_status ? (
-          <DetailRow label="Payment">{statusLabel(job.payment_status)}</DetailRow>
-        ) : null}
-        <DetailRow label="Issue">{job.issue}</DetailRow>
-        <DetailRow label="Type">{job.jobType}</DetailRow>
-        {vehicle ? <DetailRow label="Vehicle">{vehicle}</DetailRow> : null}
-        {job.licensePlate ? (
-          <DetailRow label="Plate">{job.licensePlate}</DetailRow>
-        ) : null}
-        {job.vinNumber ? <DetailRow label="VIN">{job.vinNumber}</DetailRow> : null}
-        <DetailRow label="Location">{job.location}</DetailRow>
-        <DetailRow label="Price">{`${job.price ?? ""} QAR`}</DetailRow>
-        {job.businessCutPercent != null ? (
-          <DetailRow label="Your cut">
-            {`${job.businessCutPercent}% (${job.businessCutType || "revenue"})`}
-          </DetailRow>
-        ) : null}
-        <DetailRow label="When">{formatDateTime(job.dateTime)}</DetailRow>
-        <DetailRow label="Technician">{techName}</DetailRow>
-        {techPhone ? (
-          <DetailRow label="Tech phone">
-            <a className="call-link" href={`tel:${techPhone}`}>
-              Call {techPhone}
-            </a>
-          </DetailRow>
-        ) : null}
-      </section>
+        <div className="add-new-job-section">
+          <h2 className="add-new-job-section-title">Vehicle</h2>
+          <DetailRow label="Vehicle">{vehicle}</DetailRow>
+          <DetailRow label="License plate">{job.licensePlate}</DetailRow>
+          <DetailRow label="VIN">{job.vinNumber}</DetailRow>
+        </div>
+
+        <div className="add-new-job-section">
+          <h2 className="add-new-job-section-title">Job Details</h2>
+          <DetailRow label="Status">{statusLabel(job.job_status)}</DetailRow>
+          {job.payment_status ? (
+            <DetailRow label="Payment">{statusLabel(job.payment_status)}</DetailRow>
+          ) : null}
+          <DetailRow label="Type">{job.jobType}</DetailRow>
+          <DetailRow label="Issue">{job.issue}</DetailRow>
+          <DetailRow label="Location">{job.location}</DetailRow>
+          <DetailRow label="Price">{`${job.price ?? ""} QAR`}</DetailRow>
+          {job.businessCutPercent != null ? (
+            <DetailRow label="Your cut">
+              {`${job.businessCutPercent}% (${job.businessCutType || "revenue"})`}
+            </DetailRow>
+          ) : null}
+          <DetailRow label="When">{formatDateTime(job.dateTime)}</DetailRow>
+          <DetailRow label="Technician">{techName}</DetailRow>
+          {techPhone ? (
+            <DetailRow label="Tech phone">
+              <a className="call-link" href={`tel:${techPhone}`}>
+                Call {techPhone}
+              </a>
+            </DetailRow>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
-const { requireFullAdmin } = require("../middleware/rbac");
+const { requireFullAdmin, requireOps } = require("../middleware/rbac");
 const ctrl = require("../controllers/subscriptionController");
 
-router.get("/lookup", authenticateToken, ctrl.lookupByPlate);
+router.get("/lookup", authenticateToken, requireOps, ctrl.lookupByPlate);
 router.get("/", authenticateToken, requireFullAdmin, ctrl.listSubscriptions);
 router.post("/", authenticateToken, requireFullAdmin, ctrl.createSubscription);
 router.get("/:id", authenticateToken, requireFullAdmin, ctrl.getSubscription);

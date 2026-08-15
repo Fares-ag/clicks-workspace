@@ -6,6 +6,9 @@ const OTPVerificationSchema = new mongoose.Schema({
   expiresAt: { type: Date, required: true },
   purpose: { type: String, enum: ["registration", "password_reset", "verification"], default: "registration" },
   verified: { type: Boolean, default: false },
+  // Brute-force guard. Incremented atomically on each wrong guess by
+  // clicks-shared/utils/otpVerify.js; the record is destroyed at 5.
+  attempts: { type: Number, default: 0 },
   created_at: { type: Date, default: Date.now }
 });
 

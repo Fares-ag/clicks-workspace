@@ -3,13 +3,16 @@ import { apiSlice } from "./apiSlice";
 export const jobApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getJobs: builder.query({
-      query: ({ page = 1, limit = 10, search = "", status, technician } = {}) => {
+      query: ({ page = 1, limit = 10, search = "", status, technician, businessPortal } = {}) => {
         let url = `/jobs?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`;
         if (status) {
           url += `&status=${encodeURIComponent(status)}`;
         }
         if (technician) {
           url += `&technician=${encodeURIComponent(technician)}`;
+        }
+        if (businessPortal) {
+          url += `&businessPortal=true`;
         }
         return {
           url,

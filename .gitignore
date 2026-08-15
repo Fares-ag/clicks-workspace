@@ -36,3 +36,8 @@ clicks-api/clicks-468120-ac337c1b05a9.json
 **/*firebase-adminsdk*.json
 **/google-services.json
 
+# Local backups / release artifacts (not source)
+_stage1-backup/
+_to_delete/
+release-apks/
+

@@ -1,0 +1,59 @@
+﻿.phone-input-wrapper {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid var(--color-input-border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  min-height: 44px;
+}
+
+.phone-input-wrapper:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(152, 31, 31, 0.12);
+}
+
+.phone-input-wrapper.phone-input-error {
+  border-color: #f04438;
+}
+
+.phone-input-prefix {
+  border: none;
+  background: var(--color-bg-page);
+  padding: 0 10px;
+  font-size: 14px;
+  color: #344054;
+  outline: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 88px;
+}
+
+.phone-input-prefix:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.phone-input-divider {
+  width: 1px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.phone-input-number {
+  flex: 1;
+  border: none !important;
+  outline: none;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #101828;
+  background: transparent;
+  min-width: 0;
+  box-shadow: none !important;
+}
+
+.phone-input-number:disabled {
+  background: var(--color-bg-page);
+  color: var(--color-text-secondary);
+}

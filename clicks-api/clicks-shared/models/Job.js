@@ -77,6 +77,11 @@ const JobSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "ServiceRequest",
     },
+    lead_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lead",
+      default: null,
+    },
     // Business portal — set when the job was submitted via a business portal
     business_id: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
     businessName: { type: String },

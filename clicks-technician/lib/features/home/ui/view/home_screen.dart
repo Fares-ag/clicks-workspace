@@ -77,6 +77,68 @@ class _IdleHeroHome extends StatelessWidget {
     await cubit.toggleOnlineStatus();
   }
 
+  Future<void> _onChangeHomeImage(BuildContext context) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !context.mounted) return;
+
+    try {
+      final file = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        requestFullMetadata: false,
+      );
+      if (file == null || !context.mounted) return;
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+
+      final ok = await cubit.uploadHomeHero(file);
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        if (ok) {
+          AppSnackBars.successSnackBar('Home image updated');
+        } else {
+          AppSnackBars.errorSnackBar(
+            cubit.lastActionError ?? 'Upload failed',
+          );
+        }
+      }
+    } catch (_) {
+      if (context.mounted) {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+        AppSnackBars.errorSnackBar('Could not open image picker');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -90,6 +152,7 @@ class _IdleHeroHome extends StatelessWidget {
               if (cubit.homeHeroUrl != null && cubit.homeHeroUrl!.isNotEmpty)
                 Image.network(
                   cubit.homeHeroUrl!,
+                  key: ValueKey(cubit.homeHeroUrl),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Image.asset(
                     AssetsManager.homeHeroTech,
@@ -160,22 +223,7 @@ class _IdleHeroHome extends StatelessWidget {
                     tooltip: 'Change home image',
                     icon: const Icon(Icons.photo_camera_outlined,
                         color: Colors.white),
-                    onPressed: () async {
-                      final picker = ImagePicker();
-                      final file = await picker.pickImage(
-                        source: ImageSource.gallery,
-                        imageQuality: 85,
-                      );
-                      if (file == null) return;
-                      final ok = await cubit.uploadHomeHero(file.path);
-                      if (context.mounted) {
-                        if (ok) {
-                          AppSnackBars.successSnackBar('Home image updated');
-                        } else {
-                          AppSnackBars.errorSnackBar('Upload failed');
-                        }
-                      }
-                    },
+                    onPressed: () => _onChangeHomeImage(context),
                   ),
                 ),
               ),

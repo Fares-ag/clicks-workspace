@@ -13,7 +13,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 import '../api/end_points/end_points.dart';
-import '../config/app_config.dart';
 import '../helper/cache_helper.dart';
 import '../../firebase_options.dart';
 import 'urgent_alarm_volume.dart';
@@ -24,9 +23,14 @@ const String kJobUrgentChannelId = 'clicks_job_urgent_v4';
 const String kAcceptJobActionId = 'accept_job';
 const int kJobAssignedNotifId = 42001;
 const String kPendingJobIdKey = 'pending_fcm_job_id';
+const String kAcceptedFromNotifJobIdKey = 'accepted_from_notif_job_id';
+const String kAcceptNotifFailedKey = 'accept_notif_failed_message';
 
 /// Android Notification.FLAG_INSISTENT — sound/vibration repeats until cancel.
 const int kInsistentFlag = 4;
+
+bool _isQaOnlyJobId(String jobId) =>
+    jobId.startsWith('qa-live-') || jobId.startsWith('qa-bg-');
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -100,6 +104,7 @@ class JobNotificationService {
     );
 
     await _ensureChannel();
+    await _handleLaunchNotificationAction();
 
     // Registered in main() before any await — do not register again here.
 
@@ -363,7 +368,8 @@ class JobNotificationService {
           AndroidNotificationAction(
             kAcceptJobActionId,
             strings['accept'] ?? 'Accept Job',
-            showsUserInterface: true,
+            // Run accept in background without forcing a cold-start race.
+            showsUserInterface: false,
             cancelNotification: true,
           ),
         ],
@@ -406,7 +412,21 @@ class JobNotificationService {
     } catch (_) {}
   }
 
+  Future<void> _handleLaunchNotificationAction() async {
+    try {
+      final details = await _local.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp != true) return;
+      final response = details?.notificationResponse;
+      if (response == null) return;
+      _log('processing notification launch action');
+      await _handleResponse(response);
+    } catch (e) {
+      _log('launch notification action failed: $e');
+    }
+  }
+
   void _onNotificationResponse(NotificationResponse response) {
+    // ignore: discarded_futures
     _handleResponse(response);
   }
 
@@ -421,23 +441,64 @@ class JobNotificationService {
       }
     } catch (_) {}
 
-    final jobId = data['job_id']?.toString() ?? '';
-    if (jobId.isEmpty) return;
+    var jobId = data['job_id']?.toString() ?? '';
+    if (jobId.isEmpty) {
+      try {
+        await CacheHelper.init();
+      } catch (_) {}
+      jobId = CacheHelper.get(kPendingJobIdKey)?.toString() ?? '';
+    }
+    if (jobId.isEmpty) {
+      _log('notification action ignored — no job_id in payload or cache');
+      return;
+    }
 
     if (response.actionId == kAcceptJobActionId) {
+      _log('accept action for job=$jobId');
+      if (_isQaOnlyJobId(jobId)) {
+        try {
+          await CacheHelper.init();
+          await CacheHelper.save(
+            kAcceptNotifFailedKey,
+            'Test alert only — assign a real job from admin to test Accept.',
+          );
+          await CacheHelper.remove(kPendingJobIdKey);
+        } catch (_) {}
+        await JobNotificationService.instance.cancelUrgentJobNotification();
+        _log('accept skipped for QA-only job=$jobId');
+        return;
+      }
       final ok = await acceptJobById(jobId);
       if (ok) {
+        try {
+          await CacheHelper.init();
+          await CacheHelper.save(kAcceptedFromNotifJobIdKey, jobId);
+          await CacheHelper.remove(kPendingJobIdKey);
+          await CacheHelper.remove(kAcceptNotifFailedKey);
+        } catch (_) {}
         await JobNotificationService.instance.cancelUrgentJobNotification();
         JobNotificationService.instance.onJobAcceptedFromNotification
             ?.call(jobId);
+        _log('accept action succeeded job=$jobId');
       } else {
+        _log('accept action failed job=$jobId');
+        try {
+          await CacheHelper.init();
+          await CacheHelper.save(
+            kAcceptNotifFailedKey,
+            'Could not accept job from notification. Open the app and tap Accept again.',
+          );
+        } catch (_) {}
         JobNotificationService.instance.onJobAcceptFromNotificationFailed
             ?.call(jobId, 'Could not accept job. Open the app and try again.');
       }
       return;
     }
 
-    await CacheHelper.save(kPendingJobIdKey, jobId);
+    try {
+      await CacheHelper.init();
+      await CacheHelper.save(kPendingJobIdKey, jobId);
+    } catch (_) {}
     JobNotificationService.instance.onNotificationOpened?.call(jobId);
   }
 
@@ -447,11 +508,14 @@ class JobNotificationService {
       await CacheHelper.init();
     } catch (_) {}
     final token = CacheHelper.get('token')?.toString();
-    if (token == null || token.isEmpty) return false;
+    if (token == null || token.isEmpty) {
+      _log('accept from notif failed: no auth token in cache');
+      return false;
+    }
     try {
       final dio = Dio(
         BaseOptions(
-          baseUrl: AppConfig.apiBaseUrl,
+          baseUrl: EndPoints.baseUrl,
           headers: {
             'Authorization': 'Bearer $token',
             'Accept': 'application/json',
@@ -461,7 +525,16 @@ class JobNotificationService {
         ),
       );
       final res = await dio.post(EndPoints.acceptJob(jobId), data: {});
-      return res.statusCode == 200 || res.statusCode == 201;
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return true;
+      }
+      final err = res.data is Map
+          ? (res.data['error'] ?? res.data['message'])?.toString()
+          : null;
+      _log(
+        'accept from notif HTTP ${res.statusCode} job=$jobId${err != null ? ' — $err' : ''}',
+      );
+      return false;
     } catch (e) {
       _log('accept from notif failed: $e');
       return false;
@@ -497,7 +570,6 @@ class JobNotificationService {
 
 /// Background notification action (Accept Job).
 @pragma('vm:entry-point')
-void notificationActionBackground(NotificationResponse response) {
-  // ignore: discarded_futures
-  JobNotificationService._handleResponse(response);
+Future<void> notificationActionBackground(NotificationResponse response) async {
+  await JobNotificationService._handleResponse(response);
 }

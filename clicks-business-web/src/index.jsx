@@ -9,6 +9,7 @@ import "./styles/theme.css";
 import "./styles/global.css";
 import "./styles/page.css";
 import "./styles/fonts.css";
+import "./styles/admin-page.css";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

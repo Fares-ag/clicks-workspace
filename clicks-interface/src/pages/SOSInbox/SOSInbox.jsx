@@ -15,7 +15,15 @@ const STATUS_COLORS = {
   accepted: { bg: "#ECFDF5", color: "#12B76A", border: "#A6F4C5", label: "Accepted" },
   cancelled: { bg: "#F2F4F7", color: "#475467", border: "#D0D5DD", label: "Cancelled" },
   completed: { bg: "#ECFDF5", color: "#027A48", border: "#A6F4C5", label: "Completed" },
+  assigned: { bg: "#F4F3FF", color: "#5925DC", border: "#D9D6FE", label: "Assigned" },
+  en_route: { bg: "#EFF8FF", color: "#175CD3", border: "#B2DDFF", label: "En Route" },
+  arrived: { bg: "#F0F9FF", color: "#026AA2", border: "#B9E6FE", label: "Arrived" },
+  in_progress: { bg: "#FFF6ED", color: "#C4320A", border: "#FDDCAB", label: "In Progress" },
 };
+
+function displayStatus(row) {
+  return row.display_status || row.job_status || row.status;
+}
 
 function StatusBadge({ status }) {
   const s = STATUS_COLORS[status] || STATUS_COLORS.pending;
@@ -114,7 +122,7 @@ function SOSInbox() {
       title: "Status",
       key: "status",
       width: "12%",
-      render: (row) => <StatusBadge status={row.status} />,
+      render: (row) => <StatusBadge status={displayStatus(row)} />,
     },
     {
       title: "Expires / Updated",
@@ -150,7 +158,7 @@ function SOSInbox() {
         <div>
           <span className="sos-inbox-title">SOS Inbox</span>
           <p className="sos-inbox-subtitle">
-            Live and recently expired emergency requests. Expired items stay here for follow-up.
+            Full register of emergency requests, including cancelled and completed.
           </p>
         </div>
         <div className="sos-inbox-filters">
@@ -162,12 +170,13 @@ function SOSInbox() {
               setPage(1);
             }}
           >
-            <option value="">Inbox (active + recent expired)</option>
+            <option value="">All requests</option>
             <option value="pending">Pending</option>
             <option value="in_call">In Call</option>
             <option value="expired">Expired</option>
             <option value="accepted">Accepted</option>
             <option value="cancelled">Cancelled</option>
+            <option value="completed">Completed</option>
           </select>
           <input
             className="sos-inbox-search"

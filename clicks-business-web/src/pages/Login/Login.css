@@ -149,7 +149,9 @@
 .login-right {
   flex: 1;
   min-width: 0;
-  background: url("/logo/auth.png") center center no-repeat;
+  background:
+    linear-gradient(135deg, rgba(234, 73, 73, 0.12) 0%, rgba(16, 24, 40, 0.04) 100%),
+    url("/logo/auth.png") center center no-repeat;
   background-size: cover;
   display: flex;
   align-items: center;
@@ -164,9 +166,20 @@
     padding-left: 32px;
     padding-right: 32px;
     height: auto;
+    min-height: 100vh;
   }
   .login-right {
     display: none;
+  }
+  .login-input,
+  .login-forgot-row,
+  .login-signin-row,
+  .login-signin-btn,
+  .login-form-group {
+    width: min(440px, 100%);
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 }
 
@@ -175,9 +188,13 @@
     padding-left: 12px;
     padding-right: 12px;
   }
+  .login-title {
+    font-size: 28px;
+  }
   .login-input,
   .login-forgot-row,
   .login-signin-row,
+  .login-signin-btn,
   .login-form-group {
     width: 100%;
     min-width: 0;

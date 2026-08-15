@@ -1,9 +1,12 @@
 import React from "react";
 import { useSelector } from "react-redux";
+import { getEffectiveRole } from "../utils/authRole";
 import "./AdminTopBar.css";
 
 const AdminTopBar = ({ onToggleSidebar }) => {
   const user = useSelector((state) => state.auth.user);
+  const token = useSelector((state) => state.auth.token);
+  const role = getEffectiveRole(user, token);
 
   // Compose name from firstName/lastName if available, else fallback
   let adminName = "Admin";
@@ -35,6 +38,7 @@ const AdminTopBar = ({ onToggleSidebar }) => {
           <span className="admin-avatar" />
         )}
         <span className="admin-name">{adminName}</span>
+        {role && <span className="admin-role">{role}</span>}
         <img className="arrow-down-icon" src="/icons/arrow-down.svg" alt="Menu" />
       </div>
     </div>

@@ -16,6 +16,14 @@ class HomeCubit extends Cubit<HomeState> {
   int open = 0;
   int inProgress = 0;
   int completed = 0;
+  int submitted = 0;
+  int pending = 0;
+  int ongoing = 0;
+  int cancelled = 0;
+  double totalEarnings = 0;
+  double? completedTrendPct;
+  double? earningsTrendPct;
+  List<Map<String, dynamic>> pendingList = [];
   List<Map<String, dynamic>> jobs = [];
   JobBucket bucket = JobBucket.all;
 
@@ -24,8 +32,6 @@ class HomeCubit extends Cubit<HomeState> {
   int jobsCompletedPeriod = 0;
   int jobsCancelled = 0;
   double estimatedEarnings = 0;
-  double cutPercent = 0;
-  String cutType = 'revenue';
   Map<String, Map<String, dynamic>> byJobType = {};
   String? analyticsError;
 
@@ -65,9 +71,8 @@ class HomeCubit extends Cubit<HomeState> {
   Future<void> load({bool silent = false}) async {
     if (!silent) emit(HomeLoading());
     try {
-      await loadCounts();
+      await loadSummary();
       await loadJobs();
-      await loadAnalytics(); // soft-fails if API not redeployed yet
       emit(HomeLoaded(++_rev));
     } catch (_) {
       if (!silent || jobs.isEmpty) {
@@ -76,14 +81,48 @@ class HomeCubit extends Cubit<HomeState> {
     }
   }
 
-  Future<void> loadCounts() async {
-    final dash = await DioHelper.getData(url: EndPoints.dashboard);
+  Future<void> loadSummary() async {
+    final dash = await DioHelper.getData(url: EndPoints.dashboardSummary);
     if (dash.statusCode == 200 && dash.data is Map) {
-      final counts = dash.data['counts'];
+      final data = dash.data as Map;
+      final jobsMap = data['jobs'];
+      if (jobsMap is Map) {
+        submitted = (jobsMap['total'] as num?)?.toInt() ?? 0;
+        completed = (jobsMap['completed'] as num?)?.toInt() ?? 0;
+        ongoing = (jobsMap['ongoing'] as num?)?.toInt() ?? 0;
+        pending = (jobsMap['pending'] as num?)?.toInt() ?? 0;
+        cancelled = (jobsMap['cancelled'] as num?)?.toInt() ?? 0;
+        open = pending + ongoing;
+        inProgress = ongoing;
+        final rawPending = jobsMap['pendingList'];
+        if (rawPending is List) {
+          pendingList = rawPending
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
+      }
+      final earnings = data['earnings'];
+      if (earnings is Map) {
+        totalEarnings = (earnings['totalAllTime'] as num?)?.toDouble() ?? 0;
+      }
+      final trends = data['trends'];
+      if (trends is Map) {
+        completedTrendPct = (trends['completedJobsPct'] as num?)?.toDouble();
+        earningsTrendPct = (trends['earningsPct'] as num?)?.toDouble();
+      }
+      return;
+    }
+
+    // Fallback to legacy counts endpoint
+    final legacy = await DioHelper.getData(url: EndPoints.dashboard);
+    if (legacy.statusCode == 200 && legacy.data is Map) {
+      final counts = legacy.data['counts'];
       if (counts is Map) {
         open = (counts['open'] as num?)?.toInt() ?? 0;
         inProgress = (counts['inProgress'] as num?)?.toInt() ?? 0;
         completed = (counts['completed'] as num?)?.toInt() ?? 0;
+        submitted = open + inProgress + completed;
       }
     }
   }
@@ -101,8 +140,6 @@ class HomeCubit extends Cubit<HomeState> {
         jobsCancelled = (data['jobsCancelled'] as num?)?.toInt() ?? 0;
         estimatedEarnings =
             (data['estimatedEarnings'] as num?)?.toDouble() ?? 0;
-        cutPercent = (data['cutPercent'] as num?)?.toDouble() ?? 0;
-        cutType = data['cutType']?.toString() ?? 'revenue';
         byJobType = {};
         final raw = data['byJobType'];
         if (raw is Map) {
@@ -124,12 +161,10 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> loadJobs() async {
-    final query = <String, dynamic>{'limit': 50};
-    if (bucket == JobBucket.open) query['bucket'] = 'open';
-    if (bucket == JobBucket.inProgress) query['bucket'] = 'inProgress';
-    if (bucket == JobBucket.completed) query['bucket'] = 'completed';
-
-    final list = await DioHelper.getData(url: EndPoints.jobs, query: query);
+    final list = await DioHelper.getData(
+      url: EndPoints.jobs,
+      query: {'limit': 50},
+    );
     if (list.statusCode == 200 && list.data is Map) {
       final raw = list.data['jobs'];
       if (raw is List) {

@@ -17,6 +17,46 @@ export const portalApi = apiSlice.injectEndpoints({
       query: () => "/business/dashboard",
       providesTags: ["Dashboard"],
     }),
+    dashboardSummary: builder.query({
+      query: () => "/business/dashboard/summary",
+      providesTags: ["Dashboard"],
+    }),
+    dashboardEarnings: builder.query({
+      query: (timeframe = "12months") => ({
+        url: "/business/dashboard/earnings",
+        params: { timeframe },
+      }),
+      providesTags: ["Dashboard"],
+    }),
+    dashboardJobCompletion: builder.query({
+      query: (timeframe = "12months") => ({
+        url: "/business/dashboard/job-completion",
+        params: { timeframe },
+      }),
+      providesTags: ["Dashboard"],
+    }),
+    dashboardTechnicianPerformance: builder.query({
+      query: () => "/business/dashboard/technician-performance",
+      providesTags: ["Dashboard"],
+    }),
+    dashboardEarningsByDate: builder.query({
+      query: (dateString) => {
+        let formattedDate;
+        if (!dateString) {
+          const today = new Date();
+          formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        } else if (dateString instanceof Date) {
+          formattedDate = `${dateString.getFullYear()}-${String(dateString.getMonth() + 1).padStart(2, "0")}-${String(dateString.getDate()).padStart(2, "0")}`;
+        } else {
+          formattedDate = dateString.split("T")[0];
+        }
+        return {
+          url: "/business/dashboard/earnings-by-date",
+          params: { date: formattedDate },
+        };
+      },
+      providesTags: ["Dashboard"],
+    }),
     analytics: builder.query({
       query: (period = "month") => ({
         url: "/business/analytics",
@@ -61,6 +101,11 @@ export const {
   useMeQuery,
   useLazyMeQuery,
   useDashboardQuery,
+  useDashboardSummaryQuery,
+  useDashboardEarningsQuery,
+  useDashboardJobCompletionQuery,
+  useDashboardTechnicianPerformanceQuery,
+  useDashboardEarningsByDateQuery,
   useAnalyticsQuery,
   useListJobsQuery,
   useGetJobQuery,

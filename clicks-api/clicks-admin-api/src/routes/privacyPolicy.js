@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
+const { requireFullAdmin } = require("../middleware/rbac");
 const {
   getPrivacyPolicies,
   getActivePrivacyPolicy,
@@ -10,9 +11,9 @@ const {
 } = require("../controllers/privacyPolicyController");
 
 router.get("/active", getActivePrivacyPolicy); // public
-router.get("/", authenticateToken, getPrivacyPolicies);
-router.post("/", authenticateToken, createPrivacyPolicy);
-router.put("/:id", authenticateToken, updatePrivacyPolicy);
-router.delete("/:id", authenticateToken, deletePrivacyPolicy);
+router.get("/", authenticateToken, requireFullAdmin, getPrivacyPolicies);
+router.post("/", authenticateToken, requireFullAdmin, createPrivacyPolicy);
+router.put("/:id", authenticateToken, requireFullAdmin, updatePrivacyPolicy);
+router.delete("/:id", authenticateToken, requireFullAdmin, deletePrivacyPolicy);
 
 module.exports = router;

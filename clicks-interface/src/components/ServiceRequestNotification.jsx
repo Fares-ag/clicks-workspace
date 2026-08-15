@@ -1,7 +1,13 @@
 import React from "react";
 import "./SOSNotification.css";
+import NotificationQueueNote from "./NotificationQueueNote.jsx";
 
-function ServiceRequestNotification({ requestData, onCreateJob, onDismiss }) {
+function ServiceRequestNotification({
+  requestData,
+  onCreateJob,
+  onDismiss,
+  queueCount = 0,
+}) {
   const customer = requestData.customer || {};
   const vehicle = requestData.vehicle || {};
   const location = requestData.location || {};
@@ -29,6 +35,8 @@ function ServiceRequestNotification({ requestData, onCreateJob, onDismiss }) {
         </div>
 
         <div className="sos-content">
+          <NotificationQueueNote queueCount={queueCount} />
+
           <div className="sos-section">
             <h3 className="sos-section-title">Service</h3>
             <div className="sos-info-row">
@@ -99,7 +107,7 @@ function ServiceRequestNotification({ requestData, onCreateJob, onDismiss }) {
             type="button"
             onClick={() => onCreateJob(requestData)}
           >
-            Create Job
+            Open Lead
           </button>
         </div>
       </div>

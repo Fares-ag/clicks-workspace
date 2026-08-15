@@ -2,10 +2,26 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Customer, OTPVerification } = require("../../../clicks-shared/models");
 const { sendSMS } = require("../services/smsService");
+const { str, pick } = require("../../../clicks-shared/utils/coerce");
+const {
+  findAndVerifyOtp,
+  generateOtp,
+} = require("../../../clicks-shared/utils/otpVerify");
+
+// NOTE ON PHONE NUMBERS (audit stage 1):
+// We coerce to a string but deliberately do NOT normalise the format here.
+// Existing records were stored exactly as the client sent them, so
+// normalising on lookup would silently break sign-in for anyone who
+// registered as "55512345" rather than "+97455512345". Format normalisation
+// + a dedupe migration is a separate, later change.
 
 const register = async (req, res) => {
   try {
-    const { phone_number, first_name, last_name, email, password } = req.body;
+    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+    const first_name = str(req.body.first_name, { maxLength: 80 });
+    const last_name = str(req.body.last_name, { maxLength: 80 });
+    const email = str(req.body.email, { maxLength: 254 });
+    const password = str(req.body.password, { maxLength: 200 });
     if (!phone_number || !first_name || !last_name || !email || !password) {
       return res.status(400).json({ error: "All fields are required" });
     }
@@ -30,7 +46,10 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { phone_number, password } = req.body;
+    // Coerced: an object here (e.g. {"$ne":null}) would otherwise reach the
+    // filter and match an arbitrary customer record.
+    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+    const password = str(req.body.password, { maxLength: 200 });
     const customer = await Customer.findOne({ phone_number });
     if (!customer) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -107,8 +126,19 @@ const deleteAccount = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { id } = req.user;
-    const update = req.body;
-    const customer = await Customer.findByIdAndUpdate(id, update, { new: true });
+    // Was `const update = req.body` — an unfiltered write that let a customer
+    // set their own `status`, collide the unique `client_id`, and write an
+    // UNHASHED `password` (permanent lockout, since login uses bcrypt.compare).
+    const update = pick(req.body, [
+      "first_name",
+      "last_name",
+      "email",
+      "profile_picture",
+    ]);
+    const customer = await Customer.findByIdAndUpdate(id, update, {
+      new: true,
+      runValidators: true,
+    });
     if (!customer) {
       return res.status(404).json({ error: "Customer not found" });
     }
@@ -121,141 +151,132 @@ const updateProfile = async (req, res) => {
 // Forgot Password - Send OTP to phone number
 const forgotPassword = async (req, res) => {
   try {
-    const { phone_number } = req.body;
-    
+    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+
     if (!phone_number) {
       return res.status(400).json({ error: "Phone number is required" });
     }
-    
-    // Check if customer exists
+
     const customer = await Customer.findOne({ phone_number });
-    if (!customer) {
-      return res.status(404).json({ error: "No account found with this phone number" });
+
+    // Only send when the account exists — but respond identically either way.
+    // The old code returned 404 for unknown numbers, which made the entire
+    // customer roster walkable (Qatari mobiles are 8 digits behind +974).
+    if (customer) {
+      const otp = generateOtp();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await OTPVerification.deleteMany({
+        phone: phone_number,
+        purpose: "password_reset",
+      });
+      await OTPVerification.create({
+        phone: phone_number,
+        otp,
+        expiresAt,
+        purpose: "password_reset",
+      });
+
+      await sendSMS(
+        phone_number,
+        `Your Clicks password reset OTP is: ${otp}. Valid for 10 minutes.`
+      );
     }
-    
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
-    
-    // Delete any existing OTPs for this phone
-    await OTPVerification.deleteMany({ phone: phone_number, purpose: "password_reset" });
-    
-    // Save new OTP
-    await OTPVerification.create({
-      phone: phone_number,
-      otp,
-      expiresAt,
-      purpose: "password_reset"
-    });
-    
-    // Send OTP via SMS
-    await sendSMS(phone_number, `Your Clicks password reset OTP is: ${otp}. Valid for 10 minutes.`);
-    
-    res.json({ 
-      message: "OTP sent successfully",
-      phone_number: phone_number.replace(/.(?=.{4})/g, '*') // Mask phone number
+
+    res.json({
+      message: "If an account exists for that number, a code has been sent.",
+      phone_number: phone_number.replace(/.(?=.{4})/g, "*"),
     });
   } catch (err) {
-    res.status(500).json({ error: "Failed to send OTP", details: err.message });
+    console.error("forgotPassword failed:", err.message);
+    res.status(500).json({ error: "Failed to send OTP" });
   }
 };
 
 // Verify OTP for password reset
 const verifyResetOTP = async (req, res) => {
   try {
-    const { phone_number, otp } = req.body;
-    
-    if (!phone_number || !otp) {
-      return res.status(400).json({ error: "Phone number and OTP are required" });
-    }
-    
-    // Find valid OTP
-    const otpRecord = await OTPVerification.findOne({
-      phone: phone_number,
-      otp,
-      purpose: "password_reset"
+    const result = await findAndVerifyOtp(OTPVerification, {
+      phone: req.body.phone_number,
+      otp: req.body.otp,
+      purpose: "password_reset",
     });
-    
-    if (!otpRecord) {
-      return res.status(400).json({ error: "Invalid OTP" });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-    
-    if (otpRecord.expiresAt < new Date()) {
-      await OTPVerification.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-    
-    // Mark OTP as verified (keep it for the reset step)
-    otpRecord.verified = true;
-    await otpRecord.save();
-    
+
+    result.record.verified = true;
+    await result.record.save();
+
     res.json({ message: "OTP verified successfully" });
   } catch (err) {
-    res.status(500).json({ error: "OTP verification failed", details: err.message });
+    console.error("verifyResetOTP failed:", err.message);
+    res.status(500).json({ error: "OTP verification failed" });
   }
 };
 
 // Reset Password after OTP verification
 const resetPassword = async (req, res) => {
   try {
-    const { phone_number, otp, new_password, confirm_password } = req.body;
-    
-    if (!phone_number || !otp || !new_password || !confirm_password) {
+    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+    const new_password = str(req.body.new_password, { maxLength: 200 });
+    const confirm_password = str(req.body.confirm_password, { maxLength: 200 });
+
+    if (!phone_number || !new_password || !confirm_password) {
       return res.status(400).json({ error: "All fields are required" });
     }
-    
     if (new_password !== confirm_password) {
       return res.status(400).json({ error: "Passwords do not match" });
     }
-    
     if (new_password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters long" });
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 8 characters long" });
     }
-    
-    // Verify OTP is valid and verified
-    const otpRecord = await OTPVerification.findOne({
+
+    const result = await findAndVerifyOtp(OTPVerification, {
       phone: phone_number,
-      otp,
+      otp: req.body.otp,
       purpose: "password_reset",
-      verified: true
+      requireVerified: true,
     });
-    
-    if (!otpRecord) {
-      return res.status(400).json({ error: "Invalid or unverified OTP. Please verify OTP first." });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-    
-    if (otpRecord.expiresAt < new Date()) {
-      await OTPVerification.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ error: "OTP has expired. Please request a new one." });
-    }
-    
-    // Find customer and update password
+
     const customer = await Customer.findOne({ phone_number });
     if (!customer) {
-      return res.status(404).json({ error: "Customer not found" });
+      // Should be unreachable — a verified OTP implies the account existed.
+      return res.status(400).json({ error: "Invalid or expired code" });
     }
-    
-    // Hash and update password
+
     customer.password = await bcrypt.hash(new_password, 10);
     await customer.save();
-    
-    // Delete used OTP
-    await OTPVerification.deleteMany({ phone: phone_number, purpose: "password_reset" });
-    
-    res.json({ message: "Password reset successfully. You can now login with your new password." });
+
+    await OTPVerification.deleteMany({
+      phone: phone_number,
+      purpose: "password_reset",
+    });
+
+    res.json({
+      message: "Password reset successfully. You can now login with your new password.",
+    });
   } catch (err) {
-    res.status(500).json({ error: "Password reset failed", details: err.message });
+    console.error("resetPassword failed:", err.message);
+    res.status(500).json({ error: "Password reset failed" });
   }
 };
 
 // Register OTP (purpose: registration)
 const sendRegisterOTP = async (req, res) => {
   try {
-    const { phone_number } = req.body;
+    const phone_number = str(req.body.phone_number, { maxLength: 24 });
     if (!phone_number) {
       return res.status(400).json({ error: "phone_number is required" });
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateOtp();
     await OTPVerification.deleteMany({ phone: phone_number, purpose: "registration" });
     await OTPVerification.create({
       phone: phone_number,
@@ -275,27 +296,23 @@ const sendRegisterOTP = async (req, res) => {
 
 const verifyRegisterOTP = async (req, res) => {
   try {
-    const { phone_number, otp } = req.body;
-    if (!phone_number || !otp) {
-      return res.status(400).json({ error: "phone_number and otp are required" });
-    }
-    const otpRecord = await OTPVerification.findOne({
-      phone: phone_number,
-      otp,
+    const result = await findAndVerifyOtp(OTPVerification, {
+      phone: req.body.phone_number,
+      otp: req.body.otp,
       purpose: "registration",
     });
-    if (!otpRecord) {
-      return res.status(400).json({ error: "Invalid OTP" });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
-    if (otpRecord.expiresAt < new Date()) {
-      await OTPVerification.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-    otpRecord.verified = true;
-    await otpRecord.save();
+
+    result.record.verified = true;
+    await result.record.save();
+
     res.json({ message: "OTP verified successfully" });
   } catch (err) {
-    res.status(500).json({ error: "OTP verification failed", details: err.message });
+    console.error("verifyRegisterOTP failed:", err.message);
+    res.status(500).json({ error: "OTP verification failed" });
   }
 };
 

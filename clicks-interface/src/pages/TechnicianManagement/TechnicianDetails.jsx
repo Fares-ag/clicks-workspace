@@ -9,6 +9,7 @@ import {
 import EditDocumentModal from "../../components/EditDocumentModal.jsx";
 import SettleBalanceModal from "../../components/SettleBalanceModal.jsx";
 import ApproveApplicationModal from "../../components/ApproveApplicationModal.jsx";
+import { useAdminRole } from "../../utils/adminRoles";
 import "./TechnicianDetails.css";
 
 function StatusPill({ status }) {
@@ -110,6 +111,7 @@ function ProfitPill({ profit }) {
 export default function TechnicianDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isFullAdmin } = useAdminRole();
   const [editDocModalOpen, setEditDocModalOpen] = useState(false);
   const [documentType, setDocumentType] = useState(null);
   const [settleModalOpen, setSettleModalOpen] = useState(false);
@@ -118,7 +120,10 @@ export default function TechnicianDetails() {
   const { data, isLoading, error, refetch } = useGetTechnicianByIdQuery(id);
   const { data: statsData, refetch: refetchStats } = useGetTechnicianStatsQuery(id);
   const { data: jobsData, refetch: refetchJobs } = useGetRecentJobsQuery({ id, limit: 10 });
-  const { data: settlementsData, refetch: refetchSettlements } = useGetSettlementsQuery({ id, limit: 10 });
+  const { data: settlementsData, refetch: refetchSettlements } = useGetSettlementsQuery(
+    { id, limit: 10 },
+    { skip: !isFullAdmin }
+  );
 
   if (isLoading) {
     return (
@@ -419,13 +424,17 @@ export default function TechnicianDetails() {
           <div className="tech-details-cash">
             <div className="tech-details-cash-title">Cash Balance</div>
             <CashBalanceHalfCircle value={stats.cashBalance || 0} max={10000} />
-            <div className="tech-details-cash-divider" />
-            <button 
-              className="tech-details-cash-settle-btn"
-              onClick={() => setSettleModalOpen(true)}
-            >
-              Settle Cash Balance
-            </button>
+            {isFullAdmin && (
+              <>
+                <div className="tech-details-cash-divider" />
+                <button 
+                  className="tech-details-cash-settle-btn"
+                  onClick={() => setSettleModalOpen(true)}
+                >
+                  Settle Cash Balance
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -496,7 +505,7 @@ export default function TechnicianDetails() {
         </table>
       </div>
 
-      {/* Section 5: Balance Settlement */}
+      {isFullAdmin && (
       <div className="tech-details-section-main">
         <div className="tech-details-section-title">Balance Settlement</div>
         <table className="tech-details-settlement-table" style={{ width: "100%" }}>
@@ -539,6 +548,7 @@ export default function TechnicianDetails() {
           </tbody>
         </table>
       </div>
+      )}
       </div>
 
       {/* Modals */}
@@ -550,6 +560,7 @@ export default function TechnicianDetails() {
         onSuccess={handleDocumentSuccess}
       />
 
+      {isFullAdmin && (
       <SettleBalanceModal
         open={settleModalOpen}
         onClose={() => setSettleModalOpen(false)}
@@ -557,6 +568,7 @@ export default function TechnicianDetails() {
         currentBalance={stats.cashBalance || 0}
         onSuccess={handleSettleSuccess}
       />
+      )}
 
       <ApproveApplicationModal
         open={approveModalOpen}

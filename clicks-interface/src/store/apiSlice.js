@@ -1,5 +1,6 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { setCredentials, logout } from "./authSlice";
+import { getRoleFromToken } from "../utils/authRole";
 
 const rawBase = fetchBaseQuery({
   baseUrl: import.meta.env.VITE_API_BASE_URL,
@@ -36,10 +37,11 @@ async function baseQueryWithReauth(args, api, extraOptions) {
       );
 
       if (refreshResult.data?.accessToken) {
-        const user = api.getState().auth.user;
+        const user = api.getState().auth.user || {};
+        const roleFromToken = getRoleFromToken(refreshResult.data.accessToken);
         api.dispatch(
           setCredentials({
-            user,
+            user: roleFromToken ? { ...user, role: roleFromToken } : user,
             accessToken: refreshResult.data.accessToken,
             refreshToken,
           })

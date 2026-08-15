@@ -257,6 +257,8 @@ async function createJob(req, res) {
             job_id: job._id.toString(),
             business_id: business._id.toString(),
             businessName: business.name,
+            sourceLabel: "Business Portal",
+            companyName: business.name,
             clientName: job.clientName,
             clientMobileNumber: job.clientMobileNumber,
             clientEmail: job.clientEmail || "",

@@ -1,24 +1,49 @@
-import React, { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { useDashboardQuery, useListJobsQuery } from "../../store/portalApi";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useListJobsQuery } from "../../store/portalApi";
+import DataTable from "../../components/DataTable/DataTable.jsx";
 import StatusPill from "../../components/StatusPill";
-import { formatDateTime } from "../../utils/phone";
-import "../Dashboard/Dashboard.css";
+import "../../styles/jobs-page.css";
 import "./Jobs.css";
 
+function ClientInfoCell({ job }) {
+  return (
+    <div className="job-client-cell">
+      <div className="job-client-name">{job.clientName || "—"}</div>
+      <div className="job-client-mobile">{job.clientMobileNumber || ""}</div>
+    </div>
+  );
+}
+
+function JobActions({ onView }) {
+  return (
+    <div className="job-actions">
+      <button
+        type="button"
+        className="job-action-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          onView();
+        }}
+      >
+        <img src="/icons/eye.svg" alt="View" />
+      </button>
+    </div>
+  );
+}
+
 function Jobs() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const bucketParam = searchParams.get("bucket") || "all";
   const [bucket, setBucket] = useState(bucketParam);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
 
-  // Keep filter in sync when arriving from dashboard count links.
   useEffect(() => {
     setBucket(bucketParam);
+    setPage(1);
   }, [bucketParam]);
-
-  const { data: dashData } = useDashboardQuery(undefined, {
-    pollingInterval: 25000,
-  });
 
   const {
     data: jobsData,
@@ -27,37 +52,104 @@ function Jobs() {
     isError,
     refetch,
   } = useListJobsQuery(
-    { page: 1, limit: 50, bucket },
+    { page, limit: 20, bucket },
     { pollingInterval: 25000 }
   );
 
-  const counts = dashData?.counts || { open: 0, inProgress: 0, completed: 0 };
   const jobs = jobsData?.jobs || [];
+  const total = jobsData?.total ?? jobs.length;
 
-  const setBucketAndUrl = (next) => {
-    const value = bucket === next ? "all" : next;
-    setBucket(value);
-    if (value === "all") setSearchParams({});
-    else setSearchParams({ bucket: value });
-  };
+  const filteredJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((job) => {
+      const haystack = [
+        job.clientName,
+        job.clientMobileNumber,
+        job.jobType,
+        job.vehicleMake,
+        job.vehicleModel,
+        job._id,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [jobs, search]);
 
-  const listTitle =
-    bucket === "all"
-      ? "All jobs"
-      : bucket === "open"
-        ? "Open jobs"
-        : bucket === "inProgress"
-          ? "In progress"
-          : "Completed jobs";
-
-  const emptyCopy =
-    bucket === "all"
-      ? "No jobs yet. Create a New Job for a customer."
-      : "No jobs in this filter.";
-
-  if (isLoading && !jobsData) {
-    return <div className="biz-loading">Loading jobs…</div>;
-  }
+  const columns = useMemo(
+    () => [
+      {
+        title: "Job ID",
+        key: "jobId",
+        dataIndex: "jobId",
+        width: "10%",
+        render: (row) => (
+          <span className="job-id-cell">
+            {row._id?.slice(-8).toUpperCase() || "N/A"}
+          </span>
+        ),
+      },
+      {
+        title: "Client Info",
+        key: "clientInfo",
+        dataIndex: "clientInfo",
+        width: "18%",
+        render: (row) => <ClientInfoCell job={row} />,
+      },
+      {
+        title: "Job Type",
+        key: "jobType",
+        dataIndex: "jobType",
+        width: "14%",
+        render: (row) => row.jobType || "—",
+      },
+      {
+        title: "Date & Time",
+        key: "dateTime",
+        dataIndex: "dateTime",
+        width: "14%",
+        render: (row) => {
+          const value = row.dateTime || row.createdAt;
+          const d = value ? new Date(value) : null;
+          if (!d || Number.isNaN(d.getTime())) return "—";
+          return (
+            <div className="job-datetime-cell">
+              <div className="job-date">{d.toLocaleDateString()}</div>
+              <div className="job-time">{d.toLocaleTimeString()}</div>
+            </div>
+          );
+        },
+      },
+      {
+        title: "Price",
+        key: "price",
+        dataIndex: "price",
+        width: "10%",
+        render: (row) => (
+          <span className="job-price-cell">QR {row.price ?? 0}</span>
+        ),
+      },
+      {
+        title: "Status",
+        key: "status",
+        dataIndex: "status",
+        width: "14%",
+        render: (row) => <StatusPill status={row.job_status} />,
+      },
+      {
+        title: "Action",
+        key: "action",
+        dataIndex: "action",
+        width: "8%",
+        render: (row) => (
+          <JobActions onView={() => navigate(`/jobs/${row._id}`)} />
+        ),
+      },
+    ],
+    [navigate]
+  );
 
   if (isError && !jobsData) {
     return (
@@ -71,85 +163,43 @@ function Jobs() {
   }
 
   return (
-    <div className="jobs-page dashboard">
-      <div className="admin-page-header jobs-page-header">
-        <div>
-          <h1 className="admin-page-title">Jobs</h1>
-          <p className="admin-page-subtitle">
-            Track roadside jobs created for your customers.
-          </p>
-        </div>
-        <Link to="/jobs/new" className="btn-primary">
-          New Job
-        </Link>
-      </div>
-
-      <div className="count-cards">
-        <button
-          type="button"
-          className={`count-card${bucket === "open" ? " selected" : ""}`}
-          style={{ "--accent": "var(--color-primary)" }}
-          onClick={() => setBucketAndUrl("open")}
-        >
-          <div className="count-value" style={{ color: "var(--color-primary)" }}>
-            {counts.open}
-          </div>
-          <div className="count-label">Open</div>
-        </button>
-        <button
-          type="button"
-          className={`count-card${bucket === "inProgress" ? " selected" : ""}`}
-          style={{ "--accent": "#00796B" }}
-          onClick={() => setBucketAndUrl("inProgress")}
-        >
-          <div className="count-value" style={{ color: "#00796B" }}>
-            {counts.inProgress}
-          </div>
-          <div className="count-label">In progress</div>
-        </button>
-        <button
-          type="button"
-          className={`count-card${bucket === "completed" ? " selected" : ""}`}
-          style={{ "--accent": "#039855" }}
-          onClick={() => setBucketAndUrl("completed")}
-        >
-          <div className="count-value" style={{ color: "#039855" }}>
-            {counts.completed}
-          </div>
-          <div className="count-label">Completed</div>
-        </button>
-      </div>
-
-      <section className="jobs-section">
-        <div className="jobs-section-header">
-          <h2>{listTitle}</h2>
+    <div className="jobs-container">
+      <div className="jobs-header-row">
+        <span className="jobs-title">Job Management</span>
+        <div className="jobs-header-actions">
           {isFetching && <span className="jobs-refreshing">Updating…</span>}
+          <button
+            type="button"
+            className="jobs-add-btn"
+            onClick={() => navigate("/jobs/new")}
+          >
+            + New Job
+          </button>
         </div>
-        {jobs.length === 0 ? (
-          <div className="biz-empty muted">{emptyCopy}</div>
-        ) : (
-          <div className="job-list">
-            {jobs.map((job) => (
-              <Link key={job._id} to={`/jobs/${job._id}`} className="job-row">
-                <div className="job-row-main">
-                  <div className="job-client">{job.clientName || "—"}</div>
-                  <div className="job-sub">
-                    {[job.jobType, job.vehicleMake, job.vehicleModel]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
-                </div>
-                <div className="job-row-side">
-                  <StatusPill status={job.job_status} />
-                  <div className="job-when">
-                    {formatDateTime(job.dateTime || job.createdAt)}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+      </div>
+
+      <DataTable
+        title="Jobs"
+        columns={columns}
+        data={filteredJobs}
+        loading={isLoading && !jobsData}
+        onSearch={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        onFilter={undefined}
+        hideFilterIcon
+        filterButtonText="Filter"
+        onRowClick={(row) => navigate(`/jobs/${row._id}`)}
+        pagination={{
+          current: page,
+          total: search.trim() ? filteredJobs.length : total,
+          pageSize: 20,
+          onChange: (nextPage) => setPage(nextPage),
+        }}
+        searchPlaceholder="Search jobs…"
+        actionIcons={[]}
+      />
     </div>
   );
 }

@@ -1,0 +1,318 @@
+﻿.jobs-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--spacing-lg);
+}
+
+.jobs-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-lg);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.jobs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.jobs-title {
+  font-family: var(--font-main);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  line-height: 28px;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.jobs-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--border-radius-md);
+  color: var(--color-bg-white);
+  font-family: var(--font-main);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.jobs-add-btn:hover {
+  background: var(--color-primary-hover);
+}
+
+/* Job ID cell */
+.job-id-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+/* Client info cell */
+.job-client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-client-name {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.job-business-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.job-technician-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #a6f4c5;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.job-client-mobile {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+/* Date time cell */
+.job-datetime-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-date {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.job-time {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+/* Location cell */
+.job-location-cell {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-primary);
+}
+
+/* Assigned technician cell */
+.job-tech-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.job-tech-cell:hover {
+  opacity: 0.7;
+}
+
+.job-tech-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.job-tech-name {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.job-no-tech {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+/* Payment status pills */
+.job-payment-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-bg-white);
+  text-transform: uppercase;
+}
+
+.job-payment-pill.paid {
+  background: #10B981;
+}
+
+.job-payment-pill.unpaid {
+  background: #EF4444;
+}
+
+/* Job status pills */
+.job-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  color: var(--color-bg-white);
+}
+
+.job-status-pill.confirmed {
+  background-color: var(--color-confirmed);
+}
+
+.job-status-pill.completed {
+  background-color: var(--color-completed);
+}
+
+.job-status-pill.pending {
+  background-color: var(--color-pending);
+}
+
+.job-status-pill.cancelled {
+  background-color: var(--color-rejected);
+}
+
+.job-status-pill.arrived {
+  background-color: var(--color-arrived);
+}
+
+.job-status-pill.in_progress,
+.job-status-pill.in-progress {
+  background-color: var(--color-in-progress);
+}
+
+.job-status-pill.en_route,
+.job-status-pill.en-route {
+  background-color: var(--color-enroute);
+}
+
+.job-status-pill.assigned,
+.job-status-pill.technician-assigned {
+  background-color: var(--color-technician-assigned);
+}
+
+.job-status-pill.accepted {
+  background-color: var(--color-accepted);
+}
+
+.job-status-pill.on_hold,
+.job-status-pill.on-hold {
+  background-color: #F59E0B;
+}
+
+.job-status-pill.in_call,
+.job-status-pill.in-call {
+  background-color: var(--color-in-call);
+  color: #92400E;
+}
+
+/* Job actions */
+.job-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.job-whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #d1fae5;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #027a48;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.job-whatsapp-btn:hover {
+  background: #d1fae5;
+  border-color: #a7f3d0;
+}
+
+.job-whatsapp-btn img {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.job-action-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease;
+  padding: 0;
+}
+
+.job-action-btn:hover {
+  opacity: 0.7;
+}
+
+.job-action-btn img {
+  width: 20px;
+  height: 20px;
+}

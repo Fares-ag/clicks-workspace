@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/config/job_fulfill_status.dart';
 import '../../../../core/api/dio_helper.dart';
@@ -88,26 +89,61 @@ class HomeCubit extends Cubit<HomeState> {
     _wireNotificationCallbacks();
     _connectSocket();
     await fetchSession();
-    await _clearPendingJobNotificationKey();
+    await _reconcileNotificationAcceptState();
     await Future.wait([fetchHistory(), fetchHomeMeta()]);
     // Register FCM after session so JWT is present.
     // ignore: discarded_futures
     JobNotificationService.instance.registerTokenWithBackend();
   }
 
-  /// Clear pending notification job id after session has been loaded.
-  Future<void> _clearPendingJobNotificationKey() async {
+  /// After session load: surface notification accept results and retry real jobs.
+  Future<void> _reconcileNotificationAcceptState() async {
+    final failedMsg = CacheHelper.get(kAcceptNotifFailedKey)?.toString();
+    if (failedMsg != null && failedMsg.isNotEmpty) {
+      await CacheHelper.remove(kAcceptNotifFailedKey);
+      emit(HomeActionError(failedMsg));
+      _emitLoaded();
+    }
+
+    final acceptedId =
+        CacheHelper.get(kAcceptedFromNotifJobIdKey)?.toString();
+    if (acceptedId != null && acceptedId.isNotEmpty) {
+      await CacheHelper.remove(kAcceptedFromNotifJobIdKey);
+      await CacheHelper.remove(kPendingJobIdKey);
+      await fetchSession();
+      return;
+    }
+
     final pendingId = CacheHelper.get(kPendingJobIdKey)?.toString();
     if (pendingId == null || pendingId.isEmpty) return;
-    await CacheHelper.remove(kPendingJobIdKey);
+
+    if (pendingId.startsWith('qa-live-') || pendingId.startsWith('qa-bg-')) {
+      await CacheHelper.remove(kPendingJobIdKey);
+      if (failedMsg == null || failedMsg.isEmpty) {
+        emit(HomeActionError(
+          'Test alert only — assign a real job from admin to test Accept.',
+        ));
+        _emitLoaded();
+      }
+      return;
+    }
+
+    // Background accept may have failed — retry in foreground while logged in.
+    if (activeJob != null &&
+        jobStatus == 'assigned' &&
+        jobId == pendingId) {
+      await acceptJob();
+    }
   }
 
-  /// On resume: refresh session when a notification left a pending job id.
+  /// On resume: refresh session when Accept succeeded from a background
+  /// notification action, or when the user opened the app from a job alert.
   Future<void> _hydrateFromPendingNotification() async {
+    await _reconcileNotificationAcceptState();
     final pendingId = CacheHelper.get(kPendingJobIdKey)?.toString();
     if (pendingId == null || pendingId.isEmpty) return;
+    // Refresh UI but keep pending id — Accept on the notification still needs it.
     await fetchSession();
-    await CacheHelper.remove(kPendingJobIdKey);
   }
 
   void _wireNotificationCallbacks() {
@@ -651,6 +687,8 @@ class HomeCubit extends Cubit<HomeState> {
         activeJob!['job_status'] = 'accepted';
         activeJob!['status'] = 'accepted';
         // ignore: discarded_futures
+        CacheHelper.remove(kPendingJobIdKey);
+        // ignore: discarded_futures
         JobNotificationService.instance.cancelUrgentJobNotification();
       },
     );
@@ -890,21 +928,68 @@ class HomeCubit extends Cubit<HomeState> {
     }
   }
 
-  Future<bool> uploadHomeHero(String filePath) async {
+  DioMediaType _heroContentType(String filename, String? mime) {
+    final lower = '${mime ?? ''} ${filename.toLowerCase()}';
+    if (lower.contains('png')) return DioMediaType('image', 'png');
+    if (lower.contains('webp')) return DioMediaType('image', 'webp');
+    if (lower.contains('gif')) return DioMediaType('image', 'gif');
+    if (lower.contains('heic') || lower.contains('heif')) {
+      return DioMediaType('image', 'heic');
+    }
+    return DioMediaType('image', 'jpeg');
+  }
+
+  String _heroFilename(XFile file) {
+    final name = file.name.trim();
+    if (name.isNotEmpty && name.contains('.')) return name;
+    final mime = (file.mimeType ?? '').toLowerCase();
+    if (mime.contains('png')) return 'home-hero.png';
+    if (mime.contains('webp')) return 'home-hero.webp';
+    if (mime.contains('gif')) return 'home-hero.gif';
+    return 'home-hero.jpg';
+  }
+
+  Future<bool> uploadHomeHero(XFile file) async {
+    lastActionError = null;
     try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) {
+        lastActionError = 'Selected image is empty';
+        return false;
+      }
+      final filename = _heroFilename(file);
       final form = FormData.fromMap({
-        'homeHero': await MultipartFile.fromFile(filePath),
+        'homeHero': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: _heroContentType(filename, file.mimeType),
+        ),
       });
       final res = await DioHelper.postData(
         url: EndPoints.homeHero,
         data: form,
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
-        homeHeroUrl = res.data['homeHeroUrl']?.toString() ?? homeHeroUrl;
+        final url = res.data is Map
+            ? res.data['homeHeroUrl']?.toString()
+            : null;
+        if (url != null && url.isNotEmpty) {
+          final sep = url.contains('?') ? '&' : '?';
+          homeHeroUrl = '$url${sep}v=${DateTime.now().millisecondsSinceEpoch}';
+        }
         _emitLoaded();
         return true;
       }
-    } catch (_) {}
+      lastActionError = DioHelper.errorMessage(res) ?? 'Upload failed';
+    } on DioException catch (e) {
+      lastActionError = e.response != null
+          ? DioHelper.errorMessage(e.response!)
+          : 'Upload failed — check network';
+      debugPrint('[HomeCubit] uploadHomeHero failed: $e');
+    } catch (e) {
+      lastActionError = 'Could not read selected image';
+      debugPrint('[HomeCubit] uploadHomeHero failed: $e');
+    }
     return false;
   }
 

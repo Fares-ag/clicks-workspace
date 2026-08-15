@@ -18,6 +18,7 @@ import {
 } from "../../store/dashboardApi";
 import { useGetSOSRequestsQuery } from "../../store/sosApi";
 import DatePicker from "../../components/DatePicker";
+import { useAdminRole } from "../../utils/adminRoles";
 import "./Dashboard.css";
 
 // Custom Active Shape for Pie Chart
@@ -41,6 +42,7 @@ const renderActiveShape = (props) => {
 
 function Dashboard() {
   const navigate = useNavigate();
+  const { isFullAdmin } = useAdminRole();
   const [earningsTimeframe, setEarningsTimeframe] = useState("12months");
   const [jobsTimeframe, setJobsTimeframe] = useState("12months");
   const [activePieIndex, setActivePieIndex] = useState(0);
@@ -73,10 +75,14 @@ function Dashboard() {
   );
   
   // Dashboard analytics queries
-  const { data: earningsData } = useGetEarningsDataQuery(earningsTimeframe);
+  const { data: earningsData } = useGetEarningsDataQuery(earningsTimeframe, {
+    skip: !isFullAdmin,
+  });
   const { data: jobCompletionData } = useGetJobCompletionDataQuery(jobsTimeframe);
-  const { data: techPerformanceData } = useGetAllTechniciansPerformanceQuery();
-  const shouldFetchEarningsByDate = !!selectedEarningsDate;
+  const { data: techPerformanceData } = useGetAllTechniciansPerformanceQuery(undefined, {
+    skip: !isFullAdmin,
+  });
+  const shouldFetchEarningsByDate = !!selectedEarningsDate && isFullAdmin;
   const { data: earningsByDateData, isLoading: earningsByDateLoading, error: earningsByDateError } = useGetEarningsByDateQuery(
     shouldFetchEarningsByDate ? selectedEarningsDate : null, 
     { skip: !shouldFetchEarningsByDate }
@@ -367,7 +373,7 @@ function Dashboard() {
             </div>
           </div>
 
-          {/* Earnings Card */}
+          {isFullAdmin && (
           <div className="dashboard-earnings-card">
             <div className="dashboard-earnings-content">
               <div className="dashboard-earnings-main">
@@ -408,6 +414,7 @@ function Dashboard() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* Traffic Sources - Commented out
@@ -430,6 +437,7 @@ function Dashboard() {
 
       {/* Charts Section */}
       <div className="dashboard-charts-section">
+        {isFullAdmin && (
         <div className="dashboard-card">
           <div className="dashboard-card-header">
             <h3 className="dashboard-card-title">Earnings</h3>
@@ -492,6 +500,7 @@ function Dashboard() {
             )}
           </div>
         </div>
+        )}
 
         <div className="dashboard-card">
           <div className="dashboard-card-header">
@@ -554,7 +563,7 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Technician Performance */}
+        {isFullAdmin && (
         <div className="dashboard-card dashboard-performance-card">
           <h3 className="dashboard-card-title">Technician Performance</h3>
           
@@ -601,6 +610,7 @@ function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+        )}
       </div>
 
       {/* Bottom Section */}

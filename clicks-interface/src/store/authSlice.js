@@ -1,4 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
+import { getEffectiveRole } from "../utils/authRole";
 
 const initialState = {
   user: null,
@@ -11,9 +12,11 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     setCredentials: (state, action) => {
-      state.user = action.payload.user;
-      state.token = action.payload.accessToken;
-      state.refreshToken = action.payload.refreshToken;
+      const { user, accessToken, refreshToken } = action.payload;
+      const role = getEffectiveRole(user, accessToken);
+      state.user = role ? { ...(user || {}), role } : user;
+      state.token = accessToken;
+      state.refreshToken = refreshToken;
     },
     logout: (state) => {
       state.user = null;

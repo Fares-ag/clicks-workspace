@@ -6,6 +6,7 @@ class EndPoints {
   static const String login = '/api/business/auth/login';
   static const String me = '/api/business/me';
   static const String dashboard = '/api/business/dashboard';
+  static const String dashboardSummary = '/api/business/dashboard/summary';
   static const String analytics = '/api/business/analytics';
   static const String jobs = '/api/business/jobs';
   static String jobById(String id) => '/api/business/jobs/$id';

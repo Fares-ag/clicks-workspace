@@ -9,7 +9,7 @@ import 'package:clicks_technician/features/home/ui/view/widgets/signature_pad_sh
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-/// Repair lines, total, notes, customer signature, complete.
+/// Notes, customer signature, complete.
 class BeginTasksScreen extends StatefulWidget {
   const BeginTasksScreen({super.key, required this.cubit});
 
@@ -21,15 +21,7 @@ class BeginTasksScreen extends StatefulWidget {
 
 class _BeginTasksScreenState extends State<BeginTasksScreen> {
   final _notesCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-  final _priceCtrl = TextEditingController();
-  final _costCtrl = TextEditingController();
-  final _lineNotesCtrl = TextEditingController();
-  final List<({String name, String description, double price, double cost})>
-      _repairs = [];
   bool _submitting = false;
-  double? _total;
 
   String get _draftKey => 'task_draft_${widget.cubit.jobId ?? 'none'}';
 
@@ -57,7 +49,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
       }
     });
     _restoreDraft();
-    _refreshTotal();
   }
 
   Future<void> _restoreDraft() async {
@@ -72,48 +63,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     if (mounted) {
       AppSnackBars.successSnackBar('Progress saved');
     }
-  }
-
-  Future<void> _refreshTotal() async {
-    final t = await widget.cubit.fetchJobTotal();
-    if (mounted) setState(() => _total = t);
-  }
-
-  Future<void> _addRepair() async {
-    final name = _nameCtrl.text.trim();
-    final desc = _descCtrl.text.trim();
-    final price = double.tryParse(_priceCtrl.text.trim());
-    final cost = double.tryParse(_costCtrl.text.trim()) ?? 0;
-    final lineNotes = _lineNotesCtrl.text.trim();
-    if (desc.isEmpty || price == null) {
-      AppSnackBars.errorSnackBar('Enter procedure description and customer price');
-      return;
-    }
-    final ok = await widget.cubit.addRepairProcedure(
-      description: desc,
-      price: price,
-      name: name.isNotEmpty ? name : null,
-      notes: lineNotes.isNotEmpty ? lineNotes : null,
-      cost: cost,
-    );
-    if (!ok) {
-      AppSnackBars.errorSnackBar('Could not add repair');
-      return;
-    }
-    setState(() {
-      _repairs.add((
-        name: name.isNotEmpty ? name : desc,
-        description: desc,
-        price: price,
-        cost: cost,
-      ));
-      _nameCtrl.clear();
-      _descCtrl.clear();
-      _priceCtrl.clear();
-      _costCtrl.clear();
-      _lineNotesCtrl.clear();
-    });
-    await _refreshTotal();
   }
 
   Future<void> _collectSignature() async {
@@ -138,21 +87,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
         hasSig = _hasValidSignature();
         if (!hasSig) return;
       }
-    }
-    // Persist any filled repair line the tech forgot to tap "+ Add procedure"
-    final pendingDesc = _descCtrl.text.trim();
-    final pendingPrice = double.tryParse(_priceCtrl.text.trim());
-    if (pendingDesc.isNotEmpty && pendingPrice != null) {
-      await widget.cubit.addRepairProcedure(
-        description: pendingDesc,
-        price: pendingPrice,
-        name: _nameCtrl.text.trim().isNotEmpty ? _nameCtrl.text.trim() : null,
-        notes: _lineNotesCtrl.text.trim().isNotEmpty
-            ? _lineNotesCtrl.text.trim()
-            : null,
-        cost: double.tryParse(_costCtrl.text.trim()) ?? 0,
-      );
-      await _refreshTotal();
     }
     setState(() => _submitting = true);
     if (!_isPaid) {
@@ -183,24 +117,17 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   @override
   void dispose() {
     _notesCtrl.dispose();
-    _nameCtrl.dispose();
-    _descCtrl.dispose();
-    _priceCtrl.dispose();
-    _costCtrl.dispose();
-    _lineNotesCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final displayTotal = _total ?? widget.cubit.jobPrice;
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         title: Text(
-          'Start Job',
+          'Complete Job',
           style: TextStyles.font16RegularBlack
               .copyWith(fontWeight: FontWeight.bold),
         ),
@@ -211,153 +138,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           Text(
             widget.cubit.jobIssue,
             style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
-          ),
-          SizedBox(height: 16.h),
-          Text(
-            'Repair Procedures',
-            style: TextStyles.font16RegularBlack
-                .copyWith(fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 8.h),
-          ..._repairs.map(
-            (r) => Padding(
-              padding: EdgeInsets.only(bottom: 8.h),
-              child: _box(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            r.name,
-                            style: TextStyles.font14RegularGrey.copyWith(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          'QAR ${r.price.toStringAsFixed(0)}',
-                          style: TextStyles.font14RegularGrey
-                              .copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    if (r.description != r.name) ...[
-                      SizedBox(height: 4.h),
-                      Text(
-                        r.description,
-                        style: TextStyles.font12RegularGrey,
-                      ),
-                    ],
-                    if (r.cost > 0) ...[
-                      SizedBox(height: 4.h),
-                      Text(
-                        'Cost: QAR ${r.cost.toStringAsFixed(0)}',
-                        style: TextStyles.font12RegularGrey,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          TextField(
-            controller: _nameCtrl,
-            decoration: InputDecoration(
-              hintText: 'Name (e.g. Wheel)',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10.r),
-              ),
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
-            ),
-          ),
-          SizedBox(height: 8.h),
-          TextField(
-            controller: _descCtrl,
-            maxLines: 2,
-            decoration: InputDecoration(
-              hintText: 'Description',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10.r),
-              ),
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
-            ),
-          ),
-          SizedBox(height: 8.h),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _priceCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Price (customer)',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12.w, vertical: 12.h),
-                  ),
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: TextField(
-                  controller: _costCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    hintText: 'Cost',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12.w, vertical: 12.h),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 8.h),
-          TextField(
-            controller: _lineNotesCtrl,
-            decoration: InputDecoration(
-              hintText: 'Line notes (optional)',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10.r),
-              ),
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: _addRepair,
-              style: TextButton.styleFrom(
-                foregroundColor: ColorsManager.mainColor,
-              ),
-              child: const Text('+ Add procedure'),
-            ),
-          ),
-          SizedBox(height: 8.h),
-          Text(
-            'Total Cost',
-            style: TextStyles.font16RegularBlack
-                .copyWith(fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 8.h),
-          _box(
-            child: Text(
-              displayTotal == null
-                  ? 'QAR —'
-                  : 'QAR ${displayTotal.toStringAsFixed(0)}',
-              style: TextStyles.font14RegularGrey
-                  .copyWith(color: Colors.black87, fontWeight: FontWeight.w600),
-            ),
           ),
           SizedBox(height: 16.h),
           Text(
@@ -441,18 +221,6 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _box({required Widget child}) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: ColorsManager.border),
-      ),
-      child: child,
     );
   }
 }

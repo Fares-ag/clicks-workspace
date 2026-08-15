@@ -8,6 +8,8 @@
   "required": "Required",
   "login_failed": "Login failed",
   "partner": "Partner",
+  "dashboard": "Dashboard",
+  "dashboard_subtitle": "Your partnership fund",
   "refresh": "Refresh",
   "sign_out": "Sign out",
   "try_again": "Try again",

@@ -1,18 +1,19 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
-import '../../core/helper/assets_manager.dart';
 import '../../core/helper/cache_helper.dart';
 import '../../core/notifications/partner_notification_service.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/partner_card.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -159,167 +160,167 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await CacheHelper.set('app_language', locale.languageCode);
   }
 
-  InputDecoration _field(String label) {
-    return InputDecoration(
-      labelText: label,
-      filled: true,
-      fillColor: AppColors.field,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
-      ),
+  Widget _body() {
+    final name = _partner?['name']?.toString() ?? '—';
+    final lang = context.locale.languageCode;
+
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!, style: GoogleFonts.dmSans(color: AppColors.muted)),
+            TextButton(onPressed: _load, child: Text('try_again'.tr())),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(16, widget.embedded ? 8 : 16, 16, 32),
+      children: [
+        if (widget.embedded) ...[
+          Text(
+            'profile'.tr(),
+            style: GoogleFonts.dmSans(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'profile_subtitle'.tr(),
+            style: GoogleFonts.dmSans(fontSize: 14, color: AppColors.muted),
+          ),
+          const SizedBox(height: 16),
+        ],
+        PartnerCard(
+          title: 'profile'.tr(),
+          child: Column(
+            children: [
+              TextField(
+                readOnly: true,
+                controller: TextEditingController(text: name),
+                decoration: InputDecoration(labelText: 'name'.tr()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(labelText: 'email'.tr()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(labelText: 'phone'.tr()),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _saving ? null : _saveProfile,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text('save_profile'.tr()),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        PartnerCard(
+          title: 'language'.tr(),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _LangButton(
+                label: 'english'.tr(),
+                selected: lang == 'en',
+                onTap: () => _setLocale(const Locale('en')),
+              ),
+              _LangButton(
+                label: 'arabic'.tr(),
+                selected: lang == 'ar',
+                onTap: () => _setLocale(const Locale('ar')),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        PartnerCard(
+          title: 'change_password'.tr(),
+          child: Column(
+            children: [
+              TextField(
+                controller: _currentPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(labelText: 'current_password'.tr()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _newPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(labelText: 'new_password'.tr()),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _confirmPassCtrl,
+                obscureText: true,
+                decoration: InputDecoration(labelText: 'confirm_password'.tr()),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: _changingPass ? null : _changePassword,
+                  child: _changingPass
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('change_password'.tr()),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Center(
+          child: TextButton(
+            onPressed: _logout,
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: Text('sign_out'.tr()),
+          ),
+        ),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final name = _partner?['name']?.toString() ?? '—';
-    final lang = context.locale.languageCode;
+    if (widget.embedded) {
+      return _body();
+    }
 
     return Scaffold(
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.pageBackground,
       appBar: AppBar(title: Text('profile'.tr())),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-          : _error != null
-              ? Center(child: Text(_error!))
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
-                  children: [
-                    SvgPicture.asset(
-                      AssetsManager.clicksLogoSvg,
-                      height: 24,
-                      alignment: AlignmentDirectional.centerStart,
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      name,
-                      style: GoogleFonts.dmSans(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 22,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'profile_subtitle'.tr(),
-                      style: GoogleFonts.dmSans(
-                        color: AppColors.muted,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    TextField(
-                      readOnly: true,
-                      controller: TextEditingController(text: name),
-                      decoration: _field('name'.tr()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: _field('email'.tr()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: _field('phone'.tr()),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _saving ? null : _saveProfile,
-                      child: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text('save_profile'.tr()),
-                    ),
-                    const SizedBox(height: 32),
-                    Text(
-                      'language'.tr(),
-                      style: GoogleFonts.dmSans(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _LangButton(
-                          label: 'english'.tr(),
-                          selected: lang == 'en',
-                          onTap: () => _setLocale(const Locale('en')),
-                        ),
-                        const SizedBox(width: 8),
-                        _LangButton(
-                          label: 'arabic'.tr(),
-                          selected: lang == 'ar',
-                          onTap: () => _setLocale(const Locale('ar')),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 32),
-                    Text(
-                      'change_password'.tr(),
-                      style: GoogleFonts.dmSans(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _currentPassCtrl,
-                      obscureText: true,
-                      decoration: _field('current_password'.tr()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _newPassCtrl,
-                      obscureText: true,
-                      decoration: _field('new_password'.tr()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _confirmPassCtrl,
-                      obscureText: true,
-                      decoration: _field('confirm_password'.tr()),
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton(
-                      onPressed: _changingPass ? null : _changePassword,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: _changingPass
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text('change_password'.tr()),
-                    ),
-                    const SizedBox(height: 28),
-                    TextButton(
-                      onPressed: _logout,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.danger,
-                      ),
-                      child: Text('sign_out'.tr()),
-                    ),
-                  ],
-                ),
+      body: _body(),
     );
   }
 }
@@ -337,12 +338,17 @@ class _LangButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextButton(
+    return OutlinedButton(
       onPressed: onTap,
-      style: TextButton.styleFrom(
+      style: OutlinedButton.styleFrom(
         foregroundColor: selected ? AppColors.primary : AppColors.muted,
         backgroundColor:
             selected ? AppColors.primary.withValues(alpha: 0.08) : null,
+        side: BorderSide(
+          color: selected ? AppColors.primary : AppColors.inputBorder,
+        ),
+        minimumSize: const Size(0, 40),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       ),
       child: Text(

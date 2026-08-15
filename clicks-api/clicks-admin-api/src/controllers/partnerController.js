@@ -255,8 +255,10 @@ async function updatePartner(req, res) {
       partner.name = newName;
       await ensureGoogleSourceWithSubSource(newName);
     }
-    if (req.body.status === "inactive") partner.status = "inactive";
-    if (req.body.status === "active" && partner.status !== "inactive") {
+    if (req.body.status === "inactive") {
+      partner.status = "inactive";
+    } else if (req.body.status === "active") {
+      // Explicit admin request — includes reactivation from inactive
       partner.status = "active";
     }
 

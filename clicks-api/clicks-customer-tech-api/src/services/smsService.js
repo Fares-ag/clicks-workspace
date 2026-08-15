@@ -14,10 +14,18 @@
  *   SMSALA_MESSAGE_ENCODING default "1" (text); use "3" for unicode if needed
  */
 
+const crypto = require("crypto");
+
+// NOTE (audit stage 1): this in-memory store is per-process. It is voided on
+// every deploy and does not work at all under cluster mode. The persisted
+// OTPVerification collection is the real store; this remains only for any
+// legacy caller. Do not add new callers.
 let otpStore = {};
 
 const generateOTP = (phone) => {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  // Was Math.random(), which is xorshift128+, not a CSPRNG — harvest a few
+  // codes from accounts you control and you can predict a victim's.
+  const otp = String(crypto.randomInt(100000, 1000000));
   otpStore[phone] = { otp, expires: Date.now() + 5 * 60 * 1000 };
   return otp;
 };

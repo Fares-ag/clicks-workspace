@@ -17,61 +17,54 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => HomeCubit()..load()..startPolling(),
-      child: const _HomeView(),
+      child: const _MainShell(),
     );
   }
 }
 
-class _HomeView extends StatefulWidget {
-  const _HomeView();
+class _MainShell extends StatefulWidget {
+  const _MainShell();
 
   @override
-  State<_HomeView> createState() => _HomeViewState();
+  State<_MainShell> createState() => _MainShellState();
 }
 
-class _HomeViewState extends State<_HomeView> {
-  @override
-  void dispose() {
-    // Cubit closed by BlocProvider
-    super.dispose();
+class _MainShellState extends State<_MainShell> {
+  int _tab = 0;
+
+  Future<void> _openNewJob() async {
+    final created = await Navigator.of(context).pushNamed(Routes.newJob);
+    if (created == true && mounted) {
+      context.read<HomeCubit>().load();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final businessName = CacheHelper.get('business_name') ?? 'Partner';
+    final businessName = CacheHelper.get('business_name') ?? 'Business';
     final userName = CacheHelper.get('user_name') ?? '';
-    final cutPercent = CacheHelper.get('cut_percent');
-    final cutType = CacheHelper.get('cut_type') ?? 'revenue';
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.pageBackground,
       appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        elevation: 0,
         title: Row(
           children: [
-            SvgPicture.asset(AssetsManager.clicksLogoSvg, height: 28),
+            SvgPicture.asset(AssetsManager.clicksLogoSvg, height: 24),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    businessName,
+                    userName.isNotEmpty ? userName : businessName,
                     style: GoogleFonts.dmSans(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text,
-                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
                     ),
                   ),
-                  if (userName.isNotEmpty ||
-                      (cutPercent != null && cutPercent.isNotEmpty))
+                  if (userName.isNotEmpty && businessName != userName)
                     Text(
-                      [
-                        if (userName.isNotEmpty) userName,
-                        if (cutPercent != null && cutPercent.isNotEmpty)
-                          '${cutType.isEmpty ? 'Revenue' : '${cutType[0].toUpperCase()}${cutType.substring(1)}'} cut $cutPercent%',
-                      ].join(' · '),
+                      businessName,
                       style: GoogleFonts.dmSans(
                         fontSize: 12,
                         color: AppColors.muted,
@@ -94,274 +87,316 @@ class _HomeViewState extends State<_HomeView> {
                 );
               }
             },
-            icon: const Icon(Icons.logout, color: AppColors.muted),
+            icon: const Icon(Icons.logout_outlined, color: AppColors.muted),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.primary,
-        onPressed: () async {
-          final created = await Navigator.of(context).pushNamed(Routes.newJob);
-          if (created == true && context.mounted) {
-            context.read<HomeCubit>().load();
-          }
-        },
-        icon: SvgPicture.asset(
-          AssetsManager.rightArrowSvg,
-          width: 18,
-          height: 18,
-          colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
-        ),
-        label: const Text('New Job'),
+      body: IndexedStack(
+        index: _tab,
+        children: const [
+          _DashboardTab(),
+          _JobsTab(),
+        ],
       ),
-      body: BlocBuilder<HomeCubit, HomeState>(
-        builder: (context, state) {
-          final cubit = context.watch<HomeCubit>();
-          if (state is HomeLoading && cubit.jobs.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) {
+          if (i == 2) {
+            _openNewJob();
+            return;
           }
-          if (state is HomeError && cubit.jobs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(state.message),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () => cubit.load(),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () => cubit.load(),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-              children: [
-                _AnalyticsCard(cubit: cubit),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    _CountCard(
-                      label: 'Open',
-                      value: cubit.open,
-                      color: AppColors.primary,
-                      selected: cubit.bucket == JobBucket.open,
-                      onTap: () => cubit.setBucket(
-                        cubit.bucket == JobBucket.open
-                            ? JobBucket.all
-                            : JobBucket.open,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _CountCard(
-                      label: 'In progress',
-                      value: cubit.inProgress,
-                      color: AppColors.accent,
-                      selected: cubit.bucket == JobBucket.inProgress,
-                      onTap: () => cubit.setBucket(
-                        cubit.bucket == JobBucket.inProgress
-                            ? JobBucket.all
-                            : JobBucket.inProgress,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _CountCard(
-                      label: 'Completed',
-                      value: cubit.completed,
-                      color: const Color(0xFF039855),
-                      selected: cubit.bucket == JobBucket.completed,
-                      onTap: () => cubit.setBucket(
-                        cubit.bucket == JobBucket.completed
-                            ? JobBucket.all
-                            : JobBucket.completed,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  cubit.bucket == JobBucket.all
-                      ? 'Recent jobs'
-                      : cubit.bucket == JobBucket.open
-                          ? 'Open jobs'
-                          : cubit.bucket == JobBucket.inProgress
-                              ? 'In progress'
-                              : 'Completed jobs',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (cubit.jobs.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 40),
-                    child: Text(
-                      cubit.bucket == JobBucket.all
-                          ? 'No jobs yet. Tap New Job to create one for a customer.'
-                          : 'No jobs in this filter.',
-                      style: GoogleFonts.dmSans(color: AppColors.muted),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                else
-                  ...cubit.jobs.map((job) => _JobTile(job: job)),
-              ],
-            ),
-          );
+          setState(() => _tab = i);
         },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.work_outline),
+            selectedIcon: Icon(Icons.work),
+            label: 'Jobs',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.add_circle_outline),
+            selectedIcon: Icon(Icons.add_circle),
+            label: 'New Job',
+          ),
+        ],
       ),
     );
   }
 }
 
-class _AnalyticsCard extends StatelessWidget {
-  const _AnalyticsCard({required this.cubit});
-  final HomeCubit cubit;
-
-  static const _periods = [
-    ('today', 'Today'),
-    ('week', 'Week'),
-    ('month', 'Month'),
-    ('all', 'All'),
-  ];
+class _DashboardTab extends StatelessWidget {
+  const _DashboardTab();
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: '', decimalDigits: 0);
+    return BlocBuilder<HomeCubit, HomeState>(
+      builder: (context, state) {
+        final cubit = context.watch<HomeCubit>();
+        if (state is HomeLoading && cubit.submitted == 0) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state is HomeError && cubit.submitted == 0) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(state.message),
+                TextButton(onPressed: () => cubit.load(), child: const Text('Retry')),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => cubit.load(),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Text(
+                'Dashboard',
+                style: GoogleFonts.dmSans(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'Your jobs & earnings',
+                style: GoogleFonts.dmSans(fontSize: 14, color: AppColors.muted),
+              ),
+              const SizedBox(height: 16),
+              _MetricsGrid(cubit: cubit),
+              const SizedBox(height: 16),
+              _EarningsCard(cubit: cubit),
+              const SizedBox(height: 20),
+              _SectionHeader(title: 'Pending Jobs · ${cubit.pending}'),
+              const SizedBox(height: 8),
+              if (cubit.pendingList.isEmpty)
+                _EmptyCard(message: 'No pending jobs')
+              else
+                ...cubit.pendingList.map((job) => _PendingJobRow(job: job)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _JobsTab extends StatelessWidget {
+  const _JobsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<HomeCubit, HomeState>(
+      builder: (context, state) {
+        final cubit = context.watch<HomeCubit>();
+        if (state is HomeLoading && cubit.jobs.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => cubit.load(),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Text(
+                'Job Management',
+                style: GoogleFonts.dmSans(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Jobs',
+                style: GoogleFonts.dmSans(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (cubit.jobs.isEmpty)
+                _EmptyCard(message: 'No jobs yet. Tap New Job to create one.')
+              else
+                ...cubit.jobs.map((job) => _JobTile(job: job)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MetricsGrid extends StatelessWidget {
+  const _MetricsGrid({required this.cubit});
+  final HomeCubit cubit;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: 1.45,
+      children: [
+        _MetricCard(
+          label: 'Submitted Jobs',
+          value: '${cubit.submitted}',
+          icon: Icons.article_outlined,
+          trend: cubit.completedTrendPct,
+        ),
+        _MetricCard(
+          label: 'Completed Jobs',
+          value: '${cubit.completed}',
+          icon: Icons.check_circle_outline,
+        ),
+        _MetricCard(
+          label: 'On Going Jobs',
+          value: '${cubit.ongoing}',
+          icon: Icons.timelapse_outlined,
+        ),
+        _MetricCard(
+          label: 'Pending Jobs',
+          value: '${cubit.pending}',
+          icon: Icons.info_outline,
+          warning: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.trend,
+    this.warning = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final double? trend;
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Analytics',
-            style: GoogleFonts.dmSans(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+        border: Border.all(
+          color: warning ? AppColors.warning : AppColors.border,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A101828),
+            blurRadius: 8,
+            offset: Offset(0, 2),
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            children: _periods.map((p) {
-              final selected = cubit.analyticsPeriod == p.$1;
-              return ChoiceChip(
-                label: Text(p.$2),
-                selected: selected,
-                onSelected: (_) => cubit.setAnalyticsPeriod(p.$1),
-                selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                labelStyle: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                  color: selected ? AppColors.primary : AppColors.text,
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-          if (cubit.analyticsError != null) ...[
-            Text(
-              cubit.analyticsError!,
-              style: GoogleFonts.dmSans(fontSize: 13, color: AppColors.primary),
-            ),
-            TextButton(
-              onPressed: () => cubit.loadAnalytics(),
-              child: Text(
-                'Retry',
-                style: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Text(
-            '${money.format(cubit.estimatedEarnings)} QAR',
-            style: GoogleFonts.dmSans(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
-            ),
-          ),
-          Text(
-            'Estimated earnings (your cut)',
-            style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _metric('Created', '${cubit.jobsCreated}'),
-              _metric('Completed', '${cubit.jobsCompletedPeriod}'),
-              _metric('Cancelled', '${cubit.jobsCancelled}'),
-            ],
-          ),
-          if (cubit.byJobType.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(
-              'By job type (completed)',
-              style: GoogleFonts.dmSans(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.muted,
-              ),
-            ),
-            const SizedBox(height: 6),
-            ...cubit.byJobType.entries.map((e) {
-              final count = (e.value['count'] as num?)?.toInt() ?? 0;
-              final earn =
-                  (e.value['estimatedEarnings'] as num?)?.toDouble() ?? 0;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        e.key,
-                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                    Text(
-                      '$count · ${money.format(earn)} QAR',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 13,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
         ],
       ),
-    );
-  }
-
-  Widget _metric(String label, String value) {
-    return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 22, color: AppColors.muted),
+          const Spacer(),
           Text(
             value,
             style: GoogleFonts.dmSans(
-              fontSize: 18,
+              fontSize: 24,
               fontWeight: FontWeight.w700,
             ),
           ),
           Text(
             label,
-            style: GoogleFonts.dmSans(fontSize: 11, color: AppColors.muted),
+            style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
+          ),
+          if (trend != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${trend! >= 0 ? '+' : ''}${trend!.toStringAsFixed(1)}% vs yesterday',
+              style: GoogleFonts.dmSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: trend! >= 0 ? AppColors.success : AppColors.danger,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EarningsCard extends StatelessWidget {
+  const _EarningsCard({required this.cubit});
+  final HomeCubit cubit;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat('#,##0', 'en_US');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AppColors.earningsGradient,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A101828),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Total Earnings',
+            style: GoogleFonts.dmSans(
+              fontSize: 16,
+              color: Colors.white.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${money.format(cubit.totalEarnings)} QAR',
+            style: GoogleFonts.dmSans(
+              fontSize: 32,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          if (cubit.earningsTrendPct != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Today ${cubit.earningsTrendPct! >= 0 ? '+' : ''}${cubit.earningsTrendPct!.toStringAsFixed(1)}% vs yesterday',
+              style: GoogleFonts.dmSans(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Estimated earnings (your cut)',
+            style: GoogleFonts.dmSans(
+              fontSize: 12,
+              color: Colors.white.withValues(alpha: 0.75),
+            ),
           ),
         ],
       ),
@@ -369,56 +404,84 @@ class _AnalyticsCard extends StatelessWidget {
   }
 }
 
-class _CountCard extends StatelessWidget {
-  const _CountCard({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.onTap,
-    this.selected = false,
-  });
-
-  final String label;
-  final int value;
-  final Color color;
-  final VoidCallback onTap;
-  final bool selected;
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+  final String title;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
+    return Text(
+      title,
+      style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w600),
+    );
+  }
+}
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? color : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$value',
-                style: GoogleFonts.dmSans(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
-              ),
-            ],
-          ),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.dmSans(color: AppColors.muted),
+      ),
+    );
+  }
+}
+
+class _PendingJobRow extends StatelessWidget {
+  const _PendingJobRow({required this.job});
+  final Map<String, dynamic> job;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = job['_id']?.toString() ?? '';
+    DateTime? dt;
+    final raw = job['dateTime'];
+    if (raw != null) dt = DateTime.tryParse(raw.toString());
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: id.isEmpty
+            ? null
+            : () async {
+                await Navigator.of(context).pushNamed(
+                  Routes.jobDetail,
+                  arguments: id,
+                );
+                if (context.mounted) {
+                  context.read<HomeCubit>().load(silent: true);
+                }
+              },
+        title: Text(
+          job['issue']?.toString() ?? job['jobType']?.toString() ?? 'Job',
+          style: GoogleFonts.dmSans(fontWeight: FontWeight.w600, fontSize: 14),
         ),
+        subtitle: Text(
+          [
+            job['clientName'],
+            job['clientMobileNumber'],
+          ].whereType<String>().where((s) => s.isNotEmpty).join(', '),
+          style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
+        ),
+        trailing: dt != null
+            ? Text(
+                DateFormat('HH:mm').format(dt.toLocal()),
+                style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
+              )
+            : null,
       ),
     );
   }
@@ -426,24 +489,23 @@ class _CountCard extends StatelessWidget {
 
 class _JobTile extends StatelessWidget {
   const _JobTile({required this.job});
-
   final Map<String, dynamic> job;
 
   Color _statusColor(String status) {
     switch (status) {
       case 'completed':
-        return const Color(0xFF039855);
+        return AppColors.success;
       case 'cancelled':
-        return AppColors.primary;
+        return AppColors.danger;
       case 'en_route':
       case 'arrived':
       case 'in_progress':
         return AppColors.accent;
       case 'assigned':
       case 'accepted':
-        return const Color(0xFF1570EF);
+        return AppColors.info;
       default:
-        return const Color(0xFFF79009);
+        return AppColors.warning;
     }
   }
 
@@ -452,65 +514,69 @@ class _JobTile extends StatelessWidget {
     final id = job['_id']?.toString() ?? '';
     final name = job['clientName']?.toString() ?? 'Customer';
     final status = job['job_status']?.toString() ?? '';
-    final issue = job['issue']?.toString() ?? '';
-    final plate = job['licensePlate']?.toString() ?? '';
     final jobType = job['jobType']?.toString() ?? '';
+    final price = job['price'];
     DateTime? dt;
-    final raw = job['dateTime'];
+    final raw = job['dateTime'] ?? job['createdAt'];
     if (raw != null) dt = DateTime.tryParse(raw.toString());
-    final when = dt != null
-        ? DateFormat('dd MMM · HH:mm').format(dt.toLocal())
-        : '';
-
-    final meta = [
-      if (jobType.isNotEmpty) jobType,
-      if (plate.isNotEmpty) plate,
-      if (when.isNotEmpty) when,
-    ].join(' · ');
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: 0,
-      color: AppColors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                name,
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
-              ),
-            ),
-            _StatusPill(status: status, color: _statusColor(status)),
-          ],
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: id.isEmpty
+            ? null
+            : () async {
+                await Navigator.of(context).pushNamed(
+                  Routes.jobDetail,
+                  arguments: id,
+                );
+                if (context.mounted) {
+                  context.read<HomeCubit>().load(silent: true);
+                }
+              },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (meta.isNotEmpty)
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      name,
+                      style: GoogleFonts.dmSans(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  _StatusPill(status: status, color: _statusColor(status)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                [
+                  if (jobType.isNotEmpty) jobType,
+                  if (price != null) 'QR $price',
+                  if (dt != null) DateFormat('dd MMM · HH:mm').format(dt.toLocal()),
+                ].join(' · '),
+                style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
+              ),
+              if (id.isNotEmpty) ...[
+                const SizedBox(height: 4),
                 Text(
-                  meta,
-                  style: GoogleFonts.dmSans(fontSize: 12, color: AppColors.muted),
+                  '#${id.length > 8 ? id.substring(id.length - 8).toUpperCase() : id.toUpperCase()}',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
                 ),
-              if (issue.isNotEmpty)
-                Text(
-                  issue,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.dmSans(fontSize: 13, color: AppColors.text),
-                ),
+              ],
             ],
           ),
         ),
-        onTap: () async {
-          if (id.isEmpty) return;
-          await Navigator.of(context).pushNamed(Routes.jobDetail, arguments: id);
-          if (context.mounted) context.read<HomeCubit>().load(silent: true);
-        },
       ),
     );
   }
@@ -523,15 +589,14 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = status.replaceAll('_', ' ');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
-        label,
+        status.replaceAll('_', ' '),
         style: GoogleFonts.dmSans(
           fontSize: 11,
           fontWeight: FontWeight.w600,

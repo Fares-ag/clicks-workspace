@@ -72,6 +72,18 @@
   gap: 28px;
 }
 
+.notification-queue-note {
+  margin: 0 0 4px;
+  padding: 10px 14px;
+  background: #FEF0C7;
+  border: 1px solid #FEC84B;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #93370D;
+  text-align: center;
+}
+
 /* Timer */
 .sos-timer {
   background: #FDF2FA;

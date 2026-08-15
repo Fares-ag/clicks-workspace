@@ -91,7 +91,7 @@ async function loginTech() {
   }
   return {
     token: r.data.token,
-    techId: r.data.technician?._id || r.data.id,
+    techId: r.data.technician?.id || r.data.technician?._id || r.data.id,
   };
 }
 

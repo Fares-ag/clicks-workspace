@@ -28,17 +28,19 @@ router.get(
 router.post(
   "/",
   authenticateToken,
+  requireOps,
   upload.fields(technicianFileFields),
   technicianController.createTechnician
 );
 
 // GET /api/technicians/:id
-router.get("/:id", authenticateToken, technicianController.getTechnicianById);
+router.get("/:id", authenticateToken, requireOps, technicianController.getTechnicianById);
 
 // PUT /api/technicians/:id
 router.put(
   "/:id",
   authenticateToken,
+  requireOps,
   upload.fields(technicianFileFields),
   technicianController.updateTechnician
 );
@@ -49,6 +51,7 @@ router.delete("/:id", authenticateToken, requireFullAdmin, technicianController.
 router.patch(
   "/:id/toggle-active",
   authenticateToken,
+  requireOps,
   technicianController.toggleActiveStatus
 );
 
@@ -56,6 +59,7 @@ router.patch(
 router.post(
   "/:id/upload-documents",
   authenticateToken,
+  requireOps,
   upload.fields([
     { name: "profilePicture", maxCount: 1 },
     { name: "workPermitFront", maxCount: 1 },
@@ -70,6 +74,7 @@ router.post(
 router.get(
   "/:id/performance",
   authenticateToken,
+  requireOps,
   technicianController.getPerformance
 );
 
@@ -77,6 +82,7 @@ router.get(
 router.get(
   "/:id/stats",
   authenticateToken,
+  requireOps,
   technicianController.getTechnicianStats
 );
 
@@ -84,13 +90,15 @@ router.get(
 router.get(
   "/:id/recent-jobs",
   authenticateToken,
+  requireOps,
   technicianController.getRecentJobs
 );
 
-// GET /api/technicians/:id/settlements - Balance settlements
+// GET /api/technicians/:id/settlements - Balance settlements (full admin only)
 router.get(
   "/:id/settlements",
   authenticateToken,
+  requireFullAdmin,
   technicianController.getSettlements
 );
 
@@ -106,6 +114,7 @@ router.post(
 router.patch(
   "/:id/assign-vehicle",
   authenticateToken,
+  requireOps,
   technicianController.assignVehicle
 );
 

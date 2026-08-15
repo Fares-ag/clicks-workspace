@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-08-14T15:03:55.449Z",
+  "techUrl": "https://clicks-tech-api-production.up.railway.app",
+  "techPhone": "+97411111111",
+  "hasRealToken": true,
+  "fcmTokenPrefix": "e0-dgrHlTgyxmgKO",
+  "phase2FcmSend": true,
+  "firebaseProjectId": "clicks-technician-qa",
+  "firebaseJsonFound": true,
+  "jobId": "6a7f2e60517e515388e13a1f",
+  "testA": null,
+  "testB": null,
+  "testC": null,
+  "testD": "pass",
+  "testE": null,
+  "lastLiveSendAt": "2026-08-14T15:04:09.223Z",
+  "lastLiveJobId": "qa-live-1786719848445"
+}

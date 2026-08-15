@@ -31,6 +31,18 @@ app.use(
   })
 );
 app.use(express.json({ limit: "1mb" }));
+
+// --- Audit stage 1: strip Mongo query operators from every request ---------
+// Defence in depth behind the per-handler coercion in clicks-shared/utils/coerce.js.
+// reject:false = strip and log only, so a false positive cannot take the API
+// down. Watch for `nosql_operator_stripped` in the logs; once clean for a
+// week, set SANITIZE_REJECT=true to return 400 instead.
+const { sanitizeRequest } = require("../../clicks-shared/middleware/sanitize");
+app.use(sanitizeRequest({ reject: String(process.env.SANITIZE_REJECT || "") === "true" }));
+
+// Railway/nginx terminates TLS in front of us. Without this, req.ip is the
+// proxy's address and every user shares one rate-limit bucket.
+app.set("trust proxy", 1);
 const { requestContext, errorHandler } = require("../../clicks-shared/middleware/observability");
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || "clicks-admin-api";
 app.use(requestContext);
@@ -70,6 +82,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/performance", performanceRoutes);
 app.use("/api/sources", sourceRoutes);
 app.use("/api/jobs", jobRoutes);
+app.use("/api/leads", require("./routes/leads"));
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/faqs", faqRoutes);
 app.use("/api/privacy-policy", privacyPolicyRoutes);
