@@ -1,4 +1,5 @@
 import { HEATMAP_JOB_TYPES } from "../../constants/jobTypes";
+import { getJobStatusHeatmapOptions } from "../../utils/jobStatusLabels";
 
 /** Qatar map defaults — same as Live Map */
 
@@ -8,27 +9,7 @@ export const MAP_ZOOM = 11;
 
 
 
-export const JOB_STATUSES = [
-
-  { value: "", label: "All statuses" },
-
-  { value: "pending", label: "Pending" },
-
-  { value: "assigned", label: "Assigned" },
-
-  { value: "accepted", label: "Accepted" },
-
-  { value: "en_route", label: "En route" },
-
-  { value: "arrived", label: "Arrived" },
-
-  { value: "in_progress", label: "In progress" },
-
-  { value: "completed", label: "Completed" },
-
-  { value: "cancelled", label: "Cancelled" },
-
-];
+export const JOB_STATUSES = getJobStatusHeatmapOptions();
 
 
 

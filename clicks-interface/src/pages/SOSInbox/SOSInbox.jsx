@@ -6,6 +6,8 @@ import {
   useClaimSOSMutation,
 } from "../../store/sosApi";
 import DataTable from "../../components/DataTable/DataTable.jsx";
+import { formatCancelReason } from "../../utils/cancelReasonLabels.js";
+import { getJobStatusLabel, JOB_STATUS_LABELS } from "../../utils/jobStatusLabels";
 import "./SOSInbox.css";
 
 const STATUS_COLORS = {
@@ -15,10 +17,10 @@ const STATUS_COLORS = {
   accepted: { bg: "#ECFDF5", color: "#12B76A", border: "#A6F4C5", label: "Accepted" },
   cancelled: { bg: "#F2F4F7", color: "#475467", border: "#D0D5DD", label: "Cancelled" },
   completed: { bg: "#ECFDF5", color: "#027A48", border: "#A6F4C5", label: "Completed" },
-  assigned: { bg: "#F4F3FF", color: "#5925DC", border: "#D9D6FE", label: "Assigned" },
-  en_route: { bg: "#EFF8FF", color: "#175CD3", border: "#B2DDFF", label: "En Route" },
-  arrived: { bg: "#F0F9FF", color: "#026AA2", border: "#B9E6FE", label: "Arrived" },
-  in_progress: { bg: "#FFF6ED", color: "#C4320A", border: "#FDDCAB", label: "In Progress" },
+  assigned: { bg: "#F4F3FF", color: "#5925DC", border: "#D9D6FE" },
+  en_route: { bg: "#EFF8FF", color: "#175CD3", border: "#B2DDFF" },
+  arrived: { bg: "#F0F9FF", color: "#026AA2", border: "#B9E6FE" },
+  in_progress: { bg: "#FFF6ED", color: "#C4320A", border: "#FDDCAB" },
 };
 
 function displayStatus(row) {
@@ -27,12 +29,15 @@ function displayStatus(row) {
 
 function StatusBadge({ status }) {
   const s = STATUS_COLORS[status] || STATUS_COLORS.pending;
+  const label = JOB_STATUS_LABELS[status]
+    ? getJobStatusLabel(status)
+    : s.label || getJobStatusLabel(status);
   return (
     <span
       className="sos-status-badge"
       style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}
     >
-      {s.label}
+      {label}
     </span>
   );
 }
@@ -121,13 +126,26 @@ function SOSInbox() {
     {
       title: "Status",
       key: "status",
-      width: "12%",
+      width: "10%",
       render: (row) => <StatusBadge status={displayStatus(row)} />,
+    },
+    {
+      title: "Cancel reason",
+      key: "cancelReason",
+      width: "16%",
+      render: (row) =>
+        row.status === "cancelled" ? (
+          <span className="sos-cancel-reason" title={row.cancel_reason || ""}>
+            {formatCancelReason(row.cancel_reason)}
+          </span>
+        ) : (
+          "—"
+        ),
     },
     {
       title: "Expires / Updated",
       key: "time",
-      width: "16%",
+      width: "14%",
       render: (row) => {
         const t = row.expires_at || row.updatedAt;
         return t ? new Date(t).toLocaleString() : "—";

@@ -10,10 +10,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/config/job_fulfill_status.dart';
+import '../../../../core/config/location_tracking.dart';
 import '../../../../core/api/dio_helper.dart';
 import '../../../../core/api/end_points/end_points.dart';
 import '../../../../core/helper/cache_helper.dart';
 import '../../../../core/notifications/job_notification_service.dart';
+import '../../../../core/monitoring/sentry_config.dart';
 import '../../../../core/sos_services/technician_socket_service.dart';
 
 part 'home_state.dart';
@@ -35,9 +37,6 @@ class HomeCubit extends Cubit<HomeState> {
   Timer? _sessionPollTimer;
   int _revision = 0;
 
-  /// How often to force-send a position even when the tech isn't moving.
-  static const Duration _heartbeatInterval = Duration(seconds: 12);
-
   String get technicianId =>
       CacheHelper.get('technician_id')?.toString() ?? '';
   String get technicianName =>
@@ -56,6 +55,15 @@ class HomeCubit extends Cubit<HomeState> {
   /// Last GPS fix from location tracking (for live Active Job map).
   double? lastLatitude;
   double? lastLongitude;
+
+  /// Last coordinates sent to dispatch (Live Map pin).
+  double? _lastDispatchedLat;
+  double? _lastDispatchedLng;
+  double? _lastDispatchedAccuracy;
+  /// When the last dispatched pin was actually measured by the OS.
+  DateTime? _lastFixAt;
+  /// When we last used the REST transport (see _shouldSendRest).
+  DateTime? _lastRestSentAt;
 
   /// Dashboard balance for Home pill (totalEarnings).
   double? balanceQar;
@@ -77,6 +85,13 @@ class HomeCubit extends Cubit<HomeState> {
 
   /// Recent completed jobs (read-only history).
   List<Map<String, dynamic>> jobHistory = [];
+  int historyPage = 1;
+  bool historyHasMore = true;
+  bool historyLoadingMore = false;
+
+  /// Bumped on every history load so a newer reset can discard the response of
+  /// an older in-flight append instead of interleaving the two.
+  int _historyRequestToken = 0;
 
   void _emitLoaded() {
     if (isClosed) return;
@@ -101,6 +116,7 @@ class HomeCubit extends Cubit<HomeState> {
     final failedMsg = CacheHelper.get(kAcceptNotifFailedKey)?.toString();
     if (failedMsg != null && failedMsg.isNotEmpty) {
       await CacheHelper.remove(kAcceptNotifFailedKey);
+      if (isClosed) return;
       emit(HomeActionError(failedMsg));
       _emitLoaded();
     }
@@ -120,6 +136,7 @@ class HomeCubit extends Cubit<HomeState> {
     if (pendingId.startsWith('qa-live-') || pendingId.startsWith('qa-bg-')) {
       await CacheHelper.remove(kPendingJobIdKey);
       if (failedMsg == null || failedMsg.isEmpty) {
+        if (isClosed) return;
         emit(HomeActionError(
           'Test alert only — assign a real job from admin to test Accept.',
         ));
@@ -160,6 +177,7 @@ class HomeCubit extends Cubit<HomeState> {
       fetchSession();
     };
     notif.onJobAcceptFromNotificationFailed = (_, message) {
+      if (isClosed) return;
       emit(HomeActionError(message ?? 'Could not accept job from notification'));
       _emitLoaded();
     };
@@ -215,6 +233,9 @@ class HomeCubit extends Cubit<HomeState> {
       socketConnected = true;
       _emitLoaded();
       fetchSession();
+      if (isOnline) {
+        _sendCurrentPositionNow();
+      }
     };
 
     _socketService.onDisconnected = () {
@@ -300,6 +321,7 @@ class HomeCubit extends Cubit<HomeState> {
       final message =
           (data is Map ? data['message'] : null)?.toString() ??
               'Something went wrong';
+      if (isClosed) return;
       emit(HomeActionError(message));
       _emitLoaded();
     };
@@ -353,10 +375,12 @@ class HomeCubit extends Cubit<HomeState> {
       } else {
         sessionLoadFailed = true;
         final err = DioHelper.errorMessage(response);
+        if (isClosed) return;
         emit(HomeActionError(err ?? 'Failed to load session'));
       }
     } catch (_) {
       sessionLoadFailed = true;
+      if (isClosed) return;
       emit(HomeActionError('Failed to load session. Pull to retry.'));
     }
     _emitLoaded();
@@ -477,23 +501,64 @@ class HomeCubit extends Cubit<HomeState> {
     return Geolocator.distanceBetween(lat, lng, dest.lat, dest.lng);
   }
 
-  /// Activity tab: all assigned jobs (any status), newest first.
-  Future<void> fetchHistory() async {
+  /// Activity tab: paginated assigned jobs, newest first.
+  /// Returns true only when a page was actually applied to [jobHistory].
+  Future<bool> fetchHistory({bool reset = true}) async {
+    final token = ++_historyRequestToken;
+    if (reset) {
+      historyPage = 1;
+      historyHasMore = true;
+      if (!historyLoadingMore) jobHistory = [];
+    }
+    var ok = false;
     try {
-      final response = await DioHelper.getData(url: EndPoints.technicianJobs);
+      final response = await DioHelper.getData(
+        url: EndPoints.technicianJobs,
+        query: {'page': historyPage, 'limit': 20},
+      );
+      // A newer load started while this one was in flight — drop the stale page
+      // instead of racing it into jobHistory.
+      if (token != _historyRequestToken) {
+        historyLoadingMore = false;
+        return false;
+      }
       if (response.statusCode == 200) {
         final jobs = response.data['jobs'];
         if (jobs is List) {
-          jobHistory = jobs
+          final pageJobs = jobs
               .whereType<Map>()
               .map((e) => Map<String, dynamic>.from(e))
               .toList();
+          if (reset) {
+            jobHistory = pageJobs;
+          } else {
+            jobHistory = [...jobHistory, ...pageJobs];
+          }
+          historyHasMore = response.data['has_more'] == true;
+          ok = true;
         }
       }
     } catch (_) {
       // History is best-effort
     }
+    historyLoadingMore = false;
     _emitLoaded();
+    return ok;
+  }
+
+  Future<void> loadMoreHistory() async {
+    if (!historyHasMore || historyLoadingMore || isClosed) return;
+    final previousPage = historyPage;
+    final requestedPage = previousPage + 1;
+    historyLoadingMore = true;
+    historyPage = requestedPage;
+    final ok = await fetchHistory(reset: false);
+    // Roll the page back if it never landed, otherwise a single failed request
+    // silently drops 20 jobs out of the Activity list for the rest of the
+    // session. Skip the rollback when a reset load already rewound the cursor.
+    if (!ok && historyPage == requestedPage) {
+      historyPage = previousPage;
+    }
   }
 
   void _syncSessionPoll() {
@@ -529,6 +594,7 @@ class HomeCubit extends Cubit<HomeState> {
         if (!ok) {
           isLoadingStatus = false;
           locationWarning = true;
+          if (isClosed) return;
           emit(HomeActionError(
             !kIsWeb && Platform.isIOS
                 ? 'On iPhone, location must be set to Always so dispatch can see you on the Live Map when the app is in the background.'
@@ -554,9 +620,11 @@ class HomeCubit extends Cubit<HomeState> {
         }
       } else {
         final err = DioHelper.errorMessage(response);
+        if (isClosed) return;
         emit(HomeActionError(err ?? 'Failed to update status'));
       }
     } catch (_) {
+      if (isClosed) return;
       emit(HomeActionError('Failed to update status'));
     }
 
@@ -974,8 +1042,14 @@ class HomeCubit extends Cubit<HomeState> {
             ? res.data['homeHeroUrl']?.toString()
             : null;
         if (url != null && url.isNotEmpty) {
-          final sep = url.contains('?') ? '&' : '?';
-          homeHeroUrl = '$url${sep}v=${DateTime.now().millisecondsSinceEpoch}';
+          // data: URLs break if we append ?v=; http(s) needs cache bust after upload.
+          if (url.startsWith('data:')) {
+            homeHeroUrl = url;
+          } else {
+            final sep = url.contains('?') ? '&' : '?';
+            homeHeroUrl =
+                '$url${sep}v=${DateTime.now().millisecondsSinceEpoch}';
+          }
         }
         _emitLoaded();
         return true;
@@ -995,17 +1069,28 @@ class HomeCubit extends Cubit<HomeState> {
 
   Future<bool> completeJob({
     String notes = '',
+    required String jobReference,
+    String? jobId,
     List<String> photoLabels = const [],
   }) async {
-    final id = jobId;
+    // Pin the caller's job: the 25s session poll can swap [activeJob] while the
+    // complete sheet is open, which would post the typed Job ID to another job.
+    final id = jobId ?? this.jobId;
     if (id == null) return false;
     lastActionError = null;
+    // Server requires the technician-entered Job ID before it will complete.
+    final reference = jobReference.trim();
+    if (reference.isEmpty) {
+      lastActionError = 'Job ID is required to complete the job';
+      return false;
+    }
     await fetchSession();
     return _runJobAction(
       () => DioHelper.postData(
         url: EndPoints.completeJob(id),
         data: {
           'completion_notes': notes,
+          'job_reference': reference,
           if (photoLabels.isNotEmpty) 'completion_photos': photoLabels,
         },
       ),
@@ -1088,6 +1173,9 @@ class HomeCubit extends Cubit<HomeState> {
     required void Function() onSuccess,
     String? optimisticStatus,
   }) async {
+    // Re-entrancy guard: a second tap while a job action is in flight would
+    // race the first and surface the server's "already accepted" 400 as an error.
+    if (isLoadingAction) return false;
     isLoadingAction = true;
     final previousStatus = jobStatus;
     if (optimisticStatus != null && activeJob != null) {
@@ -1109,7 +1197,7 @@ class HomeCubit extends Cubit<HomeState> {
         }
         final err = DioHelper.errorMessage(response);
         lastActionError = err ?? 'Action failed';
-        emit(HomeActionError(lastActionError!));
+        if (!isClosed) emit(HomeActionError(lastActionError!));
       }
     } catch (e) {
       if (optimisticStatus != null && activeJob != null) {
@@ -1121,7 +1209,7 @@ class HomeCubit extends Cubit<HomeState> {
         msg = DioHelper.errorMessage(e.response!) ?? msg;
       }
       lastActionError = msg;
-      emit(HomeActionError(msg));
+      if (!isClosed) emit(HomeActionError(msg));
     }
 
     isLoadingAction = false;
@@ -1196,6 +1284,10 @@ class HomeCubit extends Cubit<HomeState> {
       _onPositionUpdate,
       onError: (_) {
         locationWarning = true;
+        SentryConfig.captureException(
+          StateError('Technician location stream error'),
+          tags: const {'component': 'location_stream'},
+        );
         _emitLoaded();
       },
       cancelOnError: false,
@@ -1210,7 +1302,7 @@ class HomeCubit extends Cubit<HomeState> {
     // technician is parked and the movement stream is silent.
     _locationHeartbeat?.cancel();
     _locationHeartbeat = Timer.periodic(
-      _heartbeatInterval,
+      LocationTracking.heartbeatInterval,
       (_) => _sendCurrentPositionNow(),
     );
   }
@@ -1220,11 +1312,58 @@ class HomeCubit extends Cubit<HomeState> {
     _locationStream = null;
     _locationHeartbeat?.cancel();
     _locationHeartbeat = null;
+    _lastDispatchedLat = null;
+    _lastDispatchedLng = null;
+    _lastDispatchedAccuracy = null;
+    _lastFixAt = null;
+    _lastRestSentAt = null;
   }
 
-  /// One-shot: fetch the current GPS fix and send it on both channels.
-  /// Falls back to the last cached fix if a fresh read times out.
+  bool _isAccuracyAcceptable(double accuracy) {
+    if (accuracy <= 0) return false;
+    return accuracy <= LocationTracking.maxAcceptableAccuracyMeters;
+  }
+
+  bool _shouldDispatchNewPosition(double latitude, double longitude) {
+    if (_lastDispatchedLat == null || _lastDispatchedLng == null) return true;
+    final meters = Geolocator.distanceBetween(
+      _lastDispatchedLat!,
+      _lastDispatchedLng!,
+      latitude,
+      longitude,
+    );
+    return meters >= LocationTracking.minDispatchMoveMeters;
+  }
+
+  /// Liveness heartbeat.
+  ///
+  /// Re-sends the last accepted pin so dispatch knows the app is alive, but
+  /// always carries the time that pin was MEASURED. Refreshing that time from
+  /// the OS's own last-known fix first is what separates "parked technician,
+  /// GPS healthy" from "GPS died and we are replaying a frozen point" — the
+  /// admin Live Map used to show both as a confident live marker.
   Future<void> _sendCurrentPositionNow() async {
+    // Cheap: reads the OS cache, does not pay for an acquisition.
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null && _isAccuracyAcceptable(last.accuracy)) {
+        _onPositionUpdate(last);
+      }
+    } catch (_) {
+      // Fall through to whatever we already hold.
+    }
+
+    if (_lastDispatchedLat != null && _lastDispatchedLng != null) {
+      _dispatchLocation(
+        _lastDispatchedLat!,
+        _lastDispatchedLng!,
+        accuracy: _lastDispatchedAccuracy,
+        fixTime: _lastFixAt,
+      );
+      return;
+    }
+
+    // No pin yet — bootstrap is worth a real GPS read.
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -1233,16 +1372,18 @@ class HomeCubit extends Cubit<HomeState> {
         ),
       );
       _onPositionUpdate(position);
-    } catch (_) {
-      // Timed out / no fix — reuse the last known position so the admin map
-      // and disconnect policy don't go stale.
-      if (lastLatitude != null && lastLongitude != null) {
-        _dispatchLocation(lastLatitude!, lastLongitude!);
-      }
+    } catch (e, st) {
+      SentryConfig.captureException(
+        StateError('Location heartbeat GPS read failed'),
+        stackTrace: st,
+        tags: const {'component': 'location_heartbeat'},
+      );
     }
   }
 
   void _onPositionUpdate(Position position) {
+    if (!_isAccuracyAcceptable(position.accuracy)) return;
+
     final moved = lastLatitude == null ||
         lastLongitude == null ||
         (position.latitude - lastLatitude!).abs() > 0.000025 ||
@@ -1250,7 +1391,16 @@ class HomeCubit extends Cubit<HomeState> {
     lastLatitude = position.latitude;
     lastLongitude = position.longitude;
 
-    _dispatchLocation(position.latitude, position.longitude);
+    _lastFixAt = position.timestamp;
+
+    if (_shouldDispatchNewPosition(position.latitude, position.longitude)) {
+      _dispatchLocation(
+        position.latitude,
+        position.longitude,
+        accuracy: position.accuracy,
+        fixTime: position.timestamp,
+      );
+    }
 
     if (locationWarning || moved) {
       locationWarning = false;
@@ -1258,26 +1408,60 @@ class HomeCubit extends Cubit<HomeState> {
     }
   }
 
-  /// Send a coordinate on both transports (socket fast-path + REST heartbeat).
-  void _dispatchLocation(double latitude, double longitude) {
-    // 1. Socket (fast path — works when foreground / socket alive)
+  /// Should this fix also go out over REST?
+  ///
+  /// Sending every fix on both transports doubled the DB writes and the admin
+  /// broadcasts for no benefit. But dropping REST entirely while the socket
+  /// "looks" connected is unsafe — a socket can go quiet without disconnecting,
+  /// and REST is what corrects the map in that case. So: always when the socket
+  /// is down, and on a slow interval otherwise.
+  bool _shouldSendRest() {
+    if (!_socketService.isConnected) return true;
+    final last = _lastRestSentAt;
+    if (last == null) return true;
+    return DateTime.now().difference(last) >=
+        LocationTracking.restFallbackInterval;
+  }
+
+  /// Send a coordinate over the socket, with REST as fallback / slow corrective.
+  void _dispatchLocation(
+    double latitude,
+    double longitude, {
+    double? accuracy,
+    DateTime? fixTime,
+  }) {
+    _lastDispatchedLat = latitude;
+    _lastDispatchedLng = longitude;
+    _lastDispatchedAccuracy = accuracy;
+    if (fixTime != null) _lastFixAt = fixTime;
+
     _socketService.updateLocation(
       technicianId: technicianId,
       latitude: latitude,
       longitude: longitude,
       jobId: jobId,
+      accuracy: accuracy,
+      fixTime: fixTime ?? _lastFixAt,
     );
 
-    // 2. REST heartbeat (always) — keeps server informed when socket is down
-    //    and drives the admin Live Map via the server-side broadcast.
-    _sendLocationRest(latitude, longitude);
+    if (_shouldSendRest()) {
+      _lastRestSentAt = DateTime.now();
+      _sendLocationRest(
+        latitude,
+        longitude,
+        accuracy: accuracy,
+        fixTime: fixTime ?? _lastFixAt,
+      );
+    }
   }
 
   /// Fire-and-forget REST PATCH /technicians/location.
-  /// The server throttles writes internally; we don't need to throttle here.
-  void _sendLocationRest(double latitude, double longitude) {
-    // Wrap in unawaited async so the Future type is Future<void>,
-    // avoiding return-type issues with Dio's typed catchError.
+  void _sendLocationRest(
+    double latitude,
+    double longitude, {
+    double? accuracy,
+    DateTime? fixTime,
+  }) {
     Future<void> doSend() async {
       try {
         await DioHelper.patchData(
@@ -1285,10 +1469,17 @@ class HomeCubit extends Cubit<HomeState> {
           data: {
             'latitude': latitude,
             'longitude': longitude,
+            if (accuracy != null && accuracy > 0) 'accuracy': accuracy,
+            if (fixTime != null) 'fix_time': fixTime.toUtc().toIso8601String(),
             if (jobId != null && jobId!.isNotEmpty) 'job_id': jobId,
           },
         );
-      } catch (_) {
+      } catch (e, st) {
+        SentryConfig.captureException(
+          StateError('Location REST heartbeat send failed'),
+          stackTrace: st,
+          tags: const {'component': 'location_rest_heartbeat'},
+        );
         // best-effort — ignore network failures silently
       }
     }
@@ -1361,9 +1552,7 @@ class HomeCubit extends Cubit<HomeState> {
 
   // Called by the home shell's WidgetsBindingObserver when app is resumed.
   void onAppResumed() {
-    if (!_socketService.isConnected) {
-      _socketService.reconnect();
-    }
+    _socketService.ensureConnected();
     // ignore: discarded_futures
     _hydrateFromPendingNotification();
   }
@@ -1383,10 +1572,33 @@ class HomeCubit extends Cubit<HomeState> {
     _stopLocationStream();
     _sessionPollTimer?.cancel();
     _sessionPollTimer = null;
+    // Tell the server we are gone BEFORE dropping the socket and the token,
+    // otherwise the marker lingers on the admin Live Map until a sweep reaps it.
+    // Note: the server refuses Offline while a job is still active, so a
+    // mid-job logout still falls back to the sweep — and "On Job" is excluded
+    // from that sweep. See the On-Job reconciliation gap.
+    await _goOfflineOnBackend();
     _socketService.clearHandlers();
     _socketService.disconnect();
     await JobNotificationService.instance.clearTokenOnBackend();
     await CacheHelper.clear();
+  }
+
+  /// Best-effort Offline on logout. Never blocks or throws the logout path:
+  /// a failure here just falls back to the server-side sweep.
+  Future<void> _goOfflineOnBackend() async {
+    try {
+      await DioHelper.patchData(
+        url: EndPoints.status,
+        data: const {'status': 'Offline'},
+      ).timeout(const Duration(seconds: 3));
+    } catch (e, st) {
+      SentryConfig.captureException(
+        StateError('Failed to set Offline on logout'),
+        stackTrace: st,
+        tags: const {'component': 'logout_offline'},
+      );
+    }
   }
 
   @override

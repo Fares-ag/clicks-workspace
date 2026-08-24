@@ -10,9 +10,50 @@ const {
   importHistoricalJobs,
 } = require("../../../clicks-shared/utils/historicalJobImport");
 const {
-  parseJobLocationToGeoPoint,
-} = require("../../../clicks-shared/utils/parseJobLocation");
+  resolveJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/resolveJobLocation");
 const { createJobRecord } = require("../../../clicks-shared/services/createJobRecord");
+const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
+const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { pick, str } = require("../../../clicks-shared/utils/coerce");
+const {
+  computeJobChanges,
+  omitChangeKeys,
+  recordAudit,
+  serializeAuditValue,
+} = require("../utils/auditLog");
+
+// PUT /api/jobs/:id is open to every ops role (Job Dispatcher, Coordinator,
+// Call Center Agent), so the update document is allow-listed instead of being
+// spread from req.body. Everything not named here stays owned by the
+// controller that is allowed to write it: finance_* by the finance portal,
+// payment_status/paid_at by the payment flow, business_id/businessName/
+// partner_id/customer_id by job creation.
+const ADMIN_EDITABLE_JOB_FIELDS = [
+  "clientName",
+  "clientMobileNumber",
+  "clientEmail",
+  "issue",
+  "location",
+  "dateTime",
+  "jobType",
+  "assignedTechnician",
+  "job_status",
+  "price",
+  "source",
+  "subSource",
+  "vehicleMake",
+  "vehicleModel",
+  "vehicleYear",
+  "licensePlate",
+  "vinNumber",
+  "task_description",
+  "payment_method",
+  "estimate",
+  "technician_estimate",
+];
 
 // GET /api/jobs
 async function getJobs(req, res) {
@@ -23,13 +64,24 @@ async function getJobs(req, res) {
     let query = {};
     
     if (search) {
-      query.$or = [
-        { clientName: { $regex: search, $options: "i" } },
-        { clientMobileNumber: { $regex: search, $options: "i" } },
-        { issue: { $regex: search, $options: "i" } },
-        { location: { $regex: search, $options: "i" } },
-        { businessName: { $regex: search, $options: "i" } },
-      ];
+      // TODO: full free-text search on issue/location → Atlas Search
+      const searchFilter = buildPrefixSearchFilter(search, {
+        phoneField: "search_phone",
+        nameField: "search_name",
+        businessNameField: "businessName",
+      });
+      if (searchFilter) {
+        // The list now shows job_reference as the job's identity, so it has to
+        // be searchable. buildPrefixSearchFilter short-circuits to a phone
+        // prefix as soon as the term holds 4+ digits — which a numeric Job ID
+        // always does — so the reference is ORed back in rather than replaced.
+        const term = str(search, { maxLength: 64 }).trim();
+        const clauses = searchFilter.$or ? [...searchFilter.$or] : [searchFilter];
+        if (term) {
+          clauses.push({ job_reference: new RegExp(`^${escapeRegex(term)}`, "i") });
+        }
+        query = { ...query, $or: clauses };
+      }
     }
     
     // Add status filter
@@ -42,10 +94,12 @@ async function getJobs(req, res) {
     }
     
     const jobs = await Job.find(query)
-      .populate("assignedTechnician")
-      .populate("source")
+      .populate("assignedTechnician", "firstName lastName phone profilePicture currentStatus")
+      .populate("created_by_technician", "firstName lastName")
+      .populate("source", "mainSourceName")
       .populate({
         path: "customer_vehicle_id",
+        select: "year plate_number vehicle_color",
         populate: [
           { path: "vehicle_make", select: "makeName" },
           { path: "vehicle_model", select: "modelName" },
@@ -53,9 +107,23 @@ async function getJobs(req, res) {
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(Number(limit));
-    const total = await Job.countDocuments(query);
-    res.json({ jobs, total });
+      .limit(Number(limit))
+      .lean();
+    const enrichedJobs = jobs.map((job) => ({
+      ...job,
+      sourceDisplay: formatJobSourceLabel(job),
+    }));
+    const hasFilter = Boolean(search || status || businessPortal === "1" || businessPortal === "true");
+    // Key off the raw inputs, not the compiled query: buildPrefixSearchFilter
+    // returns RegExp values and JSON.stringify turns a RegExp into {}, so every
+    // search used to collapse onto one cache entry and report another search's total.
+    const countKey = `admin_jobs:${str(search)}|${str(status)}|${str(businessPortal)}`;
+    const total = hasFilter
+      ? await cachedCount(Job, query, { ttlMs: 15000, key: countKey })
+      : page === 1
+        ? await Job.estimatedDocumentCount()
+        : await cachedCount(Job, query, { ttlMs: 15000, key: "admin_jobs_unfiltered" });
+    res.json({ jobs: enrichedJobs, total });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch jobs", error: err.message });
   }
@@ -81,6 +149,21 @@ async function createJob(req, res) {
         : undefined,
     });
 
+    await recordAudit({
+      req,
+      action: "job.create",
+      entityType: "job",
+      entityId: populatedJob._id,
+      changes: {
+        clientName: serializeAuditValue(populatedJob.clientName),
+        clientMobileNumber: serializeAuditValue(populatedJob.clientMobileNumber),
+        job_status: serializeAuditValue(populatedJob.job_status),
+        assignedTechnician: serializeAuditValue(populatedJob.assignedTechnician),
+        price: serializeAuditValue(populatedJob.price),
+        source: serializeAuditValue(populatedJob.source),
+      },
+    });
+
     res.status(201).json({
       message: "Job created successfully",
       job: populatedJob,
@@ -98,26 +181,47 @@ async function createJob(req, res) {
 // GET /api/jobs/:id
 async function getJobById(req, res) {
   try {
-    const job = await Job.findById(req.params.id)
+    const JobArchive = require("../../../clicks-shared/models/JobArchive");
+    let job = await Job.findById(req.params.id)
       .populate({
         path: "assignedTechnician",
+        select: "firstName lastName phone profilePicture currentStatus assignedVehicle",
         populate: {
           path: "assignedVehicle",
-          populate: [
-            { path: "make" },
-            { path: "model" }
-          ]
-        }
+          populate: [{ path: "make" }, { path: "model" }],
+        },
       })
       .populate("customer_id")
       .populate({
         path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make" },
-          { path: "vehicle_model" }
-        ]
+        populate: [{ path: "vehicle_make" }, { path: "vehicle_model" }],
       })
-      .populate("source");
+      .populate("created_by_technician", "firstName lastName")
+      .populate("source", "mainSourceName")
+      .populate("lead_id", "internalNotes");
+
+    let archived = false;
+    if (!job) {
+      job = await JobArchive.findById(req.params.id)
+        .populate({
+          path: "assignedTechnician",
+          select: "firstName lastName phone profilePicture currentStatus assignedVehicle",
+          populate: {
+            path: "assignedVehicle",
+            populate: [{ path: "make" }, { path: "model" }],
+          },
+        })
+        .populate("customer_id")
+        .populate({
+          path: "customer_vehicle_id",
+          populate: [{ path: "vehicle_make" }, { path: "vehicle_model" }],
+        })
+        .populate("created_by_technician", "firstName lastName")
+        .populate("source", "mainSourceName")
+        .populate("lead_id", "internalNotes");
+      archived = Boolean(job);
+    }
+
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
@@ -148,7 +252,10 @@ async function getJobById(req, res) {
       repairsTotal: pricing.repairsTotal,
     };
 
-    res.json({ job: jobObj, repairs, financials });
+    if (archived) jobObj.archived = true;
+    jobObj.sourceDisplay = formatJobSourceLabel(jobObj);
+
+    res.json({ job: jobObj, repairs, financials, archived });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch job", error: err.message });
   }
@@ -158,12 +265,32 @@ async function getJobById(req, res) {
 async function updateJob(req, res) {
   try {
     const { assignedTechnician, job_status } = req.body;
-    const update = { ...req.body };
-    
+    const update = pick(req.body, ADMIN_EDITABLE_JOB_FIELDS);
+
     // Get the current job to check if technician is being newly assigned
-    const currentJob = await Job.findById(req.params.id);
+    const currentJob = await Job.findById(req.params.id).populate("source", "mainSourceName");
     if (!currentJob) {
       return res.status(404).json({ message: "Job not found" });
+    }
+
+    if (isSourceLockedJob(currentJob)) {
+      const sourceTouched = Object.prototype.hasOwnProperty.call(req.body, "source");
+      const subSourceTouched = Object.prototype.hasOwnProperty.call(req.body, "subSource");
+      if (sourceTouched || subSourceTouched) {
+        const currentSourceId = String(currentJob.source?._id || currentJob.source || "");
+        const nextSourceId = sourceTouched ? String(req.body.source || "") : currentSourceId;
+        const currentSubSource = currentJob.subSource || "";
+        const nextSubSource = subSourceTouched ? String(req.body.subSource || "") : currentSubSource;
+        const sourceChanged = sourceTouched && nextSourceId !== currentSourceId;
+        const subSourceChanged = subSourceTouched && nextSubSource !== currentSubSource;
+        if (sourceChanged || subSourceChanged) {
+          return res.status(403).json({
+            message: "Source cannot be changed for jobs created via Technician App or Business Portal",
+          });
+        }
+      }
+      delete update.source;
+      delete update.subSource;
     }
 
     // If technician is being assigned and job was pending, update status to "assigned"
@@ -221,12 +348,27 @@ async function updateJob(req, res) {
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body, "location")) {
-      const geo = parseJobLocationToGeoPoint(req.body.location);
+      const geo = await resolveJobLocationToGeoPoint(req.body.location);
       if (geo) {
         update.locationCoordinates = geo;
       } else {
         update.$unset = { ...(update.$unset || {}), locationCoordinates: 1 };
       }
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "clientName") ||
+      Object.prototype.hasOwnProperty.call(req.body, "clientMobileNumber")
+    ) {
+      const merged = {
+        clientName: Object.prototype.hasOwnProperty.call(req.body, "clientName")
+          ? req.body.clientName
+          : currentJob.clientName,
+        clientMobileNumber: Object.prototype.hasOwnProperty.call(req.body, "clientMobileNumber")
+          ? req.body.clientMobileNumber
+          : currentJob.clientMobileNumber,
+      };
+      Object.assign(update, computeJobSearchFields(merged));
     }
 
     // $unset cannot be mixed into findByIdAndUpdate plain update object alongside other fields
@@ -237,12 +379,12 @@ async function updateJob(req, res) {
       job = await Job.findByIdAndUpdate(
         req.params.id,
         { $set: setFields, $unset },
-        { new: true }
+        { new: true, runValidators: true }
       )
         .populate('assignedTechnician', 'firstName lastName phone profilePicture')
         .populate('source', 'mainSourceName');
     } else {
-      job = await Job.findByIdAndUpdate(req.params.id, update, { new: true })
+      job = await Job.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true })
         .populate('assignedTechnician', 'firstName lastName phone profilePicture')
         .populate('source', 'mainSourceName');
     }
@@ -273,9 +415,75 @@ async function updateJob(req, res) {
       }
     }
 
+    // Diff like against like: `job` comes back with assignedTechnician populated
+    // while `currentJob` holds a raw ObjectId, which otherwise reports a phantom
+    // technician reassignment on every update.
+    const jobForDiff = job && typeof job.toObject === "function" ? job.toObject() : job;
+    if (jobForDiff && jobForDiff.assignedTechnician && jobForDiff.assignedTechnician._id) {
+      jobForDiff.assignedTechnician = jobForDiff.assignedTechnician._id;
+    }
+    const allChanges = computeJobChanges(currentJob, jobForDiff);
+    const dispatchKeys = [
+      "assignedTechnician",
+      "job_status",
+      "assigned_at",
+    ];
+    const cancelKeys = ["job_status", "cancelled_at"];
+
+    if (isBeingCancelled) {
+      const cancelChanges = {};
+      for (const key of cancelKeys) {
+        if (allChanges[key]) cancelChanges[key] = allChanges[key];
+      }
+      await recordAudit({
+        req,
+        action: "job.cancel",
+        entityType: "job",
+        entityId: job._id,
+        changes: cancelChanges,
+      });
+    }
+
+    if (isNewTechnicianAssignment) {
+      const dispatchChanges = {};
+      for (const key of dispatchKeys) {
+        if (allChanges[key]) dispatchChanges[key] = allChanges[key];
+      }
+      await recordAudit({
+        req,
+        action: "job.dispatch",
+        entityType: "job",
+        entityId: job._id,
+        changes: dispatchChanges,
+      });
+    }
+
+    let updateChanges = { ...allChanges };
+    if (isBeingCancelled) {
+      updateChanges = omitChangeKeys(updateChanges, cancelKeys);
+    }
+    if (isNewTechnicianAssignment) {
+      updateChanges = omitChangeKeys(updateChanges, dispatchKeys);
+    }
+
+    if (Object.keys(updateChanges).length > 0) {
+      await recordAudit({
+        req,
+        action: "job.update",
+        entityType: "job",
+        entityId: job._id,
+        changes: updateChanges,
+      });
+    }
+
     res.json({ job, signatureCleared: Boolean(touchesSigned) });
 
   } catch (err) {
+    // runValidators surfaces bad enums/casts as ValidationError/CastError —
+    // that is a bad request, not a server fault.
+    if (err.name === "ValidationError" || err.name === "CastError") {
+      return res.status(400).json({ message: "Invalid job update", error: err.message });
+    }
     res.status(500).json({ message: "Failed to update job", error: err.message });
   }
 }
@@ -285,6 +493,20 @@ async function deleteJob(req, res) {
   try {
     const job = await Job.findByIdAndDelete(req.params.id);
     if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await recordAudit({
+      req,
+      action: "job.delete",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        clientName: serializeAuditValue(job.clientName),
+        clientMobileNumber: serializeAuditValue(job.clientMobileNumber),
+        job_status: serializeAuditValue(job.job_status),
+        assignedTechnician: serializeAuditValue(job.assignedTechnician),
+      },
+    });
+
     res.json({ message: "Job deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete job", error: err.message });

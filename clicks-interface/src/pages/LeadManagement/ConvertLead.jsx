@@ -59,6 +59,10 @@ function ConvertLead() {
         ? new Date(lead.preferredDateTime).toISOString()
         : prev.dateTime,
       jobType: lead.serviceType || prev.jobType,
+      price:
+        lead.proposedPrice != null && lead.proposedPrice !== ""
+          ? String(lead.proposedPrice)
+          : prev.price,
     }));
   }, [lead]);
 
@@ -140,6 +144,7 @@ function ConvertLead() {
                   name="location"
                   value={formData.location}
                   onChange={handleInputChange}
+                  placeholder="Address, lat/lng, or Google Maps / Waze link"
                   required
                 />
               </div>

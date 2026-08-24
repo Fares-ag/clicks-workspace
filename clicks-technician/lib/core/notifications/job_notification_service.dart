@@ -5,7 +5,6 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:dio/dio.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/widgets.dart';
@@ -44,16 +43,17 @@ void _log(String msg) {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await FirebaseBootstrap.initialize();
   } catch (e) {
     _log('background Firebase init failed (continuing with local notif): $e');
   }
   await JobNotificationService.showUrgentJobFromBackground(message.data);
 }
 
-/// Urgent Android job assignment notifications (FCM + local channel).
+/// Urgent job assignment notifications (FCM + local channel).
 ///
-/// Graceful no-op when Firebase / google-services.json is missing.
+/// Graceful no-op when Firebase / google-services.json is missing (Android) or
+/// GoogleService-Info.plist is missing (iOS) — see ios/Runner/README-FIREBASE.md.
 class JobNotificationService {
   JobNotificationService._();
   static final JobNotificationService instance = JobNotificationService._();
@@ -85,9 +85,9 @@ class JobNotificationService {
     }
 
     try {
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      await FirebaseBootstrap.initialize();
     } catch (e) {
-      _log('Firebase.initializeApp failed (missing google-services?): $e');
+      _log('Firebase.initializeApp failed (missing platform config?): $e');
       enabled = false;
       return;
     }
@@ -95,7 +95,15 @@ class JobNotificationService {
     enabled = true;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidInit);
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
+    );
 
     await _local.initialize(
       initSettings,
@@ -133,6 +141,9 @@ class JobNotificationService {
       if (jobId != null && jobId.isNotEmpty) {
         CacheHelper.save(kPendingJobIdKey, jobId);
         onNotificationOpened?.call(jobId);
+        // Hybrid FCM may show a system tray notification first; upgrade to
+        // the full insistent alarm channel when the tech opens the app.
+        showFromRemoteData(message.data, fromBackground: true);
       }
     });
 
@@ -141,6 +152,7 @@ class JobNotificationService {
       final jobId = initial.data['job_id']?.toString();
       if (jobId != null && jobId.isNotEmpty) {
         await CacheHelper.save(kPendingJobIdKey, jobId);
+        await showFromRemoteData(initial.data, fromBackground: true);
       }
     }
 
@@ -151,20 +163,93 @@ class JobNotificationService {
         badge: false,
         sound: false,
       );
+    } else if (!kIsWeb && Platform.isIOS) {
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     }
 
+    _wireTokenRefresh();
+
     _log('initialized');
+  }
+
+  void _wireTokenRefresh() {
+    if (_tokenRefreshWired) return;
+    _tokenRefreshWired = true;
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      _log('FCM token refreshed');
+      await _postFcmTokenToBackend(newToken);
+    });
+  }
+
+  Future<void> _ensureIosApnsToken() async {
+    if (kIsWeb || !Platform.isIOS) return;
+    try {
+      var apns = await FirebaseMessaging.instance.getAPNSToken();
+      if (apns != null && apns.isNotEmpty) return;
+      for (var i = 0; i < 6; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        apns = await FirebaseMessaging.instance.getAPNSToken();
+        if (apns != null && apns.isNotEmpty) {
+          _log('APNS token ready');
+          return;
+        }
+      }
+      _log('APNS token not available yet');
+    } catch (e) {
+      _log('APNS token check failed: $e');
+    }
+  }
+
+  Future<void> _postFcmTokenToBackend(String fcmToken) async {
+    final authToken = CacheHelper.getAuthToken();
+    if (authToken == null || authToken.isEmpty) return;
+    try {
+      await Dio(
+        BaseOptions(
+          baseUrl: EndPoints.baseUrl,
+          headers: {
+            'Authorization': 'Bearer $authToken',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        ),
+      ).post(EndPoints.fcmToken, data: {'fcm_token': fcmToken});
+      _log('FCM token registered with backend');
+    } catch (e) {
+      _log('FCM backend register failed: $e');
+    }
   }
 
   Future<void> requestPermissions() async {
     if (!enabled) return;
     try {
+      if (!kIsWeb && Platform.isIOS) {
+        final ios = _local.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+        await ios?.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+          critical: true,
+        );
+      }
+
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
         sound: true,
         criticalAlert: true,
       );
+
+      if (!kIsWeb && Platform.isIOS) {
+        await _ensureIosApnsToken();
+      }
+
       final android = _local.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       await android?.requestNotificationsPermission();
@@ -178,57 +263,27 @@ class JobNotificationService {
 
   Future<void> registerTokenWithBackend() async {
     if (!enabled) return;
-    final token = CacheHelper.get('token')?.toString();
+    final token = CacheHelper.getAuthToken();
     if (token == null || token.isEmpty) return;
 
     try {
+      if (!kIsWeb && Platform.isIOS) {
+        await _ensureIosApnsToken();
+      }
+
       final fcm = await FirebaseMessaging.instance.getToken();
       if (fcm == null || fcm.isEmpty) {
         _log('no FCM token yet');
         return;
       }
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: EndPoints.baseUrl,
-          headers: {
-            'Authorization': 'Bearer $token',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        ),
-      );
-      await dio.post(
-        EndPoints.fcmToken,
-        data: {'fcm_token': fcm},
-      );
-      _log('FCM token registered');
-
-      if (!_tokenRefreshWired) {
-        _tokenRefreshWired = true;
-        FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-          try {
-            final t = CacheHelper.get('token')?.toString();
-            if (t == null || t.isEmpty) return;
-            await Dio(
-              BaseOptions(
-                baseUrl: EndPoints.baseUrl,
-                headers: {
-                  'Authorization': 'Bearer $t',
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                },
-              ),
-            ).post(EndPoints.fcmToken, data: {'fcm_token': newToken});
-          } catch (_) {}
-        });
-      }
+      await _postFcmTokenToBackend(fcm);
     } catch (e) {
       _log('register token failed: $e');
     }
   }
 
   Future<void> clearTokenOnBackend() async {
-    final token = CacheHelper.get('token')?.toString();
+    final token = CacheHelper.getAuthToken();
     if (token == null || token.isEmpty) return;
     try {
       await Dio(
@@ -374,13 +429,20 @@ class JobNotificationService {
           ),
         ],
       ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      ),
     );
 
     // Ensure plugin is ready in background isolate
     if (fromBackground) {
       const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosInit = DarwinInitializationSettings();
       await _local.initialize(
-        const InitializationSettings(android: androidInit),
+        const InitializationSettings(android: androidInit, iOS: iosInit),
         onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
       );
       final android = _local.resolvePlatformSpecificImplementation<
@@ -507,7 +569,7 @@ class JobNotificationService {
     try {
       await CacheHelper.init();
     } catch (_) {}
-    final token = CacheHelper.get('token')?.toString();
+    final token = CacheHelper.getAuthToken();
     if (token == null || token.isEmpty) {
       _log('accept from notif failed: no auth token in cache');
       return false;

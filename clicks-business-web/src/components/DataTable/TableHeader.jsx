@@ -17,7 +17,7 @@ const TableHeader = ({
         {title ? <div className="table-title">{title}</div> : <div />}
       <div className="table-controls">
         <div className="search-bar">
-          <img src="/icons/Search.svg" alt="Search" className="search-icon" />
+          <img src="/icons/search.svg" alt="Search" className="search-icon" />
           <input
             type="text"
             className="search-input"
@@ -28,7 +28,7 @@ const TableHeader = ({
         {onFilter && (
           <div style={{ position: "relative" }}>
             <button ref={filterButtonRef} className="filter-btn" onClick={onFilter}>
-              {!hideFilterIcon && <img src="/icons/Filter.svg" alt="Filter" className="filter-icon" />}
+              {!hideFilterIcon && <img src="/icons/filter.svg" alt="Filter" className="filter-icon" />}
               <span>{filterButtonText}</span>
             </button>
             {filterDropdown}

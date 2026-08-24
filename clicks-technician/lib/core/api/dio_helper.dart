@@ -47,7 +47,7 @@ class DioHelper {
   static Options _authOptions(bool auth, {String? contentType}) {
     final options = Options(contentType: contentType);
     if (auth) {
-      final token = CacheHelper.get("token");
+      final token = CacheHelper.getAuthToken();
       if (token != null && token.toString().isNotEmpty) {
         options.headers = {
           'Authorization': 'Bearer $token',

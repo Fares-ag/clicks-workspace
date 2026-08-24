@@ -5,7 +5,9 @@ import { hydrateAuthState } from "../utils/authRole";
 import "./sosApi";
 import "./serviceRequestApi";
 import "./leadApi";
+import "./financeApi";
 
+// TODO: follow-up: move to httpOnly cookies — do not persist tokens in localStorage long-term.
 // Load auth state from localStorage
 function loadAuthState() {
   try {

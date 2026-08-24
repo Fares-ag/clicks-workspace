@@ -119,6 +119,7 @@
     "found_another_provider": "Found another service provider",
     "sos_expired": "SOS request expired — no dispatcher responded in time. You can try again or call support.",
     "sos_cancelled": "SOS Cancelled",
+    "cancel_failed": "We couldn't cancel your request. Check your connection and try again.",
     "help_on_way": "Help is on its way!",
     "team_reviewing": "Our team is reviewing your request and will call you before the timer ends. Please keep your phone nearby and stay in a safe location",
     "having_emergency": "Having an Emergency?",
@@ -173,7 +174,9 @@
     "eta": "ETA",
     "minutes": "min",
     "tracking": "Tracking...",
-    "call_dispatch_help": "Call dispatch if there is any assistance needed!"
+    "call_dispatch_help": "Call dispatch if there is any assistance needed!",
+    "technician_phone_unavailable": "The technician's number isn't available yet. Please call dispatch.",
+    "call_failed": "Couldn't start the call on this device."
   },
   "activity": {
     "activity": "Activity",
@@ -247,6 +250,8 @@
     "please_select_model": "Please select a Model",
     "enter_year": "Enter Year",
     "year_required": "Year is required",
+    "year_invalid": "Enter a valid 4-digit year",
+    "profile_unavailable": "We couldn't load your profile. Pull to refresh and try again.",
     "vehicle_color": "Vehicle Color",
     "enter_color": "Enter Color",
     "color_required": "Color is required",
@@ -410,5 +415,18 @@
     "services": "Services",
     "notifications": "Notifications",
     "settings": "Settings"
+  },
+  "job_status": {
+    "pending": "Pending",
+    "assigned": "Assigned",
+    "accepted": "Accepted",
+    "en_route": "En route",
+    "arrived": "Arrived",
+    "in_progress": "In progress",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "paid": "Paid",
+    "confirmed": "Confirmed",
+    "on_hold": "On hold"
   }
 }

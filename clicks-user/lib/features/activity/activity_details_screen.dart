@@ -29,10 +29,13 @@ class ActivityDetailsPage extends StatelessWidget {
   }
 
   String get _shortJobId {
-    if (job.id.length > 8) {
-      return job.id.substring(job.id.length - 8).toUpperCase();
+    final ref = (job.jobReference ?? '').trim();
+    if (ref.isNotEmpty) return ref;
+    if (job.id.isEmpty) return '\u2014';
+    if (job.id.length > 6) {
+      return '#${job.id.substring(job.id.length - 6)}';
     }
-    return job.id.toUpperCase();
+    return '#${job.id}';
   }
 
   String get _vehicleDisplay {

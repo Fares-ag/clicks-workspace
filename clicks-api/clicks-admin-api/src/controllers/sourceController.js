@@ -1,10 +1,11 @@
 const Source = require("../../../clicks-shared/models/Source");
+const { filterVisibleSources } = require("../../../clicks-shared/utils/systemSources");
 
 // GET /api/sources
 async function getSources(req, res) {
   try {
     const sources = await Source.find({ isActive: true });
-    res.json({ sources });
+    res.json({ sources: filterVisibleSources(sources) });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch sources", error: err.message });
   }

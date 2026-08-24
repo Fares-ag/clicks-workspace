@@ -44,3 +44,7 @@ lib/
 - Reusable UI components
 - Organized routing and theming
 - Scalable state management using Cubit/BLoC
+
+## Production builds
+
+See [BUILD.md](BUILD.md) for release commands, including optional `--dart-define=SENTRY_DSN=...` for crash reporting.

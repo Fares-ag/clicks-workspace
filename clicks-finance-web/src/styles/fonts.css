@@ -1,0 +1,142 @@
+/*
+ * ----------------------------------------
+ * Helvetica Neue Font Definitions
+ * font-family: "Helvetica Neue Web"
+ * ----------------------------------------
+ */
+
+/* --- Ultra Light (100) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 100;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueUltraLight.otf") format("opentype");
+}
+
+/* --- Ultra Light Italic (100) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 100;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueUltraLightItalic.otf") format("opentype");
+}
+
+/* --- Thin (200) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 200;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueThin.otf") format("opentype");
+}
+
+/* --- Thin Italic (200) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 200;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueThinItalic.otf") format("opentype");
+}
+
+/* --- Light (300) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 300;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueLight.otf") format("opentype");
+}
+
+/* --- Light Italic (300) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 300;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueLightItalic.otf") format("opentype");
+}
+
+/* --- Roman (Regular 400) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 400;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueRoman.otf") format("opentype");
+}
+
+/* --- Regular (TTF version - fall back to 400) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 400;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeue.ttf") format("truetype");
+}
+
+/* --- Italic (TTF version - fall back to 400) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 400;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueItalic.ttf") format("truetype");
+}
+
+/* --- Medium (500) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 500;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueMedium.otf") format("opentype");
+}
+
+/* --- Medium Italic (500) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 500;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueMediumItalic.otf") format("opentype");
+}
+
+/* --- Bold (700) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 700;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueBold.otf") format("opentype");
+}
+
+/* --- Bold Italic (700) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 700;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueBoldItalic.otf") format("opentype");
+}
+
+/* --- Heavy (800) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 800;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueHeavy.otf") format("opentype");
+}
+
+/* --- Heavy Italic (800) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 800;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueHeavyItalic.otf") format("opentype");
+}
+
+/* --- Black (900) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 900;
+  font-style: normal;
+  src: url("../assets/fonts/HelveticaNeueBlack.otf") format("opentype");
+}
+
+/* --- Black Italic (900) --- */
+@font-face {
+  font-family: "Helvetica Neue Web";
+  font-weight: 900;
+  font-style: italic;
+  src: url("../assets/fonts/HelveticaNeueBlackItalic.otf") format("opentype");
+}

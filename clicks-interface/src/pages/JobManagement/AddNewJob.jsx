@@ -10,6 +10,7 @@ import PhoneInput from "../../components/PhoneInput.jsx";
 import {
   DEFAULT_COUNTRY_CODE,
   isValidLocalPhone,
+  localLengthHint,
   toE164,
   toLocalDigits,
 } from "../../utils/phone";
@@ -172,8 +173,9 @@ function AddNewJob() {
 
   const handlePhoneChange = (localDigits) => {
     setFormData((prev) => ({ ...prev, clientMobileNumber: localDigits }));
-    if (localDigits.length > 0 && !isValidLocalPhone(localDigits)) {
-      setPhoneError("Enter the 8-digit local number (without +974)");
+    const cc = formData.countryCode || DEFAULT_COUNTRY_CODE;
+    if (localDigits.length > 0 && !isValidLocalPhone(localDigits, cc)) {
+      setPhoneError(`Enter the ${localLengthHint(cc)} local number (without ${cc})`);
     } else {
       setPhoneError("");
     }
@@ -196,8 +198,8 @@ function AddNewJob() {
       return;
     }
     
-    if (!isValidLocalPhone(formData.clientMobileNumber)) {
-      alert("Phone number must be exactly 8 digits (without country code)");
+    if (!isValidLocalPhone(formData.clientMobileNumber, formData.countryCode)) {
+      alert("Enter a valid local phone number (without the country code)");
       return;
     }
 
@@ -421,7 +423,7 @@ function AddNewJob() {
                   name="location"
                   value={formData.location}
                   onChange={handleInputChange}
-                  placeholder="Enter full address (e.g., Al Rayyan, Doha)"
+                  placeholder="Address, lat/lng, or Google Maps / Waze link"
                   required
                 />
               </div>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGetJobQuery } from "../../store/portalApi";
 import StatusPill from "../../components/StatusPill";
 import { formatDateTime, statusLabel } from "../../utils/phone";
+import { getJobStatusLabel } from "../../utils/jobStatusLabels";
 import "../../styles/add-new-job.css";
 import "./JobDetail.css";
 
@@ -42,14 +43,6 @@ function JobDetail() {
         </div>
       </div>
     );
-  }
-
-  const tech = job.assignedTechnician;
-  let techName = "Not assigned yet";
-  let techPhone = null;
-  if (tech && typeof tech === "object") {
-    techName = `${tech.firstName || ""} ${tech.lastName || ""}`.trim() || "Assigned";
-    techPhone = tech.phone || null;
   }
 
   const vehicle = [job.vehicleMake, job.vehicleModel, job.vehicleYear]
@@ -97,7 +90,7 @@ function JobDetail() {
 
         <div className="add-new-job-section">
           <h2 className="add-new-job-section-title">Job Details</h2>
-          <DetailRow label="Status">{statusLabel(job.job_status)}</DetailRow>
+          <DetailRow label="Status">{getJobStatusLabel(job.job_status)}</DetailRow>
           {job.payment_status ? (
             <DetailRow label="Payment">{statusLabel(job.payment_status)}</DetailRow>
           ) : null}
@@ -111,14 +104,6 @@ function JobDetail() {
             </DetailRow>
           ) : null}
           <DetailRow label="When">{formatDateTime(job.dateTime)}</DetailRow>
-          <DetailRow label="Technician">{techName}</DetailRow>
-          {techPhone ? (
-            <DetailRow label="Tech phone">
-              <a className="call-link" href={`tel:${techPhone}`}>
-                Call {techPhone}
-              </a>
-            </DetailRow>
-          ) : null}
         </div>
       </div>
     </div>

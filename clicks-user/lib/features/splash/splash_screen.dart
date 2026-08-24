@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -43,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initData() async {
-    if (CacheHelper.get("token") == null) {
+    if (CacheHelper.getAuthToken() == null) {
       _log('🔓 No token found → navigating to welcome');
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
@@ -138,7 +139,8 @@ class _SplashScreenState extends State<SplashScreen> {
               bannerTitle: 'home.job_in_progress'.tr(),
               bannerBody: 'job_progress.banner_body'.tr(),
               jobId: jobId,
-              statusPillText: 'tracking.in_progress'.tr(),
+              jobReference: activeJob['job_reference']?.toString() ?? '',
+              statusPillText: JobStatusLabels.labelFor('in_progress'),
               technicianName: tech['name'] ?? '',
               technicianPhone: tech['phone'] ?? '',
               technicianAvatarUrl: tech['photo'] ?? '',
@@ -214,7 +216,15 @@ class _SplashScreenState extends State<SplashScreen> {
       final msg = e.toString().toLowerCase();
       final isAuth = msg.contains('401') || msg.contains('unauthorized');
       if (isAuth) {
-        await CacheHelper.remove('token');
+        await CacheHelper.secureDelete(CacheHelper.authTokenKey);
+        // The FCM token is still on the expired account server-side; drop it
+        // with the session so the next account signing in on this device does
+        // not inherit the previous one's pushes.
+        try {
+          await FCMNotificationService.instance
+              .deleteToken()
+              .timeout(const Duration(seconds: 5));
+        } catch (_) {}
         if (!mounted) return;
         context.offNamed(Routes.welcome);
       } else {

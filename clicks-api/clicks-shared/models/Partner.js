@@ -1,13 +1,21 @@
 const mongoose = require("mongoose");
 
-const ELIGIBLE_JOB_TYPES = ["keyless_car_opening", "tire_change"];
+// Accrual-eligible job types: the current catalog values plus the legacy
+// strings they replaced, so historical jobs keep accruing too.
+// (constants/jobTypes.js: keyless_car_opening → Lockout, tire_change → Flat tire)
+const ELIGIBLE_JOB_TYPES = [
+  "Lockout",
+  "Flat tire",
+  "keyless_car_opening",
+  "tire_change",
+];
 
 const PartnerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, unique: true },
     phone: { type: String, default: "" },
     email: { type: String, default: "", lowercase: true, trim: true },
-    password: { type: String, required: true },
+    password: { type: String, required: true, select: false },
     isActive: { type: Boolean, default: true },
     investmentAmount: { type: Number, required: true, min: 0, default: 10000 },
     profitPerPeriod: { type: Number, required: true, min: 0, default: 4000 },
@@ -27,6 +35,10 @@ const PartnerSchema = new mongoose.Schema(
     },
     /** Lifetime QAR credited from attributed completed jobs */
     accruedTotal: { type: Number, default: 0, min: 0 },
+    /** Lifetime QAR of principal already settled through paid withdrawals */
+    withdrawnInvestment: { type: Number, default: 0, min: 0 },
+    /** Lifetime QAR of earnings already settled through paid withdrawals */
+    withdrawnEarnings: { type: Number, default: 0, min: 0 },
     /** FCM device token for accrual push notifications */
     fcm_token: { type: String, default: null },
   },

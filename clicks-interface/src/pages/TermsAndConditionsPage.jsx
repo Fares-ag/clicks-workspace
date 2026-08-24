@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import React, { useState, useEffect } from "react";
 import PublicLayout from "../components/PublicLayout.jsx";
 
@@ -53,7 +54,9 @@ function TermsAndConditionsPage() {
             </div>
             <div
               className="public-content-body"
-              dangerouslySetInnerHTML={{ __html: terms.content }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(terms.content),
+              }}
             />
           </>
         )}

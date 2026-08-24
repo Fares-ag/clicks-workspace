@@ -1,0 +1,13 @@
+# Build context for Dockerfile.admin-api / Dockerfile.tech-api is this directory.
+# Nothing here may depend on the builder's working tree:
+#  - .env files would be baked into image layers and survive any runtime override
+#  - a copied clicks-shared/node_modules would shadow the single mongoose instance
+#    that NODE_PATH resolves to, reintroducing the split-mongoose buffering bug
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/coverage
+**/*.log
+.git

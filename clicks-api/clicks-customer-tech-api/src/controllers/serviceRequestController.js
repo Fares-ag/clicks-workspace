@@ -159,7 +159,12 @@ async function createServiceRequest(req, res) {
           code: "SERVICE_VEHICLE_REQUIRED",
         });
       }
-      vehicle = await CustomerVehicle.findById(customer_vehicle_id)
+      // Ownership check: the vehicle must belong to the authenticated customer,
+      // otherwise a stranger's plate/details leak back in the 201 response.
+      vehicle = await CustomerVehicle.findOne({
+        _id: customer_vehicle_id,
+        customer_id,
+      })
         .populate("vehicle_make")
         .populate("vehicle_model");
       if (!vehicle) {

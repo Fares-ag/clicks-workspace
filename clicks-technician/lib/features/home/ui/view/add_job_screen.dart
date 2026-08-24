@@ -73,7 +73,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
         if (results is List && results.isNotEmpty) {
           final formatted = results.first['formatted_address']?.toString();
           if (formatted != null && formatted.isNotEmpty) {
-            label = formatted;
+            label = '$formatted ($lat, $lng)';
           }
         }
       } catch (_) {}
@@ -132,8 +132,8 @@ class _AddJobScreenState extends State<AddJobScreen> {
       'jobType': _jobType,
       'price': double.tryParse(_price.text.trim()) ?? 0,
     });
-    setState(() => _saving = false);
     if (!mounted) return;
+    setState(() => _saving = false);
     if (ok) {
       AppSnackBars.successSnackBar('Job created — you can start now');
       Navigator.pop(context);
@@ -191,7 +191,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
             style: const TextStyle(color: Colors.white),
             cursorColor: Colors.white,
             decoration: _inputDeco('Location *').copyWith(
-              hintText: 'Address or tap Use current location',
+              hintText: 'Address, lat/lng, or Google Maps / Waze link',
               hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
               suffixIcon: IconButton(
                 tooltip: 'Use current location',

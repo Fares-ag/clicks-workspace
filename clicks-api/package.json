@@ -1,0 +1,16 @@
+{
+  "name": "clicks-api-workspace",
+  "private": true,
+  "description": "Integration tests for Clicks admin-api and customer-tech-api",
+  "scripts": {
+    "test": "jest --runInBand --forceExit",
+    "test:ci": "jest --runInBand --forceExit --ci"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.1.4",
+    "mongoose": "^8.3.5",
+    "socket.io-client": "^4.8.1",
+    "supertest": "^7.0.0"
+  }
+}

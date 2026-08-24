@@ -7,6 +7,7 @@ const {
   normalizeLocationString,
   parseJobLocationToGeoPoint,
 } = require("./parseJobLocation");
+const { computeJobSearchFields } = require("./searchFields");
 
 function parseDate(value) {
   if (value == null || value === "") return null;
@@ -27,6 +28,13 @@ function normalizeLocation(raw) {
   return normalizeLocationString(raw);
 }
 
+/**
+ * Historical rows are archive data, never live work — every legacy status maps
+ * to a terminal status so imported jobs can never surface in dispatch queues or
+ * a technician's active/session job lists.
+ * Legacy A (accepted), S (started), P (pending) and H (hold) were all abandoned
+ * in the old system; they are imported as cancelled.
+ */
 function mapStatus(status) {
   const s = String(status || "").trim().toUpperCase();
   switch (s) {
@@ -34,15 +42,12 @@ function mapStatus(status) {
     case "FF":
       return "completed";
     case "C":
-      return "cancelled";
     case "A":
-      return "accepted";
     case "S":
-      return "in_progress";
     case "P":
     case "H":
     default:
-      return "pending";
+      return "cancelled";
   }
 }
 
@@ -131,7 +136,7 @@ function mapHistoricalRow(row) {
   const licensePlate = row.cplateno != null ? String(row.cplateno).trim() : "";
 
   const doc = {
-    legacy_id: Number.isFinite(legacyId) ? legacyId : null,
+    ...(Number.isFinite(legacyId) ? { legacy_id: legacyId } : {}),
     clientName,
     clientMobileNumber,
     clientEmail: "",
@@ -159,6 +164,9 @@ function mapHistoricalRow(row) {
     rejection_reasons: canceledReason,
     task_description: row.techdesc != null ? String(row.techdesc).trim() : "",
     legacyTechnicianName: techName || "",
+    // insertMany skips JobSchema.pre("save"), so the admin prefix-search
+    // digests have to be part of the inserted document.
+    ...computeJobSearchFields({ clientName, clientMobileNumber }),
   };
 
   return { doc, error: null, techName: techName || null };
@@ -184,13 +192,25 @@ async function importHistoricalJobs({ Job, Source, Technician, rows }) {
     });
   }
 
+  // Full name only, and only when it resolves to exactly one technician.
+  // A first-name key silently credits every "Ahmed" row to the first Ahmed.
   const technicians = await Technician.find({}).select("_id firstName lastName").lean();
-  const techByFirstName = new Map();
+  const techByFullName = new Map();
+  const ambiguousFullNames = new Set();
   for (const t of technicians) {
-    const key = String(t.firstName || "").trim().toLowerCase();
-    if (key && !techByFirstName.has(key)) {
-      techByFirstName.set(key, t._id);
+    const key = `${String(t.firstName || "").trim()} ${String(t.lastName || "").trim()}`
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    if (!key) continue;
+    if (techByFullName.has(key)) {
+      ambiguousFullNames.add(key);
+      continue;
     }
+    techByFullName.set(key, t._id);
+  }
+  for (const key of ambiguousFullNames) {
+    techByFullName.delete(key);
   }
 
   const errors = [];
@@ -223,12 +243,14 @@ async function importHistoricalJobs({ Job, Source, Technician, rows }) {
 
     doc.source = source._id;
     if (techName) {
-      const techId = techByFirstName.get(techName.toLowerCase());
+      const techId = techByFullName.get(
+        techName.replace(/\s+/g, " ").trim().toLowerCase()
+      );
+      // No unique full-name match: leave assignedTechnician unset and keep the
+      // sheet's name in legacyTechnicianName. Imported rows are always terminal,
+      // so they never become a technician's active work either way.
       if (techId) {
         doc.assignedTechnician = techId;
-        if (doc.job_status === "pending") {
-          doc.job_status = "assigned";
-        }
       }
     }
 

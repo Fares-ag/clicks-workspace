@@ -289,7 +289,12 @@ class _ActivityDetailsScreenState extends State<ActivityDetailsScreen> {
                                               MaterialPageRoute<void>(
                                                 builder: (_) =>
                                                     InvoiceScreen(
-                                                        jobId: _jobId),
+                                                      jobId: _jobId,
+                                                      jobReference: job[
+                                                                  'job_reference']
+                                                              ?.toString() ??
+                                                          '',
+                                                    ),
                                               ),
                                             );
                                           },
@@ -395,6 +400,7 @@ class _ClientCard extends StatelessWidget {
     final phone = (job['clientMobileNumber'] ?? phoneFromCustomer).toString();
     final name = (job['clientName'] ?? '—').toString();
     final location = (job['location'] ?? '—').toString();
+    final coords = jobLatLngFromMap(job);
 
     return _SectionCard(
       icon: Icons.person_outline,
@@ -432,7 +438,11 @@ class _ClientCard extends StatelessWidget {
           InkWell(
             onTap: location == '—'
                 ? null
-                : () => openJobLocationInMaps(location),
+                : () => openJobLocationInMaps(
+                      location,
+                      lat: coords?.lat,
+                      lng: coords?.lng,
+                    ),
             child: Text(
               location,
               style: TextStyles.font14RegularGrey.copyWith(

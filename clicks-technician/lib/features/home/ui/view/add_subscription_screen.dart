@@ -54,8 +54,8 @@ class _AddSubscriptionScreenState extends State<AddSubscriptionScreen> {
       'price': double.tryParse(_price.text.trim()) ?? 0,
       'startDate': DateTime.now().toIso8601String(),
     });
-    setState(() => _saving = false);
     if (!mounted) return;
+    setState(() => _saving = false);
     if (ok) {
       AppSnackBars.successSnackBar('Subscription created');
       Navigator.pop(context);

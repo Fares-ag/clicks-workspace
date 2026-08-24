@@ -1,5 +1,5 @@
 // Usage: node scripts/resetPassword.js <technician|customer> <id> <newPassword>
-const mongoose = require("clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const path = require('path');
 const bcrypt = require('bcryptjs');
 

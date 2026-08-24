@@ -682,8 +682,20 @@ class _AddEditCarForm extends StatelessWidget {
                       errorBorder: _outline(Colors.red),
                       contentPadding: const EdgeInsets.all(12),
                     ),
-                    validator: (v) =>
-                        (v?.trim().isEmpty ?? true) ? 'my_cars.year_required'.tr() : null,
+                    validator: (v) {
+                      final raw = v?.trim() ?? '';
+                      if (raw.isEmpty) return 'my_cars.year_required'.tr();
+                      // Numeric keyboards still emit '.', ',' and '-', and
+                      // pasted text is unrestricted — reject it here instead
+                      // of throwing on num.parse inside the cubit.
+                      final year = int.tryParse(raw);
+                      if (year == null ||
+                          year < 1900 ||
+                          year > DateTime.now().year + 1) {
+                        return 'my_cars.year_invalid'.tr();
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
 
@@ -753,9 +765,19 @@ class _AddEditCarForm extends StatelessWidget {
                           if (isEdit && car != null) {
                             cubit.updateVehicle(car!.sId!);
                           } else {
-                            cubit.addVehicle(
-                              context.read<SettingsCubit>().profile!.id!,
-                            );
+                            // profile is null whenever the profile fetch
+                            // failed or has not completed — force-unwrapping
+                            // it threw inside the callback and the user got
+                            // no feedback at all.
+                            final customerId =
+                                context.read<SettingsCubit>().profile?.id;
+                            if (customerId == null || customerId.isEmpty) {
+                              AppSnackBars.errorSnackBar(
+                                'my_cars.profile_unavailable'.tr(),
+                              );
+                              return;
+                            }
+                            cubit.addVehicle(customerId);
                           }
                         }
                       },

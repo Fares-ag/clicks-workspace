@@ -1,5 +1,5 @@
 // Usage: node scripts/verifyCredentials.js <technician|customer> <phone_or_phone_number> <password>
-const mongoose = require("clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const path = require('path');
 const bcrypt = require('bcryptjs');
 

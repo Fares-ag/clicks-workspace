@@ -29,6 +29,16 @@ if (keyPropertiesFile.exists()) {
     keyPropertiesFile.reader(Charsets.UTF_8).use { keyProperties.load(it) }
 }
 
+// Fail closed: release artifacts must be signed with the upload keystore. Without
+// key.properties Gradle would otherwise fall back to the public Android debug key.
+gradle.taskGraph.whenReady { graph ->
+    if (!keyPropertiesFile.exists() && graph.allTasks.any { it.name.contains("Release") }) {
+        throw GradleException(
+            "android/key.properties missing - refusing to build a release artifact without the upload keystore"
+        )
+    }
+}
+
 android {
     namespace = "com.roya.clicks_user"
     compileSdk = flutter.compileSdkVersion
@@ -69,11 +79,10 @@ android {
 
     buildTypes {
         release {
-            // Use release keystore when present; otherwise debug for sideload testing.
             signingConfig = if (keyPropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
         }
     }

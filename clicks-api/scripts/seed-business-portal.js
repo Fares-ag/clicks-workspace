@@ -10,7 +10,7 @@ const path = require("path");
 require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-admin-api/.env"),
 });
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const bcrypt = require("../clicks-admin-api/node_modules/bcryptjs");
 const { Business, BusinessUser, Source } = require("../clicks-shared/models");
 

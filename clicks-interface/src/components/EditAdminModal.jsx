@@ -7,7 +7,9 @@ import CustomSelect from "./CustomSelect.jsx";
 import PhoneInput from "./PhoneInput.jsx";
 import {
   DEFAULT_COUNTRY_CODE,
+  countryCodeFromPhone,
   isValidLocalPhone,
+  localLengthHint,
   toE164,
   toLocalDigits,
 } from "../utils/phone";
@@ -47,8 +49,8 @@ export default function EditAdminModal({ open, onClose, adminId, onSuccess }) {
         firstName: admin.firstName || "",
         lastName: admin.lastName || "",
         email: admin.email || "",
-        phone: toLocalDigits(admin.phone || "", DEFAULT_COUNTRY_CODE),
-        countryCode: DEFAULT_COUNTRY_CODE,
+        phone: toLocalDigits(admin.phone || "", countryCodeFromPhone(admin.phone)),
+        countryCode: countryCodeFromPhone(admin.phone),
         profileImage: null,
         role: admin.role || ""
       });
@@ -76,8 +78,9 @@ export default function EditAdminModal({ open, onClose, adminId, onSuccess }) {
     if (!fields.lastName) newErrors.lastName = "Last Name required.";
     if (!fields.email) newErrors.email = "Email Address required.";
     if (!fields.phone) newErrors.phone = "Phone required.";
-    else if (!isValidLocalPhone(fields.phone)) {
-      newErrors.phone = "Enter the 8-digit local number (without +974).";
+    else if (!isValidLocalPhone(fields.phone, fields.countryCode)) {
+      const cc = fields.countryCode || DEFAULT_COUNTRY_CODE;
+      newErrors.phone = `Enter the ${localLengthHint(cc)} local number (without ${cc}).`;
     }
     if (!fields.role) newErrors.role = "Role required.";
     setErrors(newErrors);

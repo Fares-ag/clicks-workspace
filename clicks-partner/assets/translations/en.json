@@ -25,6 +25,7 @@
   "this_month": "This month",
   "jobs_this_week": "Jobs this week",
   "jobs_this_month": "Jobs this month",
+  "jobs_count": "{count} jobs",
   "period_start": "Start",
   "period_end": "End",
   "ceiling_note": "Maximum is a ceiling, not a guaranteed payout.",

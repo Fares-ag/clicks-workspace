@@ -100,6 +100,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
       }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('failed_to_load'.tr())),
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -141,6 +147,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SnackBar(
             content: Text(DioHelper.errorMessage(res) ?? 'failed_to_load'.tr()),
           ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('failed_to_load'.tr())),
         );
       }
     } finally {

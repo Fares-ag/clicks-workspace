@@ -10,6 +10,7 @@ import EditDocumentModal from "../../components/EditDocumentModal.jsx";
 import SettleBalanceModal from "../../components/SettleBalanceModal.jsx";
 import ApproveApplicationModal from "../../components/ApproveApplicationModal.jsx";
 import { useAdminRole } from "../../utils/adminRoles";
+import { getJobDisplayId } from "../../utils/jobLabel.js";
 import "./TechnicianDetails.css";
 
 function StatusPill({ status }) {
@@ -485,7 +486,7 @@ export default function TechnicianDetails() {
             {recentJobs.length > 0 ? (
               recentJobs.map((job, idx) => (
                 <tr key={idx}>
-                  <td>{job.id}</td>
+                  <td>{getJobDisplayId(job)}</td>
                   <td>{new Date(job.date).toLocaleString()}</td>
                   <td><JobStatusPill status={job.status} /></td>
                   <td>{job.location}</td>

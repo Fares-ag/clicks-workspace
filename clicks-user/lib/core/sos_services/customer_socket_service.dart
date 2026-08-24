@@ -4,6 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 import '../api/dio_helper.dart';
 import '../config/app_config.dart';
 import '../helper/cache_helper.dart';
+import '../monitoring/sentry_config.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -46,14 +47,14 @@ class CustomerSocketService {
     }
 
     _customerId = customerId;
-    final token = CacheHelper.get("token")?.toString();
+    final token = CacheHelper.getAuthToken() ?? '';
 
     _socket?.dispose();
     _socket = sio.io(
       '${AppConfig.socketUrl}/customer',
       sio.OptionBuilder()
           .setTransports(['websocket', 'polling'])
-          .setAuth({'token': token ?? ''})
+          .setAuth({'token': token})
           .enableForceNew()
           .enableReconnection()
           .setReconnectionAttempts(999)
@@ -72,8 +73,13 @@ class CustomerSocketService {
     _socket!.onDisconnect((reason) {
       _log('❌ Customer WebSocket Disconnected: $reason');
     });
-    _socket!.onConnectError((err) =>
-        _log('❌ Customer socket connect error: $err'));
+    _socket!.onConnectError((err) {
+      _log('❌ Customer socket connect error: $err');
+      SentryConfig.captureException(
+        StateError('Customer socket connect error'),
+        tags: const {'component': 'customer_socket'},
+      );
+    });
     _socket!.onReconnect((_) {
       _log('🔄 Customer WebSocket reconnected');
       _socket!.emit('register');
@@ -153,10 +159,18 @@ class CustomerSocketService {
 
     _socket!.on('error', (data) {
       _log('❌ Socket Error: $data');
+      SentryConfig.captureException(
+        StateError('Customer socket error'),
+        tags: const {'component': 'customer_socket'},
+      );
       onError?.call(data);
     });
     _socket!.on('sosError', (data) {
       _log('❌ SOS Error: $data');
+      SentryConfig.captureException(
+        StateError('Customer SOS socket error'),
+        tags: const {'component': 'customer_socket'},
+      );
       onError?.call(data);
     });
   }
@@ -205,15 +219,25 @@ class CustomerSocketService {
     connect(_customerId!);
   }
 
-  void cancelSOS(String? sosId, {String? reason}) {
+  /// Emits `cancelSOS`. Returns false when the request could not be sent
+  /// (socket down, unknown SOS id, missing reason) — the caller must NOT
+  /// treat the SOS as cancelled in that case.
+  bool cancelSOS(String? sosId, {String? reason}) {
     if (_socket == null || !isConnected || sosId == null || sosId.isEmpty) {
-      return;
+      _log('❌ cancelSOS not sent — connected=$isConnected sos_id=$sosId');
+      return false;
+    }
+    final trimmed = reason?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      _log('❌ cancelSOS not sent — reason is required');
+      return false;
     }
     _socket!.emit('cancelSOS', {
       'sos_id': sosId,
-      'reason': reason ?? 'cancelled_by_customer',
+      'reason': trimmed,
     });
-    _log('❌ cancelSOS emitted: $sosId reason=$reason');
+    _log('❌ cancelSOS emitted: $sosId reason=$trimmed');
+    return true;
   }
 
   void disconnect() {
@@ -231,8 +255,13 @@ class SessionService {
         url: '/api/jobs/customer/session',
       );
       return response.data;
-    } catch (e) {
+    } catch (e, st) {
       _log('❌ SessionService.getCustomerSession error: $e');
+      SentryConfig.captureException(
+        e,
+        stackTrace: st,
+        tags: const {'component': 'customer_session'},
+      );
       rethrow;
     }
   }
@@ -243,8 +272,13 @@ class SessionService {
         url: '/api/jobs/customer/active',
       );
       return response.data;
-    } catch (e) {
+    } catch (e, st) {
       _log('❌ SessionService.getCustomerActiveJob error: $e');
+      SentryConfig.captureException(
+        e,
+        stackTrace: st,
+        tags: const {'component': 'customer_session'},
+      );
       return null;
     }
   }
@@ -255,8 +289,13 @@ class SessionService {
         url: '/api/jobs/customer/active-sos',
       );
       return response.data;
-    } catch (e) {
+    } catch (e, st) {
       _log('❌ SessionService.getCustomerActiveSos error: $e');
+      SentryConfig.captureException(
+        e,
+        stackTrace: st,
+        tags: const {'component': 'customer_session'},
+      );
       return null;
     }
   }

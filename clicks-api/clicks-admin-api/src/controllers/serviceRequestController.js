@@ -1,5 +1,54 @@
 const ServiceRequest = require("../models/ServiceRequest");
 const Lead = require("../models/Lead");
+const Customer = require("../models/Customer");
+const CustomerVehicle = require("../../../clicks-shared/models/CustomerVehicle");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { objectId } = require("../../../clicks-shared/utils/coerce");
+
+// Cap on how many customer/vehicle ids a single search may expand into, so a
+// very broad term cannot build an unbounded $in list.
+const SEARCH_MATCH_LIMIT = 500;
+
+/**
+ * Translate the free-text list search into a Mongo filter fragment so that
+ * skip/limit and countDocuments both see it. Matching customers/vehicles are
+ * resolved first because the searchable name/phone/plate live on those
+ * collections.
+ */
+async function buildSearchFilter(search) {
+  const tokens = String(search).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+
+  const customerConditions = tokens.map((token) => {
+    const rx = new RegExp(escapeRegex(token), "i");
+    return { $or: [{ first_name: rx }, { last_name: rx }, { phone_number: rx }] };
+  });
+  const termRegex = new RegExp(escapeRegex(search), "i");
+
+  const [customers, vehicles] = await Promise.all([
+    Customer.find({ $and: customerConditions })
+      .select("_id")
+      .limit(SEARCH_MATCH_LIMIT)
+      .lean(),
+    CustomerVehicle.find({ plate_number: termRegex })
+      .select("_id")
+      .limit(SEARCH_MATCH_LIMIT)
+      .lean(),
+  ]);
+
+  const or = [{ service_type: termRegex }];
+  if (customers.length) {
+    or.push({ customer_id: { $in: customers.map((c) => c._id) } });
+  }
+  if (vehicles.length) {
+    or.push({ customer_vehicle_id: { $in: vehicles.map((v) => v._id) } });
+  }
+  const asId = objectId(search);
+  if (asId) {
+    or.push({ _id: asId });
+  }
+  return { $or: or };
+}
 
 function mapServiceRequest(doc, leadBySrId = {}) {
   if (!doc) return null;
@@ -75,6 +124,16 @@ const getServiceRequests = async (req, res) => {
       filter.timing = timing;
     }
 
+    // The search has to be part of the Mongo filter: filtering the page in
+    // JavaScript after skip/limit hid every match that was not on the current
+    // page and reported the page's own length as the total.
+    if (search) {
+      const searchFilter = await buildSearchFilter(search);
+      if (searchFilter) {
+        Object.assign(filter, searchFilter);
+      }
+    }
+
     let query = ServiceRequest.find(filter)
       .populate("customer_id", "first_name last_name phone_number email")
       .populate({
@@ -92,7 +151,7 @@ const getServiceRequests = async (req, res) => {
       .skip((page - 1) * limit)
       .limit(limit);
 
-    let docs = await query;
+    const docs = await query;
     const srIds = docs.map((d) => d._id);
     const leads = await Lead.find({
       service_request_id: { $in: srIds },
@@ -101,27 +160,7 @@ const getServiceRequests = async (req, res) => {
       leads.map((l) => [l.service_request_id.toString(), l._id.toString()])
     );
 
-    if (search) {
-      const q = search.toLowerCase();
-      docs = docs.filter((d) => {
-        const mapped = mapServiceRequest(d, leadBySrId);
-        const hay = [
-          mapped.service_type,
-          mapped.customer?.name,
-          mapped.customer?.phone,
-          mapped.vehicle?.plate,
-          mapped.location?.coordinates,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(q);
-      });
-    }
-
-    const total = search
-      ? docs.length
-      : await ServiceRequest.countDocuments(filter);
+    const total = await ServiceRequest.countDocuments(filter);
 
     res.json({
       requests: docs.map((d) => mapServiceRequest(d, leadBySrId)),

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetLeadsQuery } from "../../store/leadApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import "../SOSInbox/SOSInbox.css";
 
@@ -27,13 +28,14 @@ function StatusBadge({ status }) {
 function Leads() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [statusFilter, setStatusFilter] = useState("");
 
   const { data, isLoading, refetch } = useGetLeadsQuery({
     page,
     limit: 15,
-    search,
+    search: debouncedSearch,
     status: statusFilter || undefined,
   });
 
@@ -129,9 +131,9 @@ function Leads() {
           <input
             className="sos-inbox-search"
             placeholder="Search name, phone, inquiry…"
-            value={search}
+            value={searchInput}
             onChange={(e) => {
-              setSearch(e.target.value);
+              setSearchInput(e.target.value);
               setPage(1);
             }}
           />

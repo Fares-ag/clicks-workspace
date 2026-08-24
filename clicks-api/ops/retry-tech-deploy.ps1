@@ -1,4 +1,6 @@
-﻿$ErrorActionPreference = "Continue"
+﻿# DEPRECATED — use GitHub Actions .github/workflows/deploy-production.yml instead.
+# Tag a commit on main (v*) or run workflow_dispatch; do not retry `railway up` from a laptop.
+$ErrorActionPreference = "Continue"
 $log = "C:\Users\TS\Downloads\clicks-api\ops\railway-tech-retry.log"
 $root = "C:\Users\TS\Downloads\clicks-api"
 Set-Location $root
@@ -7,32 +9,13 @@ $delaySec = 900
 for ($i = 1; $i -le $maxAttempts; $i++) {
   $ts = Get-Date -Format o
   Add-Content $log "[$ts] attempt $i/$maxAttempts"
-  $toml = @"
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.tech-api"
-
-[deploy]
-healthcheckPath = "/api/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
-"@
-  Set-Content -Path "$root\railway.toml" -Value $toml -Encoding utf8
+  # Build config comes from railway.tech.toml (this service's config-as-code
+  # path in Railway). Never rewrite a shared railway.toml: clicks-admin-api
+  # builds from the same directory and would pick up the tech Dockerfile.
   $out = railway up --service clicks-tech-api --detach 2>&1 | Out-String
   $code = $LASTEXITCODE
   Add-Content $log $out
   Add-Content $log "exit=$code"
-  $adminToml = @"
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.admin-api"
-
-[deploy]
-healthcheckPath = "/api/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
-"@
-  Set-Content -Path "$root\railway.toml" -Value $adminToml -Encoding utf8
   if ($code -eq 0 -and $out -notmatch "peak hours") {
     Add-Content $log "SUCCESS at $(Get-Date -Format o)"
     break

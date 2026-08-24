@@ -168,19 +168,23 @@ function BusinessDetails() {
     }
   };
 
-  if (isLoading || !form) {
-    return <div className="biz-loading">Loading business…</div>;
-  }
-
-  if (error || !business) {
+  // Failure first: `form` is only filled from a successful response, so a
+  // settled failure must not fall into the loading guard below and spin forever.
+  if (error || (!isLoading && !business)) {
     return (
       <div className="biz-form-page">
         <button type="button" className="biz-back" onClick={() => navigate("/businesses")}>
           ← Back
         </button>
-        <div className="biz-empty">Business not found</div>
+        <div className="biz-empty">
+          {error ? "Could not load this business. Please try again." : "Business not found"}
+        </div>
       </div>
     );
+  }
+
+  if (isLoading || !form) {
+    return <div className="biz-loading">Loading business…</div>;
   }
 
   const jobsUrl = `/jobs?search=${encodeURIComponent(business.name || "")}`;

@@ -299,7 +299,7 @@ async function runServerPhase() {
 
   let tech = null;
   if (process.env.MONGODB_URI) {
-    const mongoose = require("../clicks-shared/node_modules/mongoose");
+    const mongoose = require("mongoose");
     const { Technician } = require("../clicks-shared/models");
     await mongoose.connect(process.env.MONGODB_URI);
     tech = await Technician.findById(techId).select("firstName lastName phone fcm_token").lean();
@@ -432,7 +432,7 @@ async function sendLiveFcm() {
   });
   const techId = loginR.data.technician?.id || loginR.data.technician?._id || loginR.data.id;
 
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Technician } = require("../clicks-shared/models");
   await mongoose.connect(process.env.MONGODB_URI);
   const tech = await Technician.findById(techId).select("fcm_token firstName lastName").lean();

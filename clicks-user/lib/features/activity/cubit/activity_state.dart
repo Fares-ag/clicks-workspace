@@ -12,10 +12,12 @@ final class ActivityLoading extends ActivityState {}
 
 final class ActivitySuccess extends ActivityState {
   final List<JobDto> jobs;
-  const ActivitySuccess(this.jobs);
+  final bool hasMore;
+  final bool loadingMore;
+  const ActivitySuccess(this.jobs, {this.hasMore = false, this.loadingMore = false});
 
   @override
-  List<Object?> get props => [jobs];
+  List<Object?> get props => [jobs, hasMore, loadingMore];
 }
 
 final class ActivityFailure extends ActivityState {

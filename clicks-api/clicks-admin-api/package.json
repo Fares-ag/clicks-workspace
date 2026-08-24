@@ -20,9 +20,11 @@
   "dependencies": {
     "@azure/communication-email": "^1.1.0",
     "@azure/storage-blob": "^12.27.0",
+    "@sentry/node": "^10.70.0",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "clicks-shared": "file:../clicks-shared",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.5",

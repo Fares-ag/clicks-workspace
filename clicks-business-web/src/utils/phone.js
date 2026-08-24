@@ -1,4 +1,9 @@
 /** Qatar-first phone helpers — same rules as Flutter business app / admin Add Job. */
+import {
+  getJobStatusThemeClass,
+  titleCaseStatus,
+} from "./jobStatusLabels";
+
 export const DEFAULT_COUNTRY_CODE = "+974";
 
 export const COUNTRY_CODES = [
@@ -47,20 +52,17 @@ export function formatDateTime(value) {
   });
 }
 
+/** @deprecated Use getJobStatusLabel — kept for payment_status and other non-job fields. */
 export function statusLabel(status) {
-  return String(status || "")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return titleCaseStatus(status);
 }
 
+/** @deprecated Use getJobStatusThemeClass for job_status pills. */
 export function statusClass(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "completed") return "status-completed";
-  if (s === "cancelled" || s === "rejected") return "status-rejected";
-  if (s === "pending") return "status-pending";
-  if (s === "accepted" || s === "assigned") return "status-accepted";
-  if (s === "en_route") return "status-enroute";
-  if (s === "arrived") return "status-arrived";
-  if (s === "in_progress") return "status-in-progress";
-  return "status-pending";
+  return getJobStatusThemeClass(status);
 }
+
+export {
+  getJobStatusLabel as jobStatusLabel,
+  getJobStatusThemeClass as jobStatusClass,
+} from "./jobStatusLabels";

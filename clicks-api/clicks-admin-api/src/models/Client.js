@@ -1,4 +1,4 @@
-const mongoose = require("clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 
 const ClientSchema = new mongoose.Schema(
   {

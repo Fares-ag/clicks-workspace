@@ -3,6 +3,9 @@ const Business = require("../models/Business");
 const BusinessUser = require("../models/BusinessUser");
 const Source = require("../models/Source");
 const Job = require("../models/Job");
+// Same earnings definition as the business portal/dashboard: a "profit" cut is
+// a share of the audited net profit, not of revenue.
+const { cutAmountExpr } = require("../../../clicks-shared/utils/businessCut");
 
 async function listBusinesses(req, res) {
   try {
@@ -310,16 +313,7 @@ async function getBusinessStats(req, res) {
       }),
       Job.aggregate([
         { $match: completedMatch },
-        {
-          $project: {
-            cut: {
-              $multiply: [
-                { $ifNull: ["$price", 0] },
-                { $divide: [{ $ifNull: ["$businessCutPercent", 0] }, 100] },
-              ],
-            },
-          },
-        },
+        { $project: { cut: cutAmountExpr() } },
         { $group: { _id: null, estimatedEarnings: { $sum: "$cut" } } },
       ]),
     ]);

@@ -265,9 +265,41 @@ async function sendCustomerPush(customer, payload) {
   }
 }
 
+/** Must match clicks-technician `kJobUrgentChannelId`. */
+const TECH_JOB_URGENT_CHANNEL = "clicks_job_urgent_v4";
+
+function formatJobAssignedLocation(raw) {
+  if (raw == null || raw === "") return "";
+  if (typeof raw === "object") {
+    try {
+      return JSON.stringify(raw);
+    } catch (_) {
+      return "";
+    }
+  }
+  let location = String(raw).trim();
+  if (location.startsWith("LatLng(") && location.endsWith(")")) {
+    location = location.slice(7, -1).trim();
+  }
+  return location;
+}
+
+function buildJobAssignedNotificationCopy(jobPayload = {}) {
+  const issue = String(jobPayload.issue || "New job").trim() || "New job";
+  const location = formatJobAssignedLocation(jobPayload.location);
+  const body = location ? `${issue} — ${location}` : issue;
+  return {
+    title: "New job assigned",
+    title_ar: "مهمة جديدة",
+    body: body.slice(0, 240),
+  };
+}
+
 /**
- * Data-only high-priority Android push for a newly assigned job.
- * Client owns channel UX (clicks_job_urgent_v2).
+ * Hybrid notification+data push for a newly assigned job.
+ * OS shows the tray/heads-up alert when the app is backgrounded or killed;
+ * data payload still hydrates Accept / session when the app opens.
+ * Foreground UX remains client-owned (insistent local channel + alarm).
  */
 async function sendJobAssignedPush(technician, jobPayload) {
   const msg = initFirebase();
@@ -282,21 +314,57 @@ async function sendJobAssignedPush(technician, jobPayload) {
     return false;
   }
 
+  const copy = buildJobAssignedNotificationCopy(jobPayload);
   const data = buildPushData({
     ...(jobPayload || {}),
     type: (jobPayload && jobPayload.type) || "job_assigned",
-    channelId: "clicks_job_urgent_v4",
+    channelId: TECH_JOB_URGENT_CHANNEL,
+    title: copy.title,
+    body: copy.body,
+    title_ar: copy.title_ar,
   });
+  const jobId = data.job_id || "";
+
+  const androidNotification = {
+    channelId: TECH_JOB_URGENT_CHANNEL,
+    sound: "job_urgent",
+    priority: "max",
+    visibility: "public",
+    defaultVibrateTimings: true,
+  };
+  if (jobId) {
+    androidNotification.tag = jobId;
+  }
 
   try {
     await msg.send({
       token,
+      notification: {
+        title: copy.title,
+        body: copy.body,
+      },
       data,
       android: {
         priority: "high",
+        notification: androidNotification,
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
+        },
+        payload: {
+          aps: {
+            alert: {
+              title: copy.title,
+              body: copy.body,
+            },
+            sound: "default",
+            "content-available": 1,
+          },
+        },
       },
     });
-    console.log(`[fcm] job_assigned push sent for job ${data.job_id || "?"}`);
+    console.log(`[fcm] job_assigned push sent for job ${jobId || "?"}`);
     return true;
   } catch (err) {
     console.error("[fcm] send failed:", err.message);

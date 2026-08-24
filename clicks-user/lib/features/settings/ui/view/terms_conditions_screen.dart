@@ -35,11 +35,13 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
       });
 
       final response = await _repository.getTermsConditions();
+      if (!mounted) return;
       setState(() {
         _terms = response.terms;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;

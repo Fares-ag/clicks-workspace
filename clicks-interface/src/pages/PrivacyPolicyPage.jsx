@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import React, { useState, useEffect } from "react";
 import PublicLayout from "../components/PublicLayout.jsx";
 
@@ -53,7 +54,9 @@ function PrivacyPolicyPage() {
             </div>
             <div
               className="public-content-body"
-              dangerouslySetInnerHTML={{ __html: policy.content }}
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(policy.content),
+              }}
             />
           </>
         )}

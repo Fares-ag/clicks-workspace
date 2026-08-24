@@ -25,6 +25,7 @@
   "this_month": "هذا الشهر",
   "jobs_this_week": "وظائف هذا الأسبوع",
   "jobs_this_month": "وظائف هذا الشهر",
+  "jobs_count": "{count} وظائف",
   "period_start": "البداية",
   "period_end": "النهاية",
   "ceiling_note": "الحد الأقصى سقف وليس ضماناً للدفع.",

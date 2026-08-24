@@ -4,6 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 import '../config/app_config.dart';
 import '../config/product_rules.dart';
 import '../helper/cache_helper.dart';
+import '../monitoring/sentry_config.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -24,6 +25,12 @@ class TechnicianSocketService {
   TechnicianSocketService._internal();
 
   sio.Socket? _socket;
+  String? _boundToken;
+  bool _listenersBound = false;
+
+  /// Reconnection runs 999 times at 2 s apart, so report a connect failure at
+  /// most once per outage instead of once per attempt. Cleared on reconnect.
+  bool _connectErrorReported = false;
 
   void Function(dynamic)? onNewJobAssigned;
   void Function(dynamic)? onEnRouteConfirmed;
@@ -39,39 +46,87 @@ class TechnicianSocketService {
   bool get isConnected => _socket?.connected ?? false;
 
   void connect() {
-    final token = CacheHelper.get("token")?.toString();
+    final token = CacheHelper.getAuthToken() ?? '';
 
-    _socket?.dispose();
+    // Avoid thrashing: rebuilds must not tear down a healthy socket.
+    if (_socket != null && isConnected && _boundToken == token) {
+      return;
+    }
+
+    if (_socket != null && _boundToken != token) {
+      disconnect();
+    }
+
+    if (_socket != null) {
+      if (!isConnected) {
+        _socket!.connect();
+      }
+      return;
+    }
+
+    _boundToken = token;
+    _listenersBound = false;
     _socket = sio.io(
       '${AppConfig.socketUrl}/technician',
       sio.OptionBuilder()
-          .setTransports(['websocket'])
-          .setAuth({'token': token ?? ''})
+          .setTransports(['websocket', 'polling'])
+          .setAuth({'token': token})
           .enableForceNew()
+          .enableReconnection()
+          .setReconnectionAttempts(999)
+          .setReconnectionDelay(2000)
           .disableAutoConnect()
           .build(),
     );
 
+    _bindConnectionHandlers();
+    _setupEventListeners();
     _socket!.connect();
+  }
+
+  void _bindConnectionHandlers() {
+    if (_listenersBound || _socket == null) return;
+    _listenersBound = true;
 
     _socket!.onConnect((_) {
       _log('✅ Technician WebSocket Connected');
-      // Server takes technician id from JWT — no client payload required.
-      _socket!.emit('register');
-      onConnected?.call();
+      _onSocketReady();
     });
 
-    _socket!.onDisconnect((_) {
-      _log('❌ Technician WebSocket Disconnected');
+    _socket!.onReconnect((_) {
+      _log('🔄 Technician WebSocket reconnected');
+      _onSocketReady();
+    });
+
+    _socket!.onDisconnect((reason) {
+      _log('❌ Technician WebSocket Disconnected: $reason');
       onDisconnected?.call();
     });
 
     _socket!.onConnectError((err) {
       _log('❌ Technician socket connect error: $err');
+      if (_connectErrorReported) return;
+      _connectErrorReported = true;
+      SentryConfig.captureException(
+        StateError('Technician socket connect error'),
+        tags: const {'component': 'technician_socket'},
+      );
       onError?.call({'message': 'Socket connection failed'});
     });
+  }
 
-    _setupEventListeners();
+  /// Server maps technician id from JWT on every connect/reconnect.
+  void _onSocketReady() {
+    _connectErrorReported = false;
+    _socket?.emit('register');
+    onConnected?.call();
+  }
+
+  /// Call when app returns to foreground to ensure socket is alive.
+  void ensureConnected() {
+    if (!isConnected) {
+      reconnect();
+    }
   }
 
   void _setupEventListeners() {
@@ -129,6 +184,10 @@ class TechnicianSocketService {
       final message =
           (data is Map ? data['message'] : null)?.toString() ?? 'Socket error';
       _log('❌ Socket Error: $message');
+      SentryConfig.captureException(
+        StateError('Technician socket error'),
+        tags: const {'component': 'technician_socket'},
+      );
       onError?.call(data);
     });
   }
@@ -138,6 +197,8 @@ class TechnicianSocketService {
     required double latitude,
     required double longitude,
     String? jobId,
+    double? accuracy,
+    DateTime? fixTime,
   }) {
     if (_socket == null || !isConnected) return;
 
@@ -148,6 +209,14 @@ class TechnicianSocketService {
     };
     if (jobId != null && jobId.isNotEmpty) {
       payload['job_id'] = jobId;
+    }
+    if (accuracy != null && accuracy > 0) {
+      payload['accuracy'] = accuracy;
+    }
+    // When the fix was MEASURED, not when it is being sent. The liveness
+    // heartbeat replays an old pin, and the server must be able to tell.
+    if (fixTime != null) {
+      payload['fix_time'] = fixTime.toUtc().toIso8601String();
     }
 
     _socket!.emit('updateLocation', payload);
@@ -179,6 +248,16 @@ class TechnicianSocketService {
   }
 
   void reconnect() {
+    final token = CacheHelper.getAuthToken() ?? '';
+    if (_socket != null && isConnected && _boundToken == token) {
+      return;
+    }
+    if (_socket != null && _boundToken == token) {
+      _log('🔄 Reconnecting technician socket');
+      _socket!.connect();
+      return;
+    }
+    _log('🔄 Rebuilding technician socket');
     disconnect();
     connect();
   }
@@ -187,6 +266,9 @@ class TechnicianSocketService {
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+    _boundToken = null;
+    _listenersBound = false;
+    _connectErrorReported = false;
     _log('🔌 Technician socket disconnected');
   }
 

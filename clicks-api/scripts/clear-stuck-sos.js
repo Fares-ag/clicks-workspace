@@ -6,7 +6,7 @@ const path = require("path");
 require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-customer-tech-api/.env"),
 });
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const { SOSRequest, Customer } = require("../clicks-shared/models");
 
 (async () => {

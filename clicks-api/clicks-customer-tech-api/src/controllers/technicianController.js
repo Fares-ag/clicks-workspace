@@ -11,8 +11,12 @@ const {
   setTechnicianStatus,
 } = require("../../../clicks-shared/services/technicianOnlineHours");
 const {
-  parseJobLocationToGeoPoint,
-} = require("../../../clicks-shared/utils/parseJobLocation");
+  resolveJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/resolveJobLocation");
+const {
+  applyTechnicianLocationWrite,
+  parseCoordinatePair,
+} = require("../../../clicks-shared/utils/technicianLocationWrite");
 const { JOB_TYPES } = require("../../../clicks-shared/constants/jobTypes");
 
 // OTP send/verify
@@ -29,7 +33,7 @@ const normalizePhone = (raw) => {
  * Normalise a raw phone string to E.164, honouring Qatar's 8-digit local format.
  * "11111111" → "+97411111111"; "+97411111111" → "+97411111111"; "97411111111" → "+97411111111"
  */
-const { str } = require("../../../clicks-shared/utils/coerce");
+const { str, num, objectId } = require("../../../clicks-shared/utils/coerce");
 const {
   findAndVerifyOtp,
   generateOtp,
@@ -77,11 +81,11 @@ const login = async (req, res) => {
           { phone: bare },
           { phone: String(phone).trim() },
         ],
-      });
+      }).select("+password");
     } else if (email) {
       // Coerced: {"email":{"$ne":null}} would otherwise match an arbitrary
       // technician and let an attacker enumerate accounts.
-      technician = await Technician.findOne({ email: str(email, { maxLength: 254 }) });
+      technician = await Technician.findOne({ email: str(email, { maxLength: 254 }) }).select("+password");
     } else {
       return res.status(400).json({ error: "Phone or email required" });
     }
@@ -92,9 +96,19 @@ const login = async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
+    if (technician.isActive === false) {
+      return res.status(403).json({ error: "This account has been deactivated" });
+    }
     if (!process.env.JWT_SECRET) {
       return res.status(503).json({ error: "Auth not configured" });
     }
+    // Registration is public, so the token is deliberately NOT the approval
+    // boundary — requireApprovedTechnician re-checks applicationStatus and
+    // isActive on every technician-role route, which also revokes tokens that
+    // were issued before an admin rejected the application. A Pending applicant
+    // therefore gets a token that opens nothing, which is what the app needs:
+    // the status screen sends it straight to Home the moment the 15s poll flips
+    // to Approved, with no re-login.
     const token = jwt.sign(
       { id: technician._id, role: "technician" },
       process.env.JWT_SECRET,
@@ -324,64 +338,61 @@ const getDashboard = async (req, res) => {
   }
 };
 
-// Per-tech in-memory throttle (avoids hammering Mongo on every 3s ping)
-const _locationThrottleMs = Number(process.env.LOCATION_THROTTLE_MS || 3000);
-const _lastLocationWrite = new Map(); // techId -> timestamp
-
 const updateLocation = async (req, res) => {
   try {
     const technicianId = String(req.user.id);
-    const { latitude, longitude, job_id } = req.body;
+    const { latitude, longitude, job_id, accuracy, fix_time } = req.body;
 
-    if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+    if (!parseCoordinatePair(latitude, longitude)) {
       return res.status(400).json({ error: "Invalid coordinates" });
     }
 
-    const now = Date.now();
-    const last = _lastLocationWrite.get(technicianId) || 0;
-    if (now - last < _locationThrottleMs) {
-      return res.status(200).json({ ok: true, skipped: true });
-    }
-    _lastLocationWrite.set(technicianId, now);
-
-    const lat = Number(latitude);
-    const lng = Number(longitude);
-    const lastLocationAt = new Date();
-
-    await Technician.findByIdAndUpdate(technicianId, {
-      "currentLocation.coordinates": [lng, lat],
-      lastLocationAt,
+    const notifyLocation = req.app.get("notifyAdminTechnicianLocation");
+    const result = await applyTechnicianLocationWrite({
+      Technician,
+      technicianId,
+      latitude,
+      longitude,
+      accuracy,
+      fixTime: fix_time,
+      onAdminBroadcast:
+        typeof notifyLocation === "function" ? notifyLocation : undefined,
     });
 
-    console.log(
-      process.env.NODE_ENV === "development"
-        ? `[REST] Technician ${technicianId} location updated: [${lat}, ${lng}]`
-        : `[REST] Technician ${technicianId} location updated`
-    );
-
-    // Broadcast to admin Live Map (same event as socket path)
-    const notifyLocation = req.app.get("notifyAdminTechnicianLocation");
-    if (typeof notifyLocation === "function") {
-      notifyLocation(technicianId, lat, lng, lastLocationAt);
+    if (!result.ok) {
+      return res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: result.reason,
+      });
     }
 
-    // Relay to customer if job_id provided
-    if (job_id) {
+    if (process.env.NODE_ENV === "development" && result.coordsChanged) {
+      console.log(
+        `[REST] Technician ${technicianId} location updated: [${result.lat}, ${result.lng}]`
+      );
+    }
+
+    if (result.coordsChanged && job_id) {
       const notifyCustomer = req.app.get("notifyCustomerJobEvent");
-      if (typeof notifyCustomer === "function") {
-        const job = await Job.findById(job_id).select("customer_id");
+      const jobId = objectId(job_id);
+      if (typeof notifyCustomer === "function" && jobId) {
+        const job = await Job.findOne({
+          _id: jobId,
+          assignedTechnician: technicianId,
+        }).select("customer_id");
         if (job?.customer_id) {
           await notifyCustomer(job.customer_id.toString(), "locationUpdate", {
             job_id,
-            latitude: lat,
-            longitude: lng,
-            timestamp: lastLocationAt,
+            latitude: result.lat,
+            longitude: result.lng,
+            timestamp: result.lastLocationAt,
           });
         }
       }
     }
 
-    res.json({ ok: true, lastLocationAt });
+    res.json({ ok: true, lastLocationAt: result.lastLocationAt });
   } catch (err) {
     res.status(500).json({ error: "Location update failed", details: err.message });
   }
@@ -417,6 +428,9 @@ const toggleStatus = async (req, res) => {
       return res.status(404).json({ error: "Technician not found" });
     }
 
+    // The technician chose this, so a later reconnect must not undo it.
+    await Technician.updateOne({ _id: technician._id }, { autoOfflineAt: null });
+
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
     if (typeof notifyPresence === "function") {
       await notifyPresence(technician._id, status);
@@ -428,9 +442,15 @@ const toggleStatus = async (req, res) => {
   }
 };
 
+const {
+  MOBILE_JOB_LIST_SELECT,
+  MOBILE_JOB_LIST_POPULATE,
+  paginateQuery,
+} = require("../../../clicks-shared/utils/mobileJobList");
+
 const getJobs = async (req, res) => {
   try {
-    const { id } = req.user; // Assume user is set by auth middleware
+    const { id } = req.user;
     const { from, to } = req.query;
     const filter = {
       $or: [{ assignedTechnician: id }, { created_by_technician: id }],
@@ -440,18 +460,28 @@ const getJobs = async (req, res) => {
       if (from) filter.createdAt.$gte = new Date(from);
       if (to) filter.createdAt.$lte = new Date(to);
     }
+
+    const { page, limit, skip } = paginateQuery(req.query.page, req.query.limit);
+
     const jobs = await Job.find(filter)
-      .populate({
-        path: "customer_vehicle_id",
-        select: "year plate_number vehicle_color",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-          { path: "vehicle_type", select: "typeName" },
-        ],
-      })
-      .sort({ createdAt: -1 });
-    res.json({ jobs });
+      .select(MOBILE_JOB_LIST_SELECT)
+      .populate(MOBILE_JOB_LIST_POPULATE)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    let total = null;
+    if (page === 1) {
+      total = await Job.countDocuments(filter);
+    }
+
+    res.json({
+      jobs,
+      total,
+      page,
+      has_more: jobs.length === limit,
+    });
   } catch (err) {
     res.status(500).json({ error: "Fetch jobs failed", details: err.message });
   }
@@ -556,13 +586,17 @@ const rejectJob = async (req, res) => {
       { upsert: true }
     );
 
-    // P1-02: reset technician status to Online and keep Technician.performance in sync
-    const technician = await Technician.findById(job.assignedTechnician);
-    if (technician) {
-      if (!technician.performance) technician.performance = {};
-      technician.performance.rejectedJobs =
-        (technician.performance.rejectedJobs || 0) + 1;
-      await setTechnicianStatus(technician, "Online");
+    // P1-02: reset technician status to Online and keep Technician.performance in sync.
+    // The counter is written atomically rather than piggy-backing on the save
+    // inside setTechnicianStatus — that helper returns without saving when the
+    // technician is already Online, which is the normal state here, so the
+    // in-memory increment used to be thrown away.
+    if (job.assignedTechnician) {
+      await Technician.updateOne(
+        { _id: job.assignedTechnician },
+        { $inc: { "performance.rejectedJobs": 1 } }
+      );
+      await setTechnicianStatus(job.assignedTechnician, "Online");
     }
 
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
@@ -594,11 +628,48 @@ const rejectJob = async (req, res) => {
 
 
 
+/**
+ * Sliding per-phone window for registration SMS.
+ *
+ * The OTPVerification rows the DB counter looks at are removed by that
+ * collection's TTL index a few minutes after they are written, so a 1-hour
+ * lookback over them can never see a full hour of history. This in-process
+ * window is keyed by the NORMALISED number, so "+97455512345", "97455512345"
+ * and "+974 5551 2345" all bill against the same bucket instead of three.
+ */
+const OTP_SEND_WINDOW_MS = 60 * 60 * 1000;
+const OTP_SENDS_PER_WINDOW = 3;
+const _otpSendLog = new Map(); // normalised phone -> [timestamps]
+
+const takeOtpSendSlot = (phone) => {
+  const now = Date.now();
+  const recent = (_otpSendLog.get(phone) || []).filter(
+    (t) => now - t < OTP_SEND_WINDOW_MS
+  );
+  if (recent.length >= OTP_SENDS_PER_WINDOW) {
+    _otpSendLog.set(phone, recent);
+    return false;
+  }
+  recent.push(now);
+  _otpSendLog.set(phone, recent);
+  if (_otpSendLog.size > 5000) {
+    for (const [key, stamps] of _otpSendLog) {
+      if (!stamps.some((t) => now - t < OTP_SEND_WINDOW_MS)) {
+        _otpSendLog.delete(key);
+      }
+    }
+  }
+  return true;
+};
+
 const sendOTP = async (req, res) => {
   try {
-    const phone = str(req.body.phone, { maxLength: 24 });
+    const phone = normalizePhoneE164(str(req.body.phone, { maxLength: 24 }));
     if (!phone) {
       return res.status(400).json({ error: "phone is required" });
+    }
+    if (!/^\+\d{8,15}$/.test(phone)) {
+      return res.status(400).json({ error: "Invalid phone number" });
     }
 
     // Per-phone cap. This route is public and each call bills a real SMS
@@ -606,10 +677,10 @@ const sendOTP = async (req, res) => {
     // every caller in one bucket behind Railway's ingress. Draining the SMS
     // balance also takes down customer registration and password reset.
     const recent = await OTPVerification.countDocuments({
-      phone,
-      created_at: { $gt: new Date(Date.now() - 60 * 60 * 1000) },
+      phone: { $in: phoneForms(phone) },
+      created_at: { $gt: new Date(Date.now() - OTP_SEND_WINDOW_MS) },
     });
-    if (recent >= 3) {
+    if (recent >= OTP_SENDS_PER_WINDOW || !takeOtpSendSlot(phone)) {
       return res
         .status(429)
         .json({ error: "Too many codes requested. Try again in an hour." });
@@ -632,9 +703,9 @@ const sendOTP = async (req, res) => {
 
 const verifyOTP = async (req, res) => {
   try {
-    const phone = str(req.body.phone, { maxLength: 24 });
+    const phone = normalizePhoneE164(str(req.body.phone, { maxLength: 24 }));
     const result = await findAndVerifyOtp(OTPVerification, {
-      phone,
+      phones: phoneForms(phone),
       otp: req.body.otp,
       purpose: "registration",
     });
@@ -643,7 +714,14 @@ const verifyOTP = async (req, res) => {
       return res.status(result.status).json({ error: result.error });
     }
 
-    await OTPVerification.deleteMany({ phone, purpose: "registration" });
+    // Keep the record — it is registerTechnician's only proof that the
+    // applicant controls this number. Deleting it here left registration with
+    // nothing to check. Signing up takes several minutes (five document
+    // photos), so hold the proof well past the 5-minute code lifetime.
+    // registerTechnician deletes it as soon as the account is created.
+    result.record.verified = true;
+    result.record.expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    await result.record.save();
     res.json({ message: "OTP verified", phone });
   } catch (err) {
     console.error("verifyOTP failed:", err.message);
@@ -656,6 +734,51 @@ const registerTechnician = async (req, res) => {
   try {
     const { phone, email, firstName, lastName, password } = req.body;
     const files = req.files || {};
+
+    const applicantPhone = normalizePhoneE164(str(phone, { maxLength: 24 }));
+    const applicantPassword = str(password, { maxLength: 200 });
+    if (
+      !applicantPhone ||
+      !str(email, { maxLength: 254 }) ||
+      !str(firstName, { maxLength: 80 }) ||
+      !str(lastName, { maxLength: 80 }) ||
+      !applicantPassword
+    ) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    if (applicantPassword.length < 8) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 8 characters long" });
+    }
+
+    // This route is public, so possession of the number is the only thing
+    // standing between an attacker and a technician account. Require the
+    // registration OTP that sendOTP/verifyOTP already implement to have been
+    // verified for this number first.
+    const verifiedOtp = await OTPVerification.findOne({
+      phone: { $in: phoneForms(applicantPhone) },
+      purpose: "registration",
+      verified: true,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!verifiedOtp) {
+      return res
+        .status(403)
+        .json({ error: "Phone number not verified. Request a new code." });
+    }
+
+    const existing = await Technician.findOne({
+      $or: [
+        { email: str(email, { maxLength: 254 }) },
+        { phone: { $in: phoneForms(applicantPhone) } },
+      ],
+    }).select("_id");
+    if (existing) {
+      return res
+        .status(409)
+        .json({ error: "Phone number or email already registered" });
+    }
 
     // Upload each file to GCS and get public URLs
     let profilePictureUrl = "";
@@ -685,10 +808,10 @@ const registerTechnician = async (req, res) => {
       workPermitBackUrl = await fileUploadService.uploadFile(files.permitBack[0], filename);
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(applicantPassword, 10);
 
     const technician = new Technician({
-      phone,
+      phone: applicantPhone,
       email,
       firstName,
       lastName,
@@ -703,6 +826,11 @@ const registerTechnician = async (req, res) => {
     });
 
     await technician.save();
+    // Burn the phone-ownership proof so it cannot open a second account.
+    await OTPVerification.deleteMany({
+      phone: { $in: phoneForms(applicantPhone) },
+      purpose: "registration",
+    });
     res.json({ message: "Technician registration successful", technicianId: technician._id });
   } catch (err) {
     res.status(500).json({ error: "Registration failed", details: err.message });
@@ -712,17 +840,22 @@ const registerTechnician = async (req, res) => {
 // Application status
 const getApplicationStatus = async (req, res) => {
   try {
-    const { phone } = req.query;
+    // Coerced + required: an empty value built `{$or: []}`, which Mongo
+    // rejects with a driver error surfaced as a 500.
+    const phone = str(req.query.phone, { maxLength: 24 });
+    if (!phone) {
+      return res.status(400).json({ error: "phone is required" });
+    }
     const technician = await Technician.findOne(buildPhoneQuery(phone));
     if (!technician) {
       return res.status(404).json({ error: "Technician not found" });
     }
+    // Unauthenticated by necessity (the applicant has no token until an admin
+    // approves them), so it answers with the application state only. It used
+    // to return name, email and phone, which made the technician roster
+    // harvestable by walking the 8-digit Qatari number space.
     res.json({
       status: technician.applicationStatus,
-      phone: technician.phone,
-      email: technician.email,
-      firstName: technician.firstName,
-      lastName: technician.lastName,
       rejectionReason: technician.rejectionReason || "",
     });
   } catch (err) {
@@ -883,8 +1016,8 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { id } = req.user; // From auth middleware
-    const { firstName, lastName, email, phone } = req.body;
-    
+    const { firstName, lastName, email } = req.body;
+
     // Check if email is being changed and if it's already taken
     if (email) {
       const existingTechnician = await Technician.findOne({ email, _id: { $ne: id } });
@@ -893,12 +1026,17 @@ const updateProfile = async (req, res) => {
       }
     }
     
+    // `phone` is deliberately NOT accepted here: it is the login identifier and
+    // the password-reset destination, and this route proves nothing about the
+    // new number. Technician.phone also has no unique index, so an arbitrary
+    // write could point two accounts at the same number. Changing it needs a
+    // dedicated OTP-verified flow; the app sends the field, so ignore it
+    // silently rather than failing an otherwise valid name/email edit.
     const updateData = {};
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
     if (email) updateData.email = email;
-    if (phone) updateData.phone = phone;
-    
+
     const technician = await Technician.findByIdAndUpdate(
       id,
       updateData,
@@ -965,6 +1103,14 @@ const deleteAccount = async (req, res) => {
     technician.fcm_token = null;
     if (technician.email && !String(technician.email).includes("+deleted")) {
       technician.email = `deleted+${Date.now()}+${technician.email}`;
+    }
+    // Release the phone number as well. registerTechnician 409s on any row that
+    // still holds it and login/buildPhoneQuery would keep resolving this dead
+    // one (isActive === false → 403), so leaving it in place would make the
+    // in-app "delete account" a permanent, unrecoverable dead end: the user
+    // could neither sign in nor apply again with the same number.
+    if (technician.phone && !String(technician.phone).startsWith("deleted+")) {
+      technician.phone = `deleted+${Date.now()}+${technician.phone}`;
     }
     await technician.save();
     res.json({ message: "Account deactivated" });
@@ -1047,6 +1193,11 @@ async function resolveTechnicianAppSource() {
   return source;
 }
 
+/** Upper bound for a technician-entered job price (QAR). */
+const MAX_TECHNICIAN_JOB_PRICE = Number(
+  process.env.MAX_TECHNICIAN_JOB_PRICE || 100000
+);
+
 /** Technician creates a job, auto-assigned to themselves (accepted — no admin dispatch). */
 const createTechnicianJob = async (req, res) => {
   try {
@@ -1084,6 +1235,14 @@ const createTechnicianJob = async (req, res) => {
       return res.status(400).json({ error: "Vehicle make and model are required" });
     }
 
+    // The price the technician types here is credited to their own ledger on
+    // completion ($inc into TechnicianEarnings.cash_balance), so a negative or
+    // non-finite value would let them write off the cash they owe the company.
+    const jobPrice = num(price, { min: 0, max: MAX_TECHNICIAN_JOB_PRICE });
+    if (jobPrice === null) {
+      return res.status(400).json({ error: "Invalid price" });
+    }
+
     const cc = countryCode || DEFAULT_COUNTRY_CODE;
     const local = toLocalDigits(clientMobileNumber, cc);
     if (!isValidLocalPhone(local)) {
@@ -1102,7 +1261,7 @@ const createTechnicianJob = async (req, res) => {
     const acceptedAt = new Date();
 
     const locationStr = String(location).trim();
-    const locationCoordinates = parseJobLocationToGeoPoint(locationStr);
+    const locationCoordinates = await resolveJobLocationToGeoPoint(locationStr);
 
     const job = await Job.create({
       clientName: String(clientName).trim(),
@@ -1119,9 +1278,9 @@ const createTechnicianJob = async (req, res) => {
       ...(locationCoordinates ? { locationCoordinates } : {}),
       dateTime: new Date(dateTime),
       jobType,
-      price: Number(price),
+      price: jobPrice,
       source: source._id,
-      subSource: subSource ? String(subSource).trim() : "Mobile App",
+      subSource: subSource ? String(subSource).trim() : techName,
       assignedTechnician: technician._id,
       job_status: "accepted",
       accepted_at: acceptedAt,

@@ -35,16 +35,16 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDdLRwmugl5CByGvnxNUsL5n5lFO3kWvhc',
+  static FirebaseOptions get android => FirebaseOptions(
+    apiKey: const String.fromEnvironment('FIREBASE_ANDROID_API_KEY'),
     appId: '1:405834083597:android:24b476e22d2a639bcd1444',
     messagingSenderId: '405834083597',
     projectId: 'clicks-customer',
     storageBucket: 'clicks-customer.firebasestorage.app',
   );
 
-  static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCh6RqS-plxGw50P1RtaaFF6_xYc_5yIrs',
+  static FirebaseOptions get ios => FirebaseOptions(
+    apiKey: const String.fromEnvironment('FIREBASE_IOS_API_KEY'),
     appId: '1:405834083597:ios:71760a0df6eba119cd1444',
     messagingSenderId: '405834083597',
     projectId: 'clicks-customer',

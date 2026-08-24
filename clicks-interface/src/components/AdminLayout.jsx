@@ -18,6 +18,7 @@ const { Content } = Layout;
 const NOTIFICATION_TYPES = {
   SOS: "sos",
   SERVICE_REQUEST: "serviceRequest",
+  BUSINESS_LEAD: "businessLead",
   BUSINESS_JOB: "businessJob",
   TECHNICIAN_JOB: "technicianJob",
 };
@@ -26,6 +27,8 @@ function notificationId(type, data) {
   switch (type) {
     case NOTIFICATION_TYPES.SOS:
       return String(data.sos_id || data.id || data._id || "");
+    case NOTIFICATION_TYPES.BUSINESS_LEAD:
+      return String(data.lead_id || data.id || data._id || "");
     case NOTIFICATION_TYPES.BUSINESS_JOB:
     case NOTIFICATION_TYPES.TECHNICIAN_JOB:
       return String(data.job_id || data.id || data._id || "");
@@ -154,16 +157,33 @@ function AdminLayout({ children }) {
       dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
     });
 
-    adminSocket.on("newBusinessJob", (data) => {
+    adminSocket.on("newBusinessLead", (data) => {
       setNotificationQueue((queue) => [
         ...queue,
         {
-          type: NOTIFICATION_TYPES.BUSINESS_JOB,
+          type: NOTIFICATION_TYPES.BUSINESS_LEAD,
           data,
-          id: notificationId(NOTIFICATION_TYPES.BUSINESS_JOB, data),
+          id: notificationId(NOTIFICATION_TYPES.BUSINESS_LEAD, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+      dispatch(apiSlice.util.invalidateTags(["Lead", "Dashboard"]));
+      playNotificationSound();
+    });
+
+    adminSocket.on("newBusinessJob", (data) => {
+      // Legacy job event — treat as lead if lead_id present
+      const type = data?.lead_id
+        ? NOTIFICATION_TYPES.BUSINESS_LEAD
+        : NOTIFICATION_TYPES.BUSINESS_JOB;
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type,
+          data,
+          id: notificationId(type, data),
+        },
+      ]);
+      dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "Dashboard"]));
       playNotificationSound();
     });
 
@@ -235,7 +255,11 @@ function AdminLayout({ children }) {
     return () => {
       adminSocket.disconnect();
     };
-  }, [user, token, dispatch, navigate]);
+    // `navigate` is deliberately not a dependency: react-router re-creates it on
+    // every navigation, which would tear down and re-dial this socket on each
+    // route change and drop any SOS / service-request event in that window.
+    // It is not used inside this effect.
+  }, [user, token, dispatch]);
 
   const handleToggleSidebar = () => {
     setSidebarOpen((open) => !open);
@@ -295,7 +319,29 @@ function AdminLayout({ children }) {
     dequeueNotification();
   };
 
+  const handleOpenBusinessLead = (leadData) => {
+    const leadId = leadData?.lead_id;
+    if (leadId) {
+      navigate(`/leads/${leadId}/convert`);
+    } else if (leadData?.job_id) {
+      navigate(`/jobs/${leadData.job_id}`);
+    } else {
+      navigate("/leads");
+    }
+    dequeueNotification();
+    dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "Dashboard"]));
+  };
+
+  const handleDismissBusinessLead = () => {
+    dequeueNotification();
+    dispatch(apiSlice.util.invalidateTags(["Lead", "Dashboard"]));
+  };
+
   const handleOpenBusinessJob = (jobData) => {
+    if (jobData?.lead_id) {
+      handleOpenBusinessLead(jobData);
+      return;
+    }
     if (jobData?.job_id) {
       navigate(`/jobs/${jobData.job_id}`);
     } else {
@@ -362,6 +408,15 @@ function AdminLayout({ children }) {
           queueCount={queueCount}
           onCreateJob={handleOpenServiceLead}
           onDismiss={handleDismissServiceRequest}
+        />
+      )}
+
+      {activeNotification?.type === NOTIFICATION_TYPES.BUSINESS_LEAD && (
+        <BusinessJobNotification
+          jobData={activeNotification.data}
+          queueCount={queueCount}
+          onOpenJob={handleOpenBusinessLead}
+          onDismiss={handleDismissBusinessLead}
         />
       )}
 

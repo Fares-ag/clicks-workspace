@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useListJobsQuery } from "../../store/portalApi";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import StatusPill from "../../components/StatusPill";
@@ -34,16 +34,34 @@ function JobActions({ onView }) {
 
 function Jobs() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const bucketParam = searchParams.get("bucket") || "all";
   const [bucket, setBucket] = useState(bucketParam);
   const [page, setPage] = useState(1);
+  const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    const msg = location.state?.successMessage;
+    if (msg) {
+      setSuccessMessage(msg);
+      navigate(location.pathname + location.search, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   useEffect(() => {
     setBucket(bucketParam);
     setPage(1);
   }, [bucketParam]);
+
+  // The server does the filtering — matching only the rows already on screen
+  // hides every job outside the current page.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const {
     data: jobsData,
@@ -52,31 +70,12 @@ function Jobs() {
     isError,
     refetch,
   } = useListJobsQuery(
-    { page, limit: 20, bucket },
+    { page, limit: 20, bucket, search: debouncedSearch },
     { pollingInterval: 25000 }
   );
 
   const jobs = jobsData?.jobs || [];
   const total = jobsData?.total ?? jobs.length;
-
-  const filteredJobs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return jobs;
-    return jobs.filter((job) => {
-      const haystack = [
-        job.clientName,
-        job.clientMobileNumber,
-        job.jobType,
-        job.vehicleMake,
-        job.vehicleModel,
-        job._id,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [jobs, search]);
 
   const columns = useMemo(
     () => [
@@ -87,7 +86,8 @@ function Jobs() {
         width: "10%",
         render: (row) => (
           <span className="job-id-cell">
-            {row._id?.slice(-8).toUpperCase() || "N/A"}
+            {row.job_reference?.trim() ||
+              (row._id ? `#${row._id.slice(-6)}` : "N/A")}
           </span>
         ),
       },
@@ -164,6 +164,18 @@ function Jobs() {
 
   return (
     <div className="jobs-container">
+      {successMessage ? (
+        <div className="biz-success-banner" role="status">
+          {successMessage}
+          <button
+            type="button"
+            className="biz-success-dismiss"
+            onClick={() => setSuccessMessage("")}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <div className="jobs-header-row">
         <span className="jobs-title">Job Management</span>
         <div className="jobs-header-actions">
@@ -173,7 +185,7 @@ function Jobs() {
             className="jobs-add-btn"
             onClick={() => navigate("/jobs/new")}
           >
-            + New Job
+            + New Request
           </button>
         </div>
       </div>
@@ -181,7 +193,7 @@ function Jobs() {
       <DataTable
         title="Jobs"
         columns={columns}
-        data={filteredJobs}
+        data={jobs}
         loading={isLoading && !jobsData}
         onSearch={(value) => {
           setSearch(value);
@@ -193,7 +205,7 @@ function Jobs() {
         onRowClick={(row) => navigate(`/jobs/${row._id}`)}
         pagination={{
           current: page,
-          total: search.trim() ? filteredJobs.length : total,
+          total,
           pageSize: 20,
           onChange: (nextPage) => setPage(nextPage),
         }}

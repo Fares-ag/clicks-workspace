@@ -48,6 +48,15 @@ class TimerSosScreen extends StatelessWidget {
                   : 'services.request_expired'.tr(),
             );
             context.offAllNamed(Routes.home);
+          } else if (state is SosError) {
+            // The server answers a rejected cancel with an `error` event
+            // instead of `sosCancelled` — surface it, otherwise the sheet just
+            // closes and the user gets no feedback and no way to retry.
+            AppSnackBars.errorSnackBar(
+              state.message.trim().isEmpty
+                  ? 'home.cancel_failed'.tr()
+                  : state.message,
+            );
           }
         },
         child: SizedBox(
@@ -199,6 +208,7 @@ Future showCancelSOSSheet(
     ),
     builder: (ctx) {
       String? selected;
+      bool submitting = false;
       final noteCtrl = TextEditingController();
 
       return StatefulBuilder(
@@ -237,6 +247,8 @@ Future showCancelSOSSheet(
           }
 
           final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+          final canSubmit = selected != null &&
+              (selected != 'other' || noteCtrl.text.trim().isNotEmpty);
 
           return Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
@@ -292,6 +304,7 @@ Future showCancelSOSSheet(
                 TextField(
                   controller: noteCtrl,
                   maxLines: 3,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     hintText: 'settings.enter_reason'.tr(),
                     filled: true,
@@ -320,22 +333,33 @@ Future showCancelSOSSheet(
                           ),
                           minimumSize: const Size.fromHeight(48),
                         ),
-                        onPressed: () {
+                        onPressed: canSubmit && !submitting
+                            ? () async {
                           if (selected == null) return;
-                          final reason = selected == 'other' &&
-                                  noteCtrl.text.trim().isNotEmpty
+                          if (selected == 'other' &&
+                              noteCtrl.text.trim().isEmpty) {
+                            return;
+                          }
+                          final reason = selected == 'other'
                               ? noteCtrl.text.trim()
                               : selected!;
-                          context.read<SosCubit>().cancelSOS(reason: reason);
+                          final cubit = context.read<SosCubit>();
+                          setState(() => submitting = true);
+                          final sent = await cubit.cancelSOS(reason: reason);
+                          if (!ctx.mounted) return;
                           Navigator.pop(ctx); // close bottom sheet
-                          // Navigate home after server confirms (or timeout).
-                          // Immediate pop left orphaned active SOS on the server.
-                          Future.delayed(const Duration(milliseconds: 400), () {
-                            if (context.mounted) {
-                              context.offAllNamed(Routes.home);
-                            }
-                          });
-                        },
+                          if (!sent) {
+                            // Never leave the SOS screen on a cancel we could
+                            // not send — that orphans an active SOS and keeps
+                            // a technician dispatched.
+                            AppSnackBars.errorSnackBar(
+                              'home.cancel_failed'.tr(),
+                            );
+                          }
+                          // On success the server replies `sosCancelled`; the
+                          // SOS screen's BlocListener returns the user home.
+                        }
+                            : null,
                         child: Text('common.submit'.tr()),
                       ),
                     ),

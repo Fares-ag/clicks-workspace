@@ -28,9 +28,22 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.reader(Charsets.UTF_8).use { keystoreProperties.load(it) }
 }
 
+// Fail closed: release artifacts must be signed with the upload keystore. Without
+// key.properties Gradle would otherwise fall back to the public Android debug key.
+if (!keystorePropertiesFile.exists()) {
+    val releaseRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true)
+    }
+    if (releaseRequested) {
+        throw GradleException(
+            "android/key.properties missing - refusing to build a release artifact without the upload keystore"
+        )
+    }
+}
+
 android {
     namespace = "com.roya.clicks_technician"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -73,8 +86,7 @@ android {
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {
-                // Fallback for local sideload builds without a release keystore.
-                signingConfigs.getByName("debug")
+                null
             }
         }
     }

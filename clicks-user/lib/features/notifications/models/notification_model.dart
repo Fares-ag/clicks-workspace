@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:easy_localization/easy_localization.dart';
 
 class NotificationModel {
@@ -40,15 +41,15 @@ class NotificationModel {
   String get typeLabel {
     switch (type) {
       case 'technician_assigned':
-        return 'in_call.tech_assigned'.tr();
+        return JobStatusLabels.labelFor('assigned');
       case 'en_route':
-        return 'tracking.en_route'.tr();
+        return JobStatusLabels.labelFor('en_route');
       case 'arrived':
-        return 'tracking.arrived'.tr();
+        return JobStatusLabels.labelFor('arrived');
       case 'in_progress':
-        return 'home.job_in_progress'.tr();
+        return JobStatusLabels.labelFor('in_progress');
       case 'job_completed':
-        return 'activity.completed_jobs'.tr();
+        return JobStatusLabels.labelFor('completed');
       case 'payment_received':
         return 'notifications.notifications'.tr();
       case 'sos_update':

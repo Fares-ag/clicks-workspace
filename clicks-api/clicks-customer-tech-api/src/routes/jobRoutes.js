@@ -2,22 +2,39 @@ const express = require("express");
 const router = express.Router();
 const jobController = require("../controllers/jobController");
 const { authenticate } = require("../middleware/auth");
+const {
+  requireApprovedTechnician,
+  requireApprovedTechnicianIfTechnician,
+} = require("../middleware/requireApprovedTechnician");
+
+// A technician token is issued at login whatever the application state, so the
+// job lifecycle re-checks that the account is still Approved and still active
+// on every request. Without this a rejected or self-deleted technician keeps
+// working — and keeps reading the technician roster — for the 7-day life of the
+// token they already hold.
+const approvedTechnician = [authenticate(["technician"]), requireApprovedTechnician];
+// Shared with customers: customer tokens pass through untouched.
+const customerOrApprovedTechnician = [
+  authenticate(["customer", "technician"]),
+  requireApprovedTechnicianIfTechnician,
+];
 
 // Session resume endpoints (must be before /:id routes)
 router.get("/customer/session", authenticate(["customer"]), jobController.getCustomerSession);
 router.get("/customer/active", authenticate(["customer"]), jobController.getCustomerActiveJob);
 router.get("/customer/active-sos", authenticate(["customer"]), jobController.getCustomerActiveSOS);
-router.get("/technician/session", authenticate(["technician"]), jobController.getTechnicianSession);
-router.get("/technician/active", authenticate(["technician"]), jobController.getTechnicianActiveJob);
+router.get("/technician/session", approvedTechnician, jobController.getTechnicianSession);
+router.get("/technician/active", approvedTechnician, jobController.getTechnicianActiveJob);
 
-router.post("/", authenticate(["customer"]), jobController.createJob);
-router.get("/", authenticate(["customer", "technician"]), jobController.getJobs);
+// POST "/" (customer job self-creation) removed: it let a customer set the job
+// price, pick the assigned technician and hijack any SOS request by id.
+router.get("/", customerOrApprovedTechnician, jobController.getJobs);
 router.get("/customer/history", authenticate(["customer"]), jobController.getCustomerJobs);
-router.patch("/:id/status", authenticate(["technician"]), jobController.updateJobStatus);
-router.patch("/:id/details", authenticate(["technician"]), jobController.updateJobDetails);
+router.patch("/:id/status", approvedTechnician, jobController.updateJobStatus);
+router.patch("/:id/details", approvedTechnician, jobController.updateJobDetails);
 router.post(
   "/:id/signature",
-  authenticate(["technician"]),
+  approvedTechnician,
   (req, res, next) => {
     require("../middleware/upload").single("signature")(req, res, (err) => {
       if (!err) return next();
@@ -30,19 +47,19 @@ router.post(
 router.post("/:id/rate", authenticate(["customer"]), jobController.rateJob);
 router.get(
   "/:id/activity-detail",
-  authenticate(["technician"]),
+  approvedTechnician,
   jobController.getActivityDetail
 );
-router.get("/:id", authenticate(["customer", "technician"]), jobController.getJobById);
+router.get("/:id", customerOrApprovedTechnician, jobController.getJobById);
 
-router.post("/:id/arrive", authenticate(["technician"]), jobController.markArrived);
-router.post("/:id/start", authenticate(["technician"]), jobController.startJob);
-router.post("/:id/repairs", authenticate(["technician"]), jobController.addRepairProcedure);
-router.get("/:id/total", authenticate(["technician", "customer"]), jobController.calculateTotal);
-router.post("/:id/complete", authenticate(["technician"]), jobController.markCompleted);
-router.post("/:id/cancel", authenticate(["technician"]), jobController.cancelJobByTechnician);
-router.post("/:id/payment", authenticate(["technician"]), jobController.confirmPayment);
+router.post("/:id/arrive", approvedTechnician, jobController.markArrived);
+router.post("/:id/start", approvedTechnician, jobController.startJob);
+router.post("/:id/repairs", approvedTechnician, jobController.addRepairProcedure);
+router.get("/:id/total", customerOrApprovedTechnician, jobController.calculateTotal);
+router.post("/:id/complete", approvedTechnician, jobController.markCompleted);
+router.post("/:id/cancel", approvedTechnician, jobController.cancelJobByTechnician);
+router.post("/:id/payment", approvedTechnician, jobController.confirmPayment);
 
-router.get("/technicians/nearby", authenticate(["customer", "technician"]), jobController.findNearbyTechnicians);
+router.get("/technicians/nearby", customerOrApprovedTechnician, jobController.findNearbyTechnicians);
 
 module.exports = router;

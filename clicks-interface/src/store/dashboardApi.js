@@ -45,7 +45,9 @@ export const dashboardApi = apiSlice.injectEndpoints({
           const day = String(dateString.getDate()).padStart(2, "0");
           formattedDate = `${year}-${month}-${day}`;
         } else {
-          formattedDate = dateString.split("T")[0];
+          // Already a local calendar-day string (YYYY-MM-DD) — never convert it
+          // through UTC, which would shift it a day back in Qatar (UTC+3).
+          formattedDate = String(dateString).slice(0, 10);
         }
         return {
           url: `/dashboard/earnings-by-date?date=${formattedDate}`,

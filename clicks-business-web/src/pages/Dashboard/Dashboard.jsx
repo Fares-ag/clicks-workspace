@@ -42,17 +42,28 @@ const renderActiveShape = (props) => {
   );
 };
 
+// Calendar days are kept as plain local Y-M-D keys. Round-tripping them through
+// toISOString() rolls the day back in Qatar (UTC+3), so the picked date and the
+// date sent to the API drift apart.
+const toLocalDateKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+
+const fromLocalDateKey = (key) => {
+  const [year, month, day] = String(key).split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+};
+
 function Dashboard() {
   const navigate = useNavigate();
   const [earningsTimeframe, setEarningsTimeframe] = useState("12months");
   const [jobsTimeframe, setJobsTimeframe] = useState("12months");
   const [activePieIndex, setActivePieIndex] = useState(0);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [selectedEarningsDate, setSelectedEarningsDate] = useState(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today.toISOString();
-  });
+  const [selectedEarningsDate, setSelectedEarningsDate] = useState(() =>
+    toLocalDateKey(new Date())
+  );
 
   const { data: summary, isSuccess: summaryOk } = useDashboardSummaryQuery(
     undefined,
@@ -110,22 +121,24 @@ function Dashboard() {
   const pendingJobsList = summaryOk ? summary.jobs.pendingList || [] : [];
 
   const handleEarningsDateSelect = (date) => {
-    setSelectedEarningsDate(date instanceof Date ? date.toISOString() : date);
+    setSelectedEarningsDate(
+      date instanceof Date ? toLocalDateKey(date) : String(date).split("T")[0]
+    );
   };
 
-  const formatDateForButton = (dateString) => {
-    if (!dateString) return "Today";
+  const formatDateForButton = (dateKey) => {
+    if (!dateKey) return "Today";
 
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const dateObj = new Date(dateString);
-    dateObj.setHours(0, 0, 0, 0);
 
-    if (dateObj.getTime() === today.getTime()) return "Today";
-    if (dateObj.getTime() === yesterday.getTime()) return "Yesterday";
-    return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (dateKey === toLocalDateKey(today)) return "Today";
+    if (dateKey === toLocalDateKey(yesterday)) return "Yesterday";
+    return fromLocalDateKey(dateKey).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
   };
 
   return (
@@ -220,7 +233,7 @@ function Dashboard() {
               <div className="dashboard-datepicker-modal">
                 <DatePicker
                   key={selectedEarningsDate}
-                  value={selectedEarningsDate}
+                  value={fromLocalDateKey(selectedEarningsDate)}
                   onChange={handleEarningsDateSelect}
                   onClose={() => setDatePickerOpen(false)}
                 />

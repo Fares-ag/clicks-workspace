@@ -27,10 +27,12 @@ Talks to **Admin API** (`/api/business/*`):
 
 ## Run / build
 
+See **[BUILD.md](BUILD.md)** for release requirements. Release APKs **must** pass `--dart-define=ENV=production` or the app crashes at launch with an explanatory error.
+
 ```powershell
 cd C:\Users\TS\Downloads\clicks-business
 flutter pub get
-flutter run --dart-define=ENV=production
+flutter run
 
 flutter build apk --release --dart-define=ENV=production
 ```

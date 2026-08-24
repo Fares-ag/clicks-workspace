@@ -1,5 +1,5 @@
 // Usage: node scripts/createVerifiedTechnician.js
-const mongoose = require("clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const bcrypt = require('bcryptjs');
 const path = require('path');
 

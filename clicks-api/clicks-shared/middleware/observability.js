@@ -8,6 +8,7 @@ function requestContext(req, res, next) {
   const requestId =
     req.headers["x-request-id"] || crypto.randomUUID?.() || crypto.randomBytes(16).toString("hex");
   req.requestId = requestId;
+  // Correlates client, Sentry, and structured http_request logs
   res.setHeader("X-Request-Id", requestId);
 
   const start = Date.now();

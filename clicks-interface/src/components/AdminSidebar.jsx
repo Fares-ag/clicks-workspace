@@ -1,12 +1,12 @@
 import React, { useMemo } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { logout } from "../store/authSlice";
+import { useLogoutMutation } from "../store/authApi";
 import { filterNavItemsForRole, useAdminRole } from "../utils/adminRoles";
 import { useGetSOSRequestsQuery } from "../store/sosApi";
 import { useGetServiceRequestsQuery } from "../store/serviceRequestApi";
 import { useGetLeadsQuery } from "../store/leadApi";
-import { useGetJobsQuery } from "../store/jobApi";
 import PrimaryButton from "./PrimaryButton.jsx";
 import "./AdminSidebar.css";
 
@@ -45,7 +45,6 @@ const navItems = [
     label: "Job Management",
     icon: "/icons/job.svg",
     to: "/jobs",
-    badge: "businessJobs",
   },
   {
     label: "Leads",
@@ -57,6 +56,16 @@ const navItems = [
     label: "Business Management",
     icon: "/icons/li-heart-handshake.svg",
     to: "/businesses",
+  },
+  {
+    label: "Finance",
+    icon: "/icons/earnings-chart.svg",
+    to: "/finance",
+  },
+  {
+    label: "Finance Users",
+    icon: "/icons/admin.svg",
+    to: "/finance-users",
   },
   {
     label: "SOS Inbox",
@@ -95,6 +104,8 @@ const navItems = [
 function AdminSidebar({ isOpen = true, onNavigate }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const refreshToken = useSelector((state) => state.auth.refreshToken);
+  const [logoutMutation] = useLogoutMutation();
   const { role } = useAdminRole();
   const visibleNavItems = useMemo(() => {
     if (!role) return [];
@@ -125,13 +136,17 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
   );
   const leadsCount = openLeadsData?.openCount ?? 0;
 
-  const { data: pendingBusinessJobs } = useGetJobsQuery(
-    { page: 1, limit: 1, status: "pending", businessPortal: true },
-    { pollingInterval: 15000, skip: !role }
-  );
-  const businessJobCount = pendingBusinessJobs?.total ?? 0;
-
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      if (refreshToken) {
+        await Promise.race([
+          logoutMutation({ refreshToken }).unwrap(),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
+      }
+    } catch {
+      // Server unreachable — still clear local session.
+    }
     dispatch(logout());
     navigate("/login");
   };
@@ -159,14 +174,6 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
               className="sidebar-icon"
             />
             <span className="sidebar-label">{item.label}</span>
-            {item.badge === "businessJobs" && businessJobCount > 0 && (
-              <span
-                className="sidebar-badge"
-                aria-label={`${businessJobCount} pending business portal jobs`}
-              >
-                {businessJobCount > 99 ? "99+" : businessJobCount}
-              </span>
-            )}
             {item.badge === "sos" && sosCount > 0 && (
               <span
                 className="sidebar-badge"

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging, develop]
+  pull_request:
+  # Called by .github/workflows/deploy-production.yml so a tag can never ship a
+  # commit that has not passed the tests and the secret scan.
+  workflow_call:
+
+jobs:
+  check-status-labels:
+    name: Sync job status labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify jobStatusLabels.js copies match
+        run: node scripts/check-status-labels.mjs
+      - name: Query hygiene lint
+        run: node clicks-api/scripts/check-query-hygiene.js
+      - name: Railway deploy config
+        run: node clicks-api/scripts/check-railway-deploy.js
+      - name: Shared dependency parity
+        run: node clicks-api/scripts/check-shared-deps.js
+
+  secret-scan:
+    name: Gitleaks
+    needs: check-status-labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  integration-tests:
+    name: API integration tests
+    needs: check-status-labels
+    # Pin 22.04 so mongodb-memory-server resolves ubuntu2204 binaries; ubuntu-latest
+    # can move to 24.04 and change which distro suffix is requested (403 risk).
+    runs-on: ubuntu-22.04
+    env:
+      MONGOMS_VERSION: "7.0.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Cache MongoDB memory-server binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ env.MONGOMS_VERSION }}
+      - name: Install admin-api deps
+        working-directory: clicks-api/clicks-admin-api
+        run: npm ci
+      - name: Install customer-tech-api deps
+        working-directory: clicks-api/clicks-customer-tech-api
+        run: npm ci
+      - name: Install test workspace deps
+        working-directory: clicks-api
+        run: npm ci
+      - name: Run integration tests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-jwt-secret-not-production
+          JWT_REFRESH_SECRET: ci-jwt-refresh-not-production
+          INTERNAL_API_SECRET: ci-internal-secret-not-production
+          CORS_ORIGINS: http://localhost:3000
+          LAUNCH_PUBLIC_SOS: "true"
+          LAUNCH_PUBLIC_SIGNUP: "true"
+          SANITIZE_REJECT: "true"
+          JOB_START_MAX_METERS: "200"
+          SMS_PROVIDER: console
+        working-directory: clicks-api
+        run: npm run test:ci

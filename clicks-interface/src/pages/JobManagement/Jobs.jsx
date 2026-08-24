@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useGetJobsQuery } from "../../store/jobApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import JobFilterDropdown from "../../components/JobFilterDropdown.jsx";
 import EditJobModal from "../../components/EditJobModal.jsx";
+import JobStatusPill from "../../components/JobStatusPill.jsx";
+import { isBusinessPortalJob, isTechnicianCreatedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
+import { getJobDisplayId } from "../../utils/jobLabel.js";
 import "./Jobs.css";
 
 function PaymentStatusPill({ status }) {
@@ -15,49 +19,6 @@ function PaymentStatusPill({ status }) {
   );
 }
 
-function JobStatusPill({ status }) {
-  const statusLabels = {
-    "pending": "Pending",
-    "assigned": "Technician assigned",
-    "accepted": "Accepted",
-    "en_route": "Enroute",
-    "arrived": "Arrived",
-    "in_progress": "In progress",
-    "completed": "Completed",
-    "paid": "Paid",
-    "confirmed": "Confirmed",
-    "on_hold": "On Hold",
-    "cancelled": "Cancelled"
-  };
-
-  return (
-    <span className={`job-status-pill ${status}`}>
-      {statusLabels[status] || status}
-    </span>
-  );
-}
-
-function isBusinessPortalJob(job) {
-  if (!job) return false;
-  if (job.business_id || job.businessName) return true;
-  const sourceName =
-    job.source?.mainSourceName ||
-    job.source?.name ||
-    (typeof job.source === "string" ? job.source : "") ||
-    "";
-  return /business\s*portal/i.test(String(sourceName));
-}
-
-function isTechnicianCreatedJob(job) {
-  if (!job) return false;
-  if (job.created_by_technician || job.createdByTechnicianName) return true;
-  const sourceName =
-    job.source?.mainSourceName ||
-    job.source?.name ||
-    (typeof job.source === "string" ? job.source : "") ||
-    "";
-  return /technician\s*app/i.test(String(sourceName));
-}
 
 function BusinessJobTag({ job }) {
   if (!isBusinessPortalJob(job)) return null;
@@ -173,6 +134,7 @@ function buildWhatsAppJobMessage(job) {
   const lines = [
     "*Clicks Job Details*",
     "",
+    `*Job ID:* ${getJobDisplayId(job)}`,
     `*Customer:* ${job.clientName || "N/A"}`,
     `*Mobile:* ${job.clientMobileNumber || "N/A"}`,
     `*Location:* ${locationLink || job.location || "N/A"}`,
@@ -211,10 +173,11 @@ function Jobs() {
   const navigate = useNavigate();
   const location = useLocation();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState(() => {
+  const [searchInput, setSearchInput] = useState(() => {
     const params = new URLSearchParams(location.search);
     return params.get("search") || "";
   });
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const filterButtonRef = useRef(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ status: "" });
@@ -223,7 +186,13 @@ function Jobs() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState(null);
 
-  const { data, isLoading, refetch } = useGetJobsQuery({ page, limit: 40, search, status: filters.status || undefined, technician: filters.technician || undefined });
+  const { data, isLoading, refetch } = useGetJobsQuery({
+    page,
+    limit: 40,
+    search: debouncedSearch,
+    status: filters.status || undefined,
+    technician: filters.technician || undefined,
+  });
   const jobs = data?.jobs || [];
   const total = data?.total || 0;
 
@@ -241,7 +210,7 @@ function Jobs() {
     const params = new URLSearchParams(location.search);
     const q = params.get("search");
     if (q != null) {
-      setSearch(q);
+      setSearchInput(q);
       setPage(1);
     }
   }, [location.search]);
@@ -265,7 +234,7 @@ function Jobs() {
       width: "10%",
       render: (row) => (
         <span className="job-id-cell">
-          {row._id?.slice(-8).toUpperCase() || 'N/A'}
+          {getJobDisplayId(row)}
         </span>
       )
     },
@@ -298,6 +267,17 @@ function Jobs() {
       render: (row) => (
         <span className="job-location-cell">
           {row.location}
+        </span>
+      )
+    },
+    {
+      title: "Source",
+      key: "source",
+      dataIndex: "source",
+      width: "14%",
+      render: (row) => (
+        <span className="job-source-cell" title={formatJobSourceLabel(row)}>
+          {formatJobSourceLabel(row)}
         </span>
       )
     },
@@ -359,8 +339,8 @@ function Jobs() {
   };
 
   const handleSearch = (value) => {
-    setSearch(value);
-    setPage(1); // Reset to first page when search changes
+    setSearchInput(value);
+    setPage(1);
   };
 
   return (

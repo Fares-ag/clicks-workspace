@@ -5,6 +5,9 @@ const OPEN_LEAD_STATUSES =
   Lead.OPEN_LEAD_STATUSES || ["new", "contacted", "qualified"];
 const { createJobRecord } = require("../../../clicks-shared/services/createJobRecord");
 const { normalizePhoneE164 } = require("../../../clicks-shared/utils/phone");
+const { buildPrefixSearchFilter, computeLeadSearchFields } = require("../../../clicks-shared/utils/searchFields");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { computeChanges, recordAudit } = require("../utils/auditLog");
 
 function mapLead(doc) {
   if (!doc) return null;
@@ -44,6 +47,16 @@ function mapLead(doc) {
     converted_by:
       o.converted_by?.toString?.() || o.converted_by || null,
     assigned_to: o.assigned_to?.toString?.() || o.assigned_to || null,
+    business_id: o.business_id?.toString?.() || o.business_id || null,
+    businessName: o.businessName || null,
+    businessCutType: o.businessCutType || null,
+    businessCutPercent:
+      o.businessCutPercent != null ? o.businessCutPercent : null,
+    created_by_business_user:
+      o.created_by_business_user?.toString?.() ||
+      o.created_by_business_user ||
+      null,
+    proposedPrice: o.proposedPrice != null ? o.proposedPrice : null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };
@@ -66,6 +79,9 @@ async function getLeads(req, res) {
     const status = req.query.status;
     const search = (req.query.search || "").trim();
     const openOnly = req.query.open === "1" || req.query.open === "true";
+    const businessPortal =
+      req.query.businessPortal === "1" ||
+      req.query.businessPortal === "true";
 
     const filter = {};
     if (status) {
@@ -73,22 +89,33 @@ async function getLeads(req, res) {
     } else if (openOnly) {
       filter.status = { $in: OPEN_LEAD_STATUSES };
     }
+    if (businessPortal) {
+      filter.business_id = { $exists: true, $ne: null };
+    }
     if (search) {
-      filter.$or = [
-        { clientName: { $regex: search, $options: "i" } },
-        { clientMobileNumber: { $regex: search, $options: "i" } },
-        { inquiry: { $regex: search, $options: "i" } },
-      ];
+      const searchFilter = buildPrefixSearchFilter(search, {
+        phoneField: "search_phone",
+        nameField: "search_name",
+      });
+      if (searchFilter) {
+        Object.assign(filter, searchFilter);
+      }
     }
 
+    const hasFilter = Boolean(search || status || openOnly || businessPortal);
     const [docs, total, openCount] = await Promise.all([
       Lead.find(filter)
         .populate("source", "mainSourceName")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
-        .limit(limit),
-      Lead.countDocuments(filter),
-      Lead.countDocuments({ status: { $in: OPEN_LEAD_STATUSES } }),
+        .limit(limit)
+        .lean(),
+      hasFilter
+        ? cachedCount(Lead, filter, { ttlMs: 15000, key: `leads:${JSON.stringify(filter)}` })
+        : page === 1
+          ? Lead.estimatedDocumentCount()
+          : cachedCount(Lead, filter, { ttlMs: 15000, key: "leads_unfiltered" }),
+      cachedCount(Lead, { status: { $in: OPEN_LEAD_STATUSES } }, { ttlMs: 30000, key: "leads_open" }),
     ]);
 
     res.json({
@@ -323,7 +350,35 @@ async function convertLead(req, res) {
     if (!body.dateTime && lead.preferredDateTime) {
       body.dateTime = lead.preferredDateTime;
     }
+    if (!body.jobType && lead.serviceType) {
+      body.jobType = lead.serviceType;
+    }
+    if (
+      (body.price == null || body.price === "") &&
+      lead.proposedPrice != null
+    ) {
+      body.price = lead.proposedPrice;
+    }
+    if (!body.business_id && lead.business_id) {
+      body.business_id = lead.business_id;
+    }
+    if (!body.businessName && lead.businessName) {
+      body.businessName = lead.businessName;
+    }
+    if (!body.businessCutType && lead.businessCutType) {
+      body.businessCutType = lead.businessCutType;
+    }
+    if (
+      body.businessCutPercent == null &&
+      lead.businessCutPercent != null
+    ) {
+      body.businessCutPercent = lead.businessCutPercent;
+    }
+    if (!body.created_by_business_user && lead.created_by_business_user) {
+      body.created_by_business_user = lead.created_by_business_user;
+    }
 
+    const priorStatus = lead.status;
     const { populatedJob } = await createJobRecord(body, {
       notifyTechnicianFn: notifyTechnician,
     });
@@ -333,6 +388,17 @@ async function convertLead(req, res) {
     lead.converted_at = new Date();
     lead.converted_by = req.user?.id || req.user?._id || null;
     await lead.save();
+
+    await recordAudit({
+      req,
+      action: "lead.convert",
+      entityType: "lead",
+      entityId: lead._id,
+      changes: {
+        status: { from: priorStatus, to: "converted" },
+        job_id: { from: null, to: populatedJob._id.toString() },
+      },
+    });
 
     res.status(201).json({
       message: "Lead converted to job",
@@ -363,9 +429,24 @@ async function markLeadLost(req, res) {
       return res.status(400).json({ message: "Cannot mark a converted lead as lost" });
     }
 
+    const priorStatus = lead.status;
+    const priorReason = lead.lost_reason || "";
+
     lead.status = "lost";
     lead.lost_reason = String(lost_reason).trim();
     await lead.save();
+
+    await recordAudit({
+      req,
+      action: "lead.lost",
+      entityType: "lead",
+      entityId: lead._id,
+      changes: computeChanges(
+        { status: priorStatus, lost_reason: priorReason },
+        { status: lead.status, lost_reason: lead.lost_reason },
+        ["status", "lost_reason"]
+      ),
+    });
 
     const populated = await Lead.findById(lead._id).populate(
       "source",

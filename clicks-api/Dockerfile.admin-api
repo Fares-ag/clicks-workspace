@@ -4,13 +4,14 @@ WORKDIR /app
 
 COPY clicks-shared ./clicks-shared
 COPY clicks-admin-api ./clicks-admin-api
-
-WORKDIR /app/clicks-shared
-RUN npm install --omit=dev
+# clicks-shared/utils/hatla2eeVehicleCatalog.js reads ../../data at runtime.
+COPY data ./data
 
 WORKDIR /app/clicks-admin-api
 RUN npm install --omit=dev
 
+# clicks-shared models resolve mongoose via NODE_PATH (sibling package layout).
+ENV NODE_PATH=/app/clicks-admin-api/node_modules
 ENV NODE_ENV=production
 EXPOSE 5000
 

@@ -70,8 +70,11 @@ async function accruePartnerFromCompletedJob(job) {
   }
   if (String(mainSourceName) !== "Google") return null;
 
+  // A row already on file means eligibility was settled on an earlier pass —
+  // hand it to applyPartnerEarning, which finishes the credit if the previous
+  // attempt died between writing the row and moving accruedTotal.
   const existing = await PartnerEarning.findOne({ job: job._id });
-  if (existing) return existing;
+  if (existing) return applyPartnerEarning(existing, job);
 
   let partner = await Partner.findOne({
     name: subSource,
@@ -100,30 +103,90 @@ async function accruePartnerFromCompletedJob(job) {
   }
 
   const price = Number(job.price || 0);
-  if (price <= 0) return null;
+  if (!Number.isFinite(price) || price <= 0) return null;
 
   const credit = Math.min(price, remaining);
-  partner.accruedTotal = Number(partner.accruedTotal || 0) + credit;
-  if (partner.accruedTotal >= partner.periodCap()) {
-    partner.status = "capped";
+
+  // Ledger first: PartnerEarning.job is uniquely indexed, so the row (or a
+  // duplicate-key error on it) is the idempotency signal. Moving accruedTotal
+  // first would let a failed create send the outbox retry through the
+  // "no earning row yet" guard above and credit the same job twice.
+  let earning;
+  try {
+    earning = await PartnerEarning.create({
+      partner: partner._id,
+      job: job._id,
+      amount: credit,
+      period: partner.currentPeriod,
+    });
+  } catch (earningErr) {
+    if (earningErr.code !== 11000) throw earningErr;
+    earning = await PartnerEarning.findOne({ job: job._id });
+    if (!earning) throw earningErr;
   }
-  await partner.save();
 
-  const earning = await PartnerEarning.create({
-    partner: partner._id,
-    job: job._id,
-    amount: credit,
-    period: partner.currentPeriod,
-  });
+  return applyPartnerEarning(earning, job);
+}
 
-  if (!job.partner_id || String(job.partner_id) !== String(partner._id)) {
-    job.partner_id = partner._id;
+/**
+ * Move a ledger row's amount into Partner.accruedTotal exactly once.
+ *
+ * The row records intent; `applied` records that the aggregate actually moved.
+ * Claiming it atomically means a concurrent run can never credit the same job
+ * twice, while a retry after a partial failure (row written, $inc not) still
+ * finishes the credit instead of short-circuiting on "already credited" and
+ * losing the money silently — accruedTotal is what withdrawals are paid from.
+ * Matched on `applied: false` (not `$ne: true`) so rows written before this
+ * field existed are never re-applied on deploy.
+ */
+async function applyPartnerEarning(earning, job) {
+  const claimed = await PartnerEarning.findOneAndUpdate(
+    { job: earning.job, applied: false },
+    { $set: { applied: true, applied_at: new Date() } },
+    { new: true }
+  );
+  if (!claimed) return earning;
+
+  const credit = Number(claimed.amount) || 0;
+
+  // Atomic $inc — a read-modify-write on a money field loses concurrent accruals.
+  let updated;
+  try {
+    updated = await Partner.findOneAndUpdate(
+      { _id: claimed.partner },
+      { $inc: { accruedTotal: credit } },
+      { new: true }
+    );
+    if (!updated) throw new Error(`Partner ${claimed.partner} not found for accrual`);
+  } catch (incErr) {
+    // Release the claim so the outbox retry can finish this credit.
+    try {
+      await PartnerEarning.updateOne(
+        { _id: claimed._id },
+        { $set: { applied: false }, $unset: { applied_at: 1 } }
+      );
+    } catch (releaseErr) {
+      console.error(
+        "Failed to release partner earning claim:",
+        releaseErr.message
+      );
+    }
+    throw incErr;
+  }
+
+  if (Number(updated.accruedTotal || 0) >= updated.periodCap()) {
+    await Partner.updateOne({ _id: updated._id }, { $set: { status: "capped" } });
+    updated.status = "capped";
+  }
+
+  if (!job.partner_id || String(job.partner_id) !== String(claimed.partner)) {
+    job.partner_id = claimed.partner;
     await job.save();
   }
 
-  notifyPartnerAccrualAsync(partner, credit);
+  notifyPartnerAccrualAsync(updated, credit);
 
-  return earning;
+  return claimed;
 }
 
 function notifyPartnerAccrualAsync(partner, amount) {

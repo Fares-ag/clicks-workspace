@@ -1,0 +1,202 @@
+/* Shared responsive utilities for admin UI */
+
+@media (max-width: 900px) {
+  /* Fluid modals — covers Add/Edit *Modal patterns */
+  [class$="-modal-backdrop"],
+  [class*="-modal-backdrop"] {
+    padding: 16px !important;
+    align-items: flex-start !important;
+  }
+
+  [class$="-modal"]:not(.ant-modal),
+  .add-admin-modal,
+  .add-technician-modal,
+  .add-job-modal,
+  .add-vehicle-modal,
+  .add-insurance-modal,
+  .add-source-modal,
+  .edit-admin-modal,
+  .edit-technician-modal,
+  .edit-job-modal,
+  .edit-vehicle-modal,
+  .edit-insurance-modal,
+  .edit-client-modal,
+  .edit-source-modal,
+  .settle-balance-modal,
+  .success-modal,
+  .confirmation-modal,
+  .approve-application-modal,
+  .document-review-modal,
+  .add-vehicle-config-modal {
+    width: min(700px, calc(100vw - 32px)) !important;
+    max-width: calc(100vw - 32px) !important;
+    min-width: 0 !important;
+    padding: 24px !important;
+    margin: 0 auto;
+    box-sizing: border-box;
+  }
+
+  [class*="-modal"] [class*="-fields"],
+  [class*="-modal"] [class*="-row"],
+  [class*="-modal"] [class*="-grid"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    flex-wrap: wrap;
+  }
+
+  [class*="-modal"] input,
+  [class*="-modal"] select,
+  [class*="-modal"] textarea,
+  [class*="-modal"] .custom-select,
+  [class*="-modal"] .phone-input {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  /* Override hard-coded 612px field widths used in Add/Edit modals */
+  [class*="-modal-field"],
+  [class*="-modal"] [style*="612"],
+  [class*="-modal"] [style*="700"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .success-modal,
+  .confirmation-modal {
+    width: min(580px, calc(100vw - 32px)) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Common list/detail page headers */
+  .admin-page-header,
+  .partner-header-row,
+  .jobs-header-row,
+  .sub-header-row,
+  .biz-header-row,
+  .tech-details-header-row,
+  .tech-details-header,
+  .dashboard-page-header,
+  .job-details-page-header,
+  .job-details-header,
+  .live-map-header,
+  .table-header {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .admin-page-actions,
+  .partner-header-actions,
+  .table-controls {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .admin-page {
+    padding: 12px !important;
+    overflow: auto !important;
+  }
+
+  .partner-container {
+    padding: 12px !important;
+  }
+
+  .admin-page-title,
+  .partner-title,
+  .jobs-title,
+  .table-title {
+    font-size: 22px !important;
+    line-height: 1.25 !important;
+  }
+
+  .btn-primary,
+  .admin-page-add-btn,
+  .partner-add-btn {
+    width: 100%;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-topbar {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .topbar-left {
+    margin-left: 12px !important;
+  }
+
+  .topbar-right {
+    margin-right: 12px !important;
+  }
+
+  .admin-name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .arrow-down-icon {
+    display: none;
+  }
+
+  /* Detail grids / forms that use fixed 2-col layouts */
+  .admin-details-grid,
+  .partner-details-grid,
+  .tech-details-grid,
+  .job-details-grid,
+  .vehicle-details-grid,
+  .form-row,
+  .details-row {
+    grid-template-columns: 1fr !important;
+    flex-direction: column !important;
+  }
+
+  /* Fixed large gaps used in detail location rows */
+  .sos-location-row,
+  .job-details-location-row,
+  .vehicle-details-location-row,
+  .admin-details-location-row,
+  [class*="-location-row"] {
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+
+  .sos-notification-overlay {
+    align-items: flex-start !important;
+    padding: 12px !important;
+    overflow-y: auto;
+  }
+
+  .sos-notification-modal {
+    max-width: calc(100vw - 24px) !important;
+    width: 100% !important;
+    margin: 0;
+  }
+
+  .sos-header,
+  .sos-content {
+    padding: 20px !important;
+  }
+
+  .sos-actions {
+    flex-direction: column;
+  }
+
+  .sos-actions button {
+    width: 100%;
+  }
+
+  .sos-location-row {
+    flex-direction: column;
+    gap: 16px !important;
+  }
+}

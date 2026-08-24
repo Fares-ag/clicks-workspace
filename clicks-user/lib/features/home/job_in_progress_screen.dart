@@ -19,6 +19,7 @@ class JobProgressArgs {
   // Job info
   final String serviceTitle; // Issue title / Flat Tire Assistance
   final String jobId; // Full MongoDB _id — shortened for display
+  final String jobReference; // Technician-entered Job ID, when the job has one
   final String dateText;     // Feb 12, 2025 - 2:30 PM
   final String estimatedTime; // e.g. "45 min"
   final String statusPillText; // Working on your vehicle
@@ -42,6 +43,7 @@ class JobProgressArgs {
     required this.bannerBody,
     this.serviceTitle = '',
     required this.jobId,
+    this.jobReference = '',
     this.dateText = '',
     this.estimatedTime = '',
     required this.statusPillText,
@@ -54,10 +56,16 @@ class JobProgressArgs {
     required this.onCallDispatch,
   });
 
-  /// Shorten a MongoDB ObjectId to last 8 chars uppercased (matches admin portal).
+  /// Technician-entered Job ID, falling back to the tail of the mongo id for
+  /// jobs that have no reference yet. Same format as the activity list/details.
   String get shortJobId {
-    if (jobId.length <= 8) return jobId.toUpperCase();
-    return jobId.substring(jobId.length - 8).toUpperCase();
+    final ref = jobReference.trim();
+    if (ref.isNotEmpty) return ref;
+    if (jobId.isEmpty) return '—';
+    if (jobId.length > 6) {
+      return '#${jobId.substring(jobId.length - 6)}';
+    }
+    return '#$jobId';
   }
 }
 

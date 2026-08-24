@@ -14,7 +14,7 @@ require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-customer-tech-api/.env"),
   override: true,
 });
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const Technician = require("../clicks-shared/models/Technician");
 
 const API_URL = process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";

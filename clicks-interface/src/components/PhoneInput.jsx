@@ -1,4 +1,9 @@
-import { COUNTRY_CODES, DEFAULT_COUNTRY_CODE, toLocalDigits } from "../utils/phone";
+import {
+  COUNTRY_CODES,
+  DEFAULT_COUNTRY_CODE,
+  localLengthFor,
+  toLocalDigits,
+} from "../utils/phone";
 import "./PhoneInput.css";
 
 /**
@@ -51,7 +56,7 @@ export default function PhoneInput({
         placeholder={placeholder}
         disabled={disabled}
         required={required}
-        maxLength={8}
+        maxLength={localLengthFor(countryCode)}
         autoComplete="tel-national"
       />
     </div>

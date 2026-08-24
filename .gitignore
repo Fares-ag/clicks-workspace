@@ -1,4 +1,4 @@
-﻿# Dependencies / build
+# Dependencies / build
 **/node_modules/
 **/dist/
 **/build/
@@ -20,7 +20,18 @@
 **/.env
 **/.env.*
 !**/.env.example
+**/Secrets.xcconfig
+!**/Secrets.xcconfig.example
+**/local.properties
+**/key.properties
+
+# Google / Firebase keys
+clicks-api/clicks-468120-ac337c1b05a9.json
+**/*service*account*.json
+**/*firebase*adminsdk*.json
+**/*firebase-adminsdk*.json
 **/google-services.json
+**/GoogleService-Info.plist
 
 # Flutter/Android ephemeral
 **/android/.gradle/
@@ -30,14 +41,12 @@
 **/macos/Flutter/ephemeral/
 **/windows/flutter/ephemeral/
 
-# Google / Firebase keys
-clicks-api/clicks-468120-ac337c1b05a9.json
-**/*service*account*.json
-**/*firebase-adminsdk*.json
-**/google-services.json
-
 # Local backups / release artifacts (not source)
 _stage1-backup/
 _to_delete/
 release-apks/
+
+# Machine-transfer secrets dump — NEVER commit or push
+SECRETS.TRANSFER.md
+**/SECRETS.TRANSFER.md
 

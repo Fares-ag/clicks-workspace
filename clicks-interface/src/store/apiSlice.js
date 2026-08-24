@@ -15,14 +15,27 @@ const rawBase = fetchBaseQuery({
 
 /**
  * Wraps rawBase with automatic silent token refresh.
- * On a 403 response the refresh token is used to get a new access token,
+ * On 401 or 403 the refresh token is used to get a new access token,
  * then the original request is retried exactly once. If refresh itself fails
- * the user is logged out so they see the login screen instead of a broken UI.
+ * (or there is no refresh token) the user is logged out.
  */
+function getRequestUrl(args) {
+  return typeof args === "string" ? args : args?.url;
+}
+
 async function baseQueryWithReauth(args, api, extraOptions) {
   let result = await rawBase(args, api, extraOptions);
 
-  if (result.error?.status === 403) {
+  const url = getRequestUrl(args);
+  const isAuthEndpoint =
+    url === "/auth/login" ||
+    url === "/auth/refresh-token" ||
+    url === "/auth/logout";
+  const needsRefresh =
+    !isAuthEndpoint &&
+    (result.error?.status === 401 || result.error?.status === 403);
+
+  if (needsRefresh) {
     const { refreshToken } = api.getState().auth;
 
     if (refreshToken) {

@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Shared models and utilities for Clicks API",
   "main": "index.js",
-  "dependencies": {
-    "mongoose": "^7.0.0"
+  "comment": "mongoose is a peer dependency on purpose: as a regular dependency npm materialises clicks-shared/node_modules/mongoose, and the shared models then register on a second mongoose instance whose default connection the services never open (every query buffers and times out).",
+  "peerDependencies": {
+    "mongoose": "^8.3.5"
   }
 }

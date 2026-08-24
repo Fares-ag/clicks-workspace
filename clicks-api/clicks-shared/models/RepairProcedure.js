@@ -17,4 +17,8 @@ const RepairProcedureSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now }
 });
 
+/** Every read of this collection is "the lines for one job" — finance audits, the
+ *  job detail view and the admin overview's pending-totals join all filter on it. */
+RepairProcedureSchema.index({ job_id: 1 });
+
 module.exports = mongoose.model("RepairProcedure", RepairProcedureSchema);

@@ -127,7 +127,7 @@ class IncomingJobModal extends StatelessWidget {
                   SizedBox(height: 20.h),
                   AppButton(
                     isLoading: cubit.isLoadingAction,
-                    onPressed: cubit.acceptJob,
+                    onPressed: cubit.isLoadingAction ? null : cubit.acceptJob,
                     label: 'notif.job_assigned.accept'.tr(),
                     margin: 0,
                     width: double.infinity,

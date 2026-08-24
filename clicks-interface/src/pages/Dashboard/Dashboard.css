@@ -464,6 +464,100 @@
   min-width: 0;
 }
 
+.dashboard-bottom-left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 530px;
+}
+
+.dashboard-sources-card-header {
+  margin-bottom: 16px;
+}
+
+.dashboard-sources-card-header .dashboard-card-title {
+  margin: 0;
+}
+
+.dashboard-sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dashboard-sources-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-sources-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-sources-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.dashboard-sources-name {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-sources-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dashboard-sources-parent {
+  font-family: var(--font-main);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-sources-metrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.dashboard-sources-count {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--color-text-primary);
+}
+
+.dashboard-sources-percentage {
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--color-text-muted);
+  min-width: 36px;
+  text-align: right;
+}
+
 /* Job Status Card */
 .dashboard-job-status-card {
   max-width: 530px;
@@ -771,6 +865,7 @@
     grid-template-columns: 1fr;
   }
 
+  .dashboard-bottom-left-column,
   .dashboard-job-status-card {
     max-width: 100%;
   }
@@ -784,6 +879,10 @@
   .dashboard-traffic-list {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .dashboard-sources-item {
+    width: 100%;
   }
 
   .dashboard-traffic-item {

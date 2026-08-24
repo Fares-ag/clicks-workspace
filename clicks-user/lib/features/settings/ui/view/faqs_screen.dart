@@ -34,6 +34,7 @@ class _FaqScreenState extends State<FaqScreen> {
       });
 
       final response = await _repository.getFaqs();
+      if (!mounted) return;
       setState(() {
         _faqs = response.faqs;
         _isLoading = false;
@@ -43,6 +44,7 @@ class _FaqScreenState extends State<FaqScreen> {
         }
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;

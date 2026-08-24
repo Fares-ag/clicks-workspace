@@ -4,8 +4,19 @@ const SOSRequest = require("clicks-shared/models/SOSRequest");
 const Customer = require("clicks-shared/models/Customer");
 const Vehicle = require("clicks-shared/models/Vehicle");
 const VehicleInsurance = require("clicks-shared/models/VehicleInsurance");
-
-const COMPLETED = ["completed"];
+const {
+  COMPLETED,
+  revenueForDayWindow,
+  totalCompletedRevenue,
+} = require("clicks-shared/utils/dashboardRevenue");
+const { cachedCount } = require("clicks-shared/utils/cachedCount");
+const {
+  computeDashboardAggregates,
+  getDashboardStatsDoc,
+  refreshDashboardStats,
+} = require("../services/statsRefresher");
+const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
+const { isHiddenSourceName } = require("clicks-shared/utils/systemSources");
 const ONGOING = ["assigned", "accepted", "en_route", "arrived", "in_progress"];
 
 function pctChange(current, previous) {
@@ -15,16 +26,127 @@ function pctChange(current, previous) {
   return Number((((cur - prev) / prev) * 100).toFixed(1));
 }
 
+async function getTopJobSources(limit = 5) {
+  const rows = await Job.aggregate([
+    { $group: { _id: "$source", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: limit },
+    {
+      $lookup: {
+        from: "sources",
+        localField: "_id",
+        foreignField: "_id",
+        as: "sourceDoc",
+      },
+    },
+    {
+      $project: {
+        sourceId: "$_id",
+        name: {
+          $ifNull: [
+            { $arrayElemAt: ["$sourceDoc.mainSourceName", 0] },
+            "Unknown",
+          ],
+        },
+        count: 1,
+      },
+    },
+  ]);
+
+  return rows
+    .filter((row) => !isHiddenSourceName(row.name))
+    .map((row) => ({
+      sourceId: row.sourceId,
+      name: row.name,
+      count: row.count,
+    }));
+}
+
+async function getTopJobSubSources(limit = 5) {
+  const rows = await Job.aggregate([
+    {
+      $addFields: {
+        effectiveSubSource: {
+          $let: {
+            vars: {
+              rawSub: {
+                $trim: { input: { $ifNull: ["$subSource", ""] } },
+              },
+              techName: {
+                $trim: { input: { $ifNull: ["$createdByTechnicianName", ""] } },
+              },
+              bizName: {
+                $trim: { input: { $ifNull: ["$businessName", ""] } },
+              },
+            },
+            in: {
+              $cond: [
+                { $ne: ["$$techName", ""] },
+                "$$techName",
+                {
+                  $cond: [
+                    { $ne: ["$$bizName", ""] },
+                    "$$bizName",
+                    "$$rawSub",
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+    { $match: { effectiveSubSource: { $ne: "" } } },
+    {
+      $group: {
+        _id: { subSource: "$effectiveSubSource", source: "$source" },
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { count: -1 } },
+    { $limit: limit },
+    {
+      $lookup: {
+        from: "sources",
+        localField: "_id.source",
+        foreignField: "_id",
+        as: "sourceDoc",
+      },
+    },
+    {
+      $project: {
+        subSource: "$_id.subSource",
+        sourceId: "$_id.source",
+        sourceName: {
+          $ifNull: [
+            { $arrayElemAt: ["$sourceDoc.mainSourceName", 0] },
+            "Unknown",
+          ],
+        },
+        count: 1,
+      },
+    },
+  ]);
+
+  return rows
+    .filter((row) => !isHiddenSourceName(row.sourceName))
+    .map((row) => ({
+      subSource: row.subSource,
+      sourceId: row.sourceId,
+      sourceName: row.sourceName,
+      name: row.subSource,
+      count: row.count,
+    }));
+}
+
+// The business runs on Qatar time (UTC+3, no DST) while the container runs UTC,
+// so "today" must be a Qatar-local day — see utils/qatarDay.js.
 function startOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+  return startOfQatarDay(d);
 }
 
 function endOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
+  return endOfQatarDay(d);
 }
 
 function completionDateExpr() {
@@ -64,6 +186,26 @@ async function getDashboardSummary(req, res) {
     const yesterdayStart = startOfDay(new Date(Date.now() - 86400000));
     const yesterdayEnd = endOfDay(new Date(Date.now() - 86400000));
 
+    const statsDoc = await getDashboardStatsDoc();
+    const statsStaleMs = 5 * 60 * 1000;
+    let materialized = statsDoc?.value;
+    let statsComputedAt = statsDoc?.computed_at;
+
+    if (
+      !materialized?.earnings ||
+      !statsComputedAt ||
+      Date.now() - new Date(statsComputedAt).getTime() > statsStaleMs
+    ) {
+      materialized = await computeDashboardAggregates();
+      statsComputedAt = new Date();
+      const PlatformStats = require("clicks-shared/models/PlatformStats");
+      await PlatformStats.findOneAndUpdate(
+        { key: "dashboard_summary" },
+        { $set: { value: materialized, computed_at: statsComputedAt } },
+        { upsert: true }
+      );
+    }
+
     const [
       jobsTotal,
       jobsCompleted,
@@ -75,9 +217,6 @@ async function getDashboardSummary(req, res) {
       jobsInProgress,
       completedToday,
       completedYesterday,
-      earningsAllTimeAgg,
-      earningsTodayAgg,
-      earningsYesterdayAgg,
       techsActive,
       techsOnline,
       techsOnJob,
@@ -89,66 +228,51 @@ async function getDashboardSummary(req, res) {
       vehiclesTotal,
       clientsTotal,
       insuredTotal,
+      topSourcesRaw,
+      topSubSourcesRaw,
     ] = await Promise.all([
-      Job.countDocuments({}),
-      Job.countDocuments({ job_status: { $in: COMPLETED } }),
-      Job.countDocuments({ job_status: { $in: ONGOING } }),
-      Job.countDocuments({ job_status: "pending" }),
-      Job.countDocuments({ job_status: "cancelled" }),
-      Job.countDocuments({ job_status: "en_route" }),
-      Job.countDocuments({ job_status: "arrived" }),
-      Job.countDocuments({ job_status: "in_progress" }),
-      Job.countDocuments({
-        job_status: { $in: COMPLETED },
-        completed_at: { $gte: todayStart, $lte: todayEnd },
-      }),
-      Job.countDocuments({
-        job_status: { $in: COMPLETED },
-        completed_at: { $gte: yesterdayStart, $lte: yesterdayEnd },
-      }),
-      Job.aggregate([
-        { $match: { job_status: { $in: COMPLETED } } },
-        { $group: { _id: null, total: { $sum: "$price" } } },
-      ]),
-      Job.aggregate([
+      Job.estimatedDocumentCount(),
+      cachedCount(Job, { job_status: { $in: COMPLETED } }, { ttlMs: 30000, key: "jobs_completed" }),
+      cachedCount(Job, { job_status: { $in: ONGOING } }, { ttlMs: 30000, key: "jobs_ongoing" }),
+      cachedCount(Job, { job_status: "pending" }, { ttlMs: 30000, key: "jobs_pending" }),
+      cachedCount(Job, { job_status: "cancelled" }, { ttlMs: 30000, key: "jobs_cancelled" }),
+      cachedCount(Job, { job_status: "en_route" }, { ttlMs: 30000, key: "jobs_en_route" }),
+      cachedCount(Job, { job_status: "arrived" }, { ttlMs: 30000, key: "jobs_arrived" }),
+      cachedCount(Job, { job_status: "in_progress" }, { ttlMs: 30000, key: "jobs_in_progress" }),
+      cachedCount(
+        Job,
+        { job_status: { $in: COMPLETED }, completed_at: { $gte: todayStart, $lte: todayEnd } },
+        { ttlMs: 30000, key: "completed_today" }
+      ),
+      cachedCount(
+        Job,
         {
-          $match: {
-            job_status: { $in: COMPLETED },
-            $or: [
-              { paid_at: { $gte: todayStart, $lte: todayEnd } },
-              {
-                paid_at: { $exists: false },
-                completed_at: { $gte: todayStart, $lte: todayEnd },
-              },
-            ],
-          },
+          job_status: { $in: COMPLETED },
+          completed_at: { $gte: yesterdayStart, $lte: yesterdayEnd },
         },
-        { $group: { _id: null, total: { $sum: "$price" } } },
-      ]),
-      Job.aggregate([
+        { ttlMs: 30000, key: "completed_yesterday" }
+      ),
+      cachedCount(Technician, { isActive: true }, { ttlMs: 30000, key: "techs_active" }),
+      cachedCount(
+        Technician,
+        { isActive: true, currentStatus: "Online" },
+        { ttlMs: 30000, key: "techs_online" }
+      ),
+      cachedCount(
+        Technician,
+        { isActive: true, currentStatus: "On Job" },
+        { ttlMs: 30000, key: "techs_on_job" }
+      ),
+      cachedCount(
+        Technician,
         {
-          $match: {
-            job_status: { $in: COMPLETED },
-            $or: [
-              { paid_at: { $gte: yesterdayStart, $lte: yesterdayEnd } },
-              {
-                paid_at: { $exists: false },
-                completed_at: { $gte: yesterdayStart, $lte: yesterdayEnd },
-              },
-            ],
-          },
+          isActive: true,
+          $or: [{ currentStatus: "Offline" }, { currentStatus: { $exists: false } }],
         },
-        { $group: { _id: null, total: { $sum: "$price" } } },
-      ]),
-      Technician.countDocuments({ isActive: true }),
-      Technician.countDocuments({ isActive: true, currentStatus: "Online" }),
-      Technician.countDocuments({ isActive: true, currentStatus: "On Job" }),
-      Technician.countDocuments({
-        isActive: true,
-        $or: [{ currentStatus: "Offline" }, { currentStatus: { $exists: false } }],
-      }),
-      SOSRequest.countDocuments({ status: "pending" }),
-      SOSRequest.countDocuments({ status: "in_call" }),
+        { ttlMs: 30000, key: "techs_offline" }
+      ),
+      cachedCount(SOSRequest, { status: "pending" }, { ttlMs: 30000, key: "sos_pending" }),
+      cachedCount(SOSRequest, { status: "in_call" }, { ttlMs: 30000, key: "sos_in_call" }),
       Job.find({ job_status: "pending" })
         .sort({ dateTime: 1 })
         .limit(5)
@@ -165,11 +289,25 @@ async function getDashboardSummary(req, res) {
       Vehicle.countDocuments({}),
       Customer.countDocuments({}),
       VehicleInsurance.countDocuments({}),
+      getTopJobSources(5),
+      getTopJobSubSources(5),
     ]);
 
-    const earningsAllTime = Number(earningsAllTimeAgg[0]?.total) || 0;
-    const earningsToday = Number(earningsTodayAgg[0]?.total) || 0;
-    const earningsYesterday = Number(earningsYesterdayAgg[0]?.total) || 0;
+    const topSources = topSourcesRaw.map((row) => ({
+      ...row,
+      percentage:
+        jobsTotal > 0 ? Math.round((row.count / jobsTotal) * 100) : 0,
+    }));
+
+    const topSubSources = topSubSourcesRaw.map((row) => ({
+      ...row,
+      percentage:
+        jobsTotal > 0 ? Math.round((row.count / jobsTotal) * 100) : 0,
+    }));
+
+    const earningsAllTime = Number(materialized.earnings?.totalAllTime) || 0;
+    const earningsToday = Number(materialized.earnings?.today) || 0;
+    const earningsYesterday = Number(materialized.earnings?.yesterday) || 0;
 
     const sosWaitingList = waitingSos.map((s) => {
       const c = s.customer_id;
@@ -187,6 +325,7 @@ async function getDashboardSummary(req, res) {
 
     res.json({
       generatedAt: new Date().toISOString(),
+      stats_computed_at: statsComputedAt ? new Date(statsComputedAt).toISOString() : null,
       jobs: {
         total: jobsTotal,
         completed: jobsCompleted,
@@ -226,6 +365,10 @@ async function getDashboardSummary(req, res) {
       trends: {
         completedJobsPct: pctChange(completedToday, completedYesterday),
         earningsPct: pctChange(earningsToday, earningsYesterday),
+      },
+      sources: {
+        top: topSources,
+        subSources: topSubSources,
       },
     });
   } catch (err) {
@@ -373,11 +516,14 @@ async function getEarningsByDate(req, res) {
       return res.status(400).json({ message: "Date parameter is required" });
     }
 
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ message: "Invalid date parameter" });
+    }
 
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
+    // Qatar-local day, not UTC — otherwise this reported 03:00..02:59 Qatar.
+    const startDate = startOfDay(parsed);
+    const endDate = endOfDay(parsed);
 
     const jobs = await Job.find({
       job_status: { $in: COMPLETED },

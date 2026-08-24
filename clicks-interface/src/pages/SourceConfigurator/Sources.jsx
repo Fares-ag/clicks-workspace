@@ -4,6 +4,7 @@ import SuccessModal from "../../components/SuccessModal.jsx";
 import AddSourceModal from "../../components/AddSourceModal.jsx";
 import EditSourceModal from "../../components/EditSourceModal.jsx";
 import { useGetSourcesQuery, useDeleteSourceMutation, useDeleteSubSourceMutation } from "../../store/sourceApi";
+import { filterVisibleSources, isHiddenSourceName } from "../../utils/systemSources";
 import "./Sources.css";
 
 function Sources() {
@@ -20,7 +21,7 @@ function Sources() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedSources, setExpandedSources] = useState({});
 
-  const sources = sourcesData?.sources || [];
+  const sources = filterVisibleSources(sourcesData?.sources || []);
 
   const handleEdit = (source) => {
     setEditSourceId(source._id);

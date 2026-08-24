@@ -1,5 +1,9 @@
 const Job = require("../models/Job");
 const Technician = require("../models/Technician");
+const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
+// Shared with businessPortalController and businessAdminController so every
+// earnings figure honours businessCutType identically.
+const { cutAmountExpr, cutAmountFor } = require("../../../clicks-shared/utils/businessCut");
 
 const COMPLETED = ["completed"];
 const ONGOING = ["assigned", "accepted", "en_route", "arrived", "in_progress"];
@@ -11,29 +15,18 @@ function pctChange(current, previous) {
   return Number((((cur - prev) / prev) * 100).toFixed(1));
 }
 
+// Qatar-local day (UTC+3, no DST) — the container runs UTC, so server-local
+// midnight booked overnight jobs to the wrong day. See utils/qatarDay.js.
 function startOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+  return startOfQatarDay(d);
 }
 
 function endOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
+  return endOfQatarDay(d);
 }
 
 function completionDateExpr() {
   return { $ifNull: ["$completed_at", "$updatedAt"] };
-}
-
-function cutAmountExpr() {
-  return {
-    $multiply: [
-      { $ifNull: ["$price", 0] },
-      { $divide: [{ $ifNull: ["$businessCutPercent", 0] }, 100] },
-    ],
-  };
 }
 
 function timeframeWindow(timeframe) {
@@ -384,10 +377,14 @@ async function getEarningsByDate(req, res) {
       return res.status(400).json({ message: "Date parameter is required" });
     }
 
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) {
+      return res.status(400).json({ message: "Invalid date parameter" });
+    }
+
+    // Qatar-local day, not UTC — otherwise this reported 03:00..02:59 Qatar.
+    const startDate = startOfDay(parsed);
+    const endDate = endOfDay(parsed);
 
     const jobs = await Job.find({
       business_id: businessId,
@@ -403,11 +400,7 @@ async function getEarningsByDate(req, res) {
       ],
     }).lean();
 
-    const totalEarnings = jobs.reduce((sum, job) => {
-      const price = Number(job.price) || 0;
-      const pct = Number(job.businessCutPercent) || 0;
-      return sum + (price * pct) / 100;
-    }, 0);
+    const totalEarnings = jobs.reduce((sum, job) => sum + cutAmountFor(job), 0);
 
     res.json({
       date,

@@ -28,12 +28,12 @@ const TechnicianSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     profilePicture: { type: String },
     homeHeroUrl: { type: String, default: "" },
-    password: { type: String, required: true },
-    workPermitFront: { type: String },
-    workPermitBack: { type: String },
+    password: { type: String, required: true, select: false },
+    workPermitFront: { type: String, select: false },
+    workPermitBack: { type: String, select: false },
     workPermitExpiration: { type: Date },
-    drivingLicenseFront: { type: String },
-    drivingLicenseBack: { type: String },
+    drivingLicenseFront: { type: String, select: false },
+    drivingLicenseBack: { type: String, select: false },
     drivingLicenseExpiration: { type: Date },
     assignedVehicle: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" },
     expertise: {
@@ -80,6 +80,16 @@ const TechnicianSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Set when the server INFERRED Offline (socket gone / heartbeat stale)
+     * rather than the technician choosing it. A reconnect restores them to
+     * Online and clears this; an explicit toggle clears it without restoring.
+     * Durable on purpose — in-process timers do not survive a redeploy.
+     */
+    autoOfflineAt: {
+      type: Date,
+      default: null,
+    },
     /** FCM device token for urgent job push (Android). Cleared on logout. */
     fcm_token: {
       type: String,
@@ -91,5 +101,8 @@ const TechnicianSchema = new mongoose.Schema(
 
 // Create geospatial index for location-based queries
 TechnicianSchema.index({ currentLocation: "2dsphere" });
+// Live Map filter: { isActive, currentStatus }. Polled every 8s per admin tab,
+// and previously a full collection scan.
+TechnicianSchema.index({ isActive: 1, currentStatus: 1 });
 
 module.exports = mongoose.model("Technician", TechnicianSchema);

@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
@@ -152,9 +153,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   return JobCardData(
                     dateTime: j.dateTime,
                     title: j.jobType,
-                    jobId: j.id.length > 8
-                        ? j.id.substring(j.id.length - 8).toUpperCase()
-                        : j.id.toUpperCase(),
+                    jobId: _displayJobId(j),
                     priceQar: j.price,
                     status: j.status,
                     technician: j.technicianName ?? '—',
@@ -163,7 +162,25 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   );
                 }).toList();
 
-            return JobsExactScreenFromApi(items: items, jobs: filteredJobs);
+            return NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                // Only react to real scrolling of a scrollable list — an empty
+                // or short list has maxScrollExtent == 0, which used to make
+                // every notification request another page.
+                if (n is ScrollUpdateNotification &&
+                    n.metrics.maxScrollExtent > 0 &&
+                    n.metrics.extentAfter < 200) {
+                  context.read<ActivityCubit>().loadMore();
+                }
+                return false;
+              },
+              child: JobsExactScreenFromApi(
+                items: items,
+                jobs: filteredJobs,
+                loadingMore: state is ActivitySuccess && state.loadingMore,
+                hasMore: state is ActivitySuccess && state.hasMore,
+              ),
+            );
           }
 
           return const SizedBox.shrink();
@@ -175,11 +192,15 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
 class JobsExactScreenFromApi extends StatefulWidget {
   final List<JobCardData> items;
-  final List<JobDto> jobs; // الأصل عشان نبعته للـ details
+  final List<JobDto> jobs;
+  final bool loadingMore;
+  final bool hasMore;
   const JobsExactScreenFromApi({
     super.key,
     required this.items,
     required this.jobs,
+    this.loadingMore = false,
+    this.hasMore = false,
   });
 
   @override
@@ -193,9 +214,17 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
   Widget build(BuildContext context) {
     return ListView.separated(
       padding: EdgeInsets.all(16.w),
-      itemCount: widget.items.length,
+      itemCount: widget.items.length + (widget.loadingMore || widget.hasMore ? 1 : 0),
       separatorBuilder: (_, __) => SizedBox(height: 12.h),
       itemBuilder: (context, i) {
+        if (i >= widget.items.length) {
+          return Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              child: CircularProgressIndicator(color: ColorsManager.mainColor),
+            ),
+          );
+        }
         final data = widget.items[i];
         final job = widget.jobs[i];
         final isExpanded = expanded[i] ?? false;
@@ -320,7 +349,8 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
               bannerTitle: 'home.job_in_progress'.tr(),
               bannerBody: 'job_progress.banner_body'.tr(),
               jobId: jobId,
-              statusPillText: 'tracking.in_progress'.tr(),
+              jobReference: jobData['job_reference']?.toString() ?? '',
+              statusPillText: JobStatusLabels.labelFor('in_progress'),
               technicianName: techInfo['name'] ?? '',
               technicianPhone: techInfo['phone'] ?? '',
               technicianAvatarUrl: techInfo['photo'] ?? '',
@@ -663,6 +693,18 @@ class _ExactJobCard extends StatelessWidget {
         return 'activity.cancelled_jobs'.tr();
     }
   }
+}
+
+/// Technician-entered Job ID, falling back to the tail of the mongo id for
+/// legacy jobs that were completed before the field existed.
+String _displayJobId(JobDto job) {
+  final ref = (job.jobReference ?? '').trim();
+  if (ref.isNotEmpty) return ref;
+  if (job.id.isEmpty) return '—';
+  if (job.id.length > 6) {
+    return '#${job.id.substring(job.id.length - 6)}';
+  }
+  return '#${job.id}';
 }
 
 String _formatDate(DateTime dt) {

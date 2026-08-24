@@ -1,0 +1,235 @@
+.purchases-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: var(--spacing-lg);
+}
+
+.purchases-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: var(--spacing-lg);
+}
+
+.purchases-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.purchases-title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.purchases-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.purchases-header-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.purchases-export-btn,
+.purchases-filter-btn,
+.purchases-clear-btn,
+.purchases-void-btn {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-md);
+  padding: 8px 14px;
+  font-family: var(--font-main);
+  cursor: pointer;
+}
+
+.purchases-export-btn:hover,
+.purchases-filter-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.purchases-clear-btn {
+  color: var(--color-text-secondary);
+}
+
+.purchases-summary-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+}
+
+.purchases-summary-card {
+  min-width: 180px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.purchases-summary-card.active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.purchases-summary-name {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.purchases-summary-meta {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.purchases-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.purchases-filters input,
+.purchases-filters select {
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  padding: 0 12px;
+  font-family: var(--font-main);
+}
+
+.purchases-filters input[type="search"] {
+  min-width: 240px;
+  flex: 1;
+}
+
+.purchases-message {
+  margin: 0 0 12px;
+  color: var(--color-primary);
+}
+
+.purchases-job-link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.purchases-desc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.purchases-desc {
+  font-weight: 500;
+}
+
+.purchases-sku {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.purchases-void-btn {
+  font-size: 12px;
+  color: #b42318;
+}
+
+.purchases-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.purchases-modal {
+  width: min(560px, 100%);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+}
+
+.purchases-modal-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+
+.purchases-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.purchases-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.purchases-form-group--full {
+  grid-column: 1 / -1;
+}
+
+.purchases-form-group label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.purchases-form-group input,
+.purchases-form-group select,
+.purchases-form-group textarea {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  padding: 10px 12px;
+  font-family: var(--font-main);
+}
+
+.purchases-line-total {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.purchases-form-error {
+  color: #b42318;
+  margin: 12px 0 0;
+}
+
+.purchases-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.purchases-cancel-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 10px 14px;
+}
+
+@media (max-width: 640px) {
+  .purchases-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

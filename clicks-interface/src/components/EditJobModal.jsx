@@ -6,11 +6,22 @@ import CustomSelect from "./CustomSelect.jsx";
 import PhoneInput from "./PhoneInput.jsx";
 import {
   DEFAULT_COUNTRY_CODE,
+  countryCodeFromPhone,
   isValidLocalPhone,
   toE164,
   toLocalDigits,
 } from "../utils/phone";
+import { isSourceLockedJob, formatJobSourceLabel } from "../utils/jobOrigin.js";
 import "./EditJobModal.css";
+
+/** <input type="datetime-local"> speaks local wall-clock time, never UTC. */
+function toLocalInputValue(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 function EditJobModal({ open, onClose, jobId, onSuccess }) {
   const [formData, setFormData] = useState({
@@ -32,6 +43,8 @@ function EditJobModal({ open, onClose, jobId, onSuccess }) {
   
   const onlineTechnicians = techniciansData?.technicians || [];
   const sources = sourcesData?.sources || [];
+  const job = jobData?.job;
+  const sourceLocked = isSourceLockedJob(job);
 
   useEffect(() => {
     if (jobData?.job) {
@@ -40,12 +53,12 @@ function EditJobModal({ open, onClose, jobId, onSuccess }) {
         clientName: job.clientName || "",
         clientMobileNumber: toLocalDigits(
           job.clientMobileNumber || "",
-          DEFAULT_COUNTRY_CODE
+          countryCodeFromPhone(job.clientMobileNumber)
         ),
-        countryCode: DEFAULT_COUNTRY_CODE,
+        countryCode: countryCodeFromPhone(job.clientMobileNumber),
         issue: job.issue || "",
         location: job.location || "",
-        dateTime: job.dateTime ? new Date(job.dateTime).toISOString().slice(0, 16) : "",
+        dateTime: toLocalInputValue(job.dateTime),
         assignedTechnician: job.assignedTechnician?._id || job.assignedTechnician || "",
         price: job.price || "",
         source: job.source?._id || job.source || ""
@@ -63,17 +76,28 @@ function EditJobModal({ open, onClose, jobId, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isValidLocalPhone(formData.clientMobileNumber)) {
-      alert("Phone number must be exactly 8 digits (without country code)");
+    if (!isValidLocalPhone(formData.clientMobileNumber, formData.countryCode)) {
+      alert("Enter a valid local phone number (without the country code)");
       return;
     }
     try {
-      const { countryCode, ...rest } = formData;
-      await updateJob({
+      const { countryCode, source, ...rest } = formData;
+      const payload = {
         id: jobId,
         ...rest,
         clientMobileNumber: toE164(formData.clientMobileNumber, countryCode),
-      }).unwrap();
+      };
+      // The input holds local wall-clock time; send an absolute instant.
+      if (formData.dateTime) {
+        const parsed = new Date(formData.dateTime);
+        if (!Number.isNaN(parsed.getTime())) {
+          payload.dateTime = parsed.toISOString();
+        }
+      }
+      if (!sourceLocked) {
+        payload.source = source;
+      }
+      await updateJob(payload).unwrap();
       handleCancel();
       onSuccess?.();
     } catch (error) {
@@ -203,15 +227,25 @@ function EditJobModal({ open, onClose, jobId, onSuccess }) {
               <div className="edit-job-modal-row">
                 <div className="edit-job-modal-field">
                   <label>Source*</label>
-                  <CustomSelect
-                    value={formData.source}
-                    onChange={(value) => setFormData(prev => ({ ...prev, source: value }))}
-                    options={sources.filter(source => source.mainSourceName).map(source => ({
-                      value: source._id,
-                      label: source.mainSourceName
-                    }))}
-                    placeholder="Select Source"
-                  />
+                  {sourceLocked ? (
+                    <input
+                      type="text"
+                      value={formatJobSourceLabel(job)}
+                      readOnly
+                      disabled
+                      title="Source is locked for Technician App and Business Portal jobs"
+                    />
+                  ) : (
+                    <CustomSelect
+                      value={formData.source}
+                      onChange={(value) => setFormData(prev => ({ ...prev, source: value }))}
+                      options={sources.filter(source => source.mainSourceName).map(source => ({
+                        value: source._id,
+                        label: source.mainSourceName
+                      }))}
+                      placeholder="Select Source"
+                    />
+                  )}
                 </div>
                 <div className="edit-job-modal-field">
                   <label>Price*</label>

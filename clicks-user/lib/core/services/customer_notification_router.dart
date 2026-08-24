@@ -1,14 +1,17 @@
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/app_context.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
+import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
 import 'package:clicks_user/features/services/service_waiting_screen.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 void _log(String msg) {
@@ -27,7 +30,7 @@ class CustomerNotificationRouter {
         data['event']?.toString() ?? data['type']?.toString() ?? '';
     _log('handleTap event=$event job=${data['job_id']}');
 
-    if (CacheHelper.get('token') == null) {
+    if (CacheHelper.getAuthToken() == null) {
       _log('no auth token — skip navigation');
       return;
     }
@@ -81,7 +84,7 @@ class CustomerNotificationRouter {
       final jobId =
           activeJob['_id']?.toString() ?? activeJob['id']?.toString() ?? '';
       final tech = _techInfoFromJob(activeJob);
-      final loc = _customerLatLng(activeJob);
+      final loc = _customerLatLng(activeJob) ?? _lastKnownLatLng(context);
 
       if (jobId.isNotEmpty &&
           loc != null &&
@@ -113,7 +116,8 @@ class CustomerNotificationRouter {
             bannerTitle: 'home.job_in_progress'.tr(),
             bannerBody: 'job_progress.banner_body'.tr(),
             jobId: jobId,
-            statusPillText: 'tracking.in_progress'.tr(),
+            jobReference: activeJob['job_reference']?.toString() ?? '',
+            statusPillText: JobStatusLabels.labelFor('in_progress'),
             technicianName: tech['name'] ?? '',
             technicianPhone: tech['phone'] ?? '',
             technicianAvatarUrl: tech['photo'] ?? '',
@@ -179,6 +183,18 @@ class CustomerNotificationRouter {
   }
 
   static (double, double)? _customerLatLng(Map job) {
+    // Job.locationCoordinates is the GeoJSON point ([lng, lat]); Job.location
+    // is a plain String on the server, so it must be parsed, not indexed.
+    final geo = job['locationCoordinates'];
+    if (geo is Map) {
+      final coords = geo['coordinates'];
+      if (coords is List && coords.length >= 2) {
+        final lng = double.tryParse(coords[0].toString());
+        final lat = double.tryParse(coords[1].toString());
+        if (lat != null && lng != null) return (lat, lng);
+      }
+    }
+
     final loc = job['location'];
     if (loc is Map) {
       if (loc['coordinates'] is List &&
@@ -192,7 +208,33 @@ class CustomerNotificationRouter {
       final lng = (loc['longitude'] as num?)?.toDouble();
       if (lat != null && lng != null) return (lat, lng);
     }
+    if (loc is String) {
+      final parsed = _parseLatLngString(loc);
+      if (parsed != null) return parsed;
+    }
     return null;
+  }
+
+  /// Last GPS fix the SOS flow captured — same fallback splash_screen uses so
+  /// a job whose stored location is a street address still opens the map.
+  static (double, double)? _lastKnownLatLng(BuildContext context) {
+    try {
+      final p = context.read<SosCubit>().lastKnownPosition;
+      if (p != null) return (p.latitude, p.longitude);
+    } catch (_) {}
+    return null;
+  }
+
+  /// Parses a `"25.2854, 51.5310"` location string. Returns null for a plain
+  /// address such as `"Doha, Qatar"`.
+  static (double, double)? _parseLatLngString(String raw) {
+    final parts = raw.split(',');
+    if (parts.length != 2) return null;
+    final lat = double.tryParse(parts[0].trim());
+    final lng = double.tryParse(parts[1].trim());
+    if (lat == null || lng == null) return null;
+    if (lat.abs() > 90 || lng.abs() > 180) return null;
+    return (lat, lng);
   }
 
   static double? _techLat(Map job) {

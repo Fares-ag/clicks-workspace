@@ -51,6 +51,11 @@ import {
   BusinessDetails,
 } from "./pages/BusinessManagement";
 
+// Finance (read-only admin overview)
+import Finance from "./pages/Finance";
+
+import FinanceUsers from "./pages/FinanceUsers";
+
 // Partner Management
 import { Partners, PartnerDetails } from "./pages/PartnerManagement";
 
@@ -74,9 +79,6 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";
 import TermsAndConditionsPage from "./pages/TermsAndConditionsPage.jsx";
 import SupportPage from "./pages/SupportPage.jsx";
 import AccountDeletionPage from "./pages/AccountDeletionPage.jsx";
-
-// Demo/Other
-import DemoPage from "./pages/DemoPage.jsx";
 
 function App() {
   const token = useSelector((state) => state.auth.token);
@@ -285,6 +287,26 @@ function App() {
         }
       />
       <Route
+        path="/finance"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <Finance />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance-users"
+        element={
+          <ProtectedRoute>
+            <AdminLayout>
+              <FinanceUsers />
+            </AdminLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/partners"
         element={
           <ProtectedRoute>
@@ -419,14 +441,6 @@ function App() {
       <Route path="/terms-and-conditions" element={<TermsAndConditionsPage />} />
       <Route path="/support" element={<SupportPage />} />
       <Route path="/account-deletion" element={<AccountDeletionPage />} />
-      <Route
-        path="/demo"
-        element={
-          <AdminLayout>
-            <DemoPage />
-          </AdminLayout>
-        }
-      />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

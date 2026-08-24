@@ -5,6 +5,16 @@ $flutter = "C:\Users\TS\flutter\bin\flutter.bat"
 $outDir = Join-Path $root "release-apks"
 
 if (-not (Test-Path $flutter)) { throw "Flutter not found at $flutter" }
+
+# Fail closed: without android/key.properties Gradle signs the "release" build with
+# the public Android debug key, which lets anyone ship an in-place trojaned update.
+foreach ($app in @("clicks-technician", "clicks-user", "clicks-business", "clicks-partner")) {
+    $keyProps = Join-Path $root "$app\android\key.properties"
+    if (-not (Test-Path $keyProps)) {
+        throw "$app/android/key.properties missing - refusing to build a release APK that would be debug-signed"
+    }
+}
+
 if (-not $env:JAVA_HOME) {
     $jbr = "C:\Program Files\Android\Android Studio\jbr"
     if (Test-Path $jbr) { $env:JAVA_HOME = $jbr }

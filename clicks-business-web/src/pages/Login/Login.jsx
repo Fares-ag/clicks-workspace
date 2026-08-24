@@ -1,7 +1,6 @@
 import React, { useState } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, Navigate } from "react-router-dom";
-import { useSelector } from "react-redux";
 import { useLoginMutation } from "../../store/portalApi";
 import { setCredentials } from "../../store/authSlice";
 import "./Login.css";
@@ -14,6 +13,7 @@ function Login() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const token = useSelector((state) => state.auth.token);
+  const sessionExpired = useSelector((state) => state.auth.sessionExpired);
   const [login, { isLoading }] = useLoginMutation();
 
   const [identifier, setIdentifier] = useState("");
@@ -52,7 +52,12 @@ function Login() {
     }
   };
 
-  const showError = error && (touched.identifier || touched.password);
+  const errorMessage =
+    error ||
+    (sessionExpired ? "Your session expired — please sign in again." : "");
+  const showError =
+    Boolean(errorMessage) &&
+    (sessionExpired || (error && (touched.identifier || touched.password)));
 
   return (
     <div className="login-root">
@@ -105,7 +110,7 @@ function Login() {
               onBlur={() => setTouched((p) => ({ ...p, password: true }))}
               autoComplete="current-password"
             />
-            {showError && <div className="login-error-message">{error}</div>}
+            {showError && <div className="login-error-message">{errorMessage}</div>}
           </div>
           <div className="login-signin-row">
             <button

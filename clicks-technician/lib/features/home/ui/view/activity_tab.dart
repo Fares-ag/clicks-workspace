@@ -22,12 +22,29 @@ class _ActivityTabState extends State<ActivityTab> {
   int _page = 0;
   DateTime? _filterDay;
   late DateTime _month;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _month = DateTime(now.year, now.month);
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    if (_scrollController.offset >= max - 120) {
+      context.read<HomeCubit>().loadMoreHistory();
+    }
   }
 
   DateTime? _jobDate(Map<String, dynamic> job) {
@@ -165,10 +182,21 @@ class _ActivityTabState extends State<ActivityTab> {
                           ),
                         )
                       : ListView.separated(
+                          controller: _scrollController,
                           padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
-                          itemCount: pageJobs.length,
+                          itemCount: pageJobs.length + (cubit.historyHasMore ? 1 : 0),
                           separatorBuilder: (_, __) => SizedBox(height: 12.h),
                           itemBuilder: (context, i) {
+                            if (i >= pageJobs.length) {
+                              return Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 12.h),
+                                  child: cubit.historyLoadingMore
+                                      ? const CircularProgressIndicator()
+                                      : const SizedBox.shrink(),
+                                ),
+                              );
+                            }
                             final job = pageJobs[i];
                             return ActivityJobCard(
                               job: job,
