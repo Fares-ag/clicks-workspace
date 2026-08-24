@@ -4,6 +4,13 @@ export const LOCATION_STALE_MS = 60000;
 export const REST_POLL_MS = 8000;
 export const SOCKET_COORD_PREFERENCE_MS = 60000;
 
+/** Parse a timestamp to epoch ms, or null when absent/unparseable. */
+function toMs(value) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function getTechLastLocationAt(tech) {
   return tech?.lastLocationAt || tech?._locationUpdatedAt || null;
 }
@@ -24,7 +31,15 @@ export function formatLastSeen(tech, nowMs = Date.now()) {
   return `${Math.floor(sec / 3600)}h ago`;
 }
 
-/** Merge REST snapshot with fresher socket state (timestamped only). */
+/**
+ * Merge the REST snapshot with socket state, preferring whichever source
+ * describes the NEWER MEASUREMENT.
+ *
+ * Preferring socket state because its last message merely *arrived* recently is
+ * what let a silently-dead socket pin an old position on the map while fresher
+ * REST snapshots were discarded — with the badge still reading "Connected".
+ * Comparing measurement times makes the stale path self-correcting.
+ */
 export function mergeApiTechnicianWithSocketState(apiTech, existing, nowMs = Date.now()) {
   const id = String(apiTech._id);
   const base = {
@@ -38,19 +53,22 @@ export function mergeApiTechnicianWithSocketState(apiTech, existing, nowMs = Dat
     return base;
   }
 
-  const socketMs = new Date(existing._locationUpdatedAt).getTime();
-  if (nowMs - socketMs < SOCKET_COORD_PREFERENCE_MS) {
-    return {
-      ...base,
-      location: existing.location,
-      _locationUpdatedAt: existing._locationUpdatedAt,
-      lastLocationAt: existing.lastLocationAt || apiTech.lastLocationAt,
-      locationStale: existing.locationStale ?? apiTech.locationStale,
-      _socketPresenceAt: existing._socketPresenceAt,
-    };
-  }
+  // Fall back to arrival time only when the socket payload carried no
+  // measurement time (older server build).
+  const socketMs = toMs(existing.lastLocationAt) ?? toMs(existing._locationUpdatedAt);
+  const apiMs = toMs(apiTech.lastLocationAt);
 
-  return base;
+  if (socketMs === null) return base;
+  if (apiMs !== null && apiMs >= socketMs) return base;
+
+  return {
+    ...base,
+    location: existing.location,
+    _locationUpdatedAt: existing._locationUpdatedAt,
+    lastLocationAt: existing.lastLocationAt || apiTech.lastLocationAt,
+    locationStale: existing.locationStale ?? apiTech.locationStale,
+    _socketPresenceAt: existing._socketPresenceAt,
+  };
 }
 
 export function isSocketOnlyPreserved(tech, apiIds, nowMs = Date.now()) {

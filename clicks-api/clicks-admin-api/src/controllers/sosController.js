@@ -1,5 +1,59 @@
+const mongoose = require("mongoose");
 const axios = require("axios");
 const SOSRequest = require("../models/SOSRequest");
+const Customer = require("../models/Customer");
+const CustomerVehicle = require("../../../clicks-shared/models/CustomerVehicle");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { objectId } = require("../../../clicks-shared/utils/coerce");
+const { computeChanges, recordAudit } = require("../utils/auditLog");
+
+// Cap on how many customer/vehicle ids a single search may expand into, so a
+// very broad term cannot build an unbounded $in list.
+const SEARCH_MATCH_LIMIT = 500;
+
+/**
+ * Translate the free-text list search into a Mongo filter fragment so that
+ * skip/limit and countDocuments both see it. Matching customers/vehicles are
+ * resolved first because the searchable name/phone/plate live on those
+ * collections.
+ */
+async function buildSearchFilter(search) {
+  const tokens = String(search).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+
+  const customerConditions = tokens.map((token) => {
+    const rx = new RegExp(escapeRegex(token), "i");
+    return { $or: [{ first_name: rx }, { last_name: rx }, { phone_number: rx }] };
+  });
+  const termRegex = new RegExp(escapeRegex(search), "i");
+
+  const [customers, vehicles] = await Promise.all([
+    Customer.find({ $and: customerConditions })
+      .select("_id")
+      .limit(SEARCH_MATCH_LIMIT)
+      .lean(),
+    CustomerVehicle.find({ plate_number: termRegex })
+      .select("_id")
+      .limit(SEARCH_MATCH_LIMIT)
+      .lean(),
+  ]);
+
+  const or = [
+    { status: termRegex },
+    { cancel_reason: termRegex },
+  ];
+  if (customers.length) {
+    or.push({ customer_id: { $in: customers.map((c) => c._id) } });
+  }
+  if (vehicles.length) {
+    or.push({ customer_vehicle_id: { $in: vehicles.map((v) => v._id) } });
+  }
+  const asId = objectId(search);
+  if (asId) {
+    or.push({ _id: asId });
+  }
+  return { $or: or };
+}
 
 function mapSos(doc) {
   if (!doc) return null;
@@ -81,6 +135,16 @@ const getSOSRequests = async (req, res) => {
       filter.status = status;
     }
 
+    // The search has to be part of the Mongo filter: filtering the page in
+    // JavaScript after skip/limit hid every match that was not on the current
+    // page and left total/pages counting the unfiltered set.
+    if (search) {
+      const searchFilter = await buildSearchFilter(search);
+      if (searchFilter) {
+        Object.assign(filter, searchFilter);
+      }
+    }
+
     let query = SOSRequest.find(filter)
       .populate("customer_id", "first_name last_name phone_number email")
       .populate({
@@ -101,26 +165,7 @@ const getSOSRequests = async (req, res) => {
       SOSRequest.countDocuments(filter),
     ]);
 
-    let requests = rows.map(mapSos);
-
-    if (search) {
-      const q = search.toLowerCase();
-      requests = requests.filter((r) => {
-        const hay = [
-          r.customer?.name,
-          r.customer?.phone,
-          r.vehicle?.plate,
-          r.sos_id,
-          r.status,
-          r.display_status,
-          r.job_status,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(q);
-      });
-    }
+    const requests = rows.map(mapSos);
 
     res.json({
       requests,
@@ -162,31 +207,88 @@ const getSOSById = async (req, res) => {
 const claimSOS = async (req, res) => {
   try {
     const adminId = req.user.id || req.user._id;
-    const sos = await SOSRequest.findById(req.params.id);
+    const claimerId = new mongoose.Types.ObjectId(String(adminId));
+    const now = new Date();
+
+    // Claim atomically: the availability guard is part of the write, so two
+    // dispatchers racing on the same SOS cannot both come back with a 200.
+    // in_call_at/claimed_at are stamped only when still unset, which keeps the
+    // original claim time when the same dispatcher re-claims.
+    const sos = await SOSRequest.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ["pending", "in_call"] },
+        $or: [{ claimed_by: null }, { claimed_by: claimerId }],
+      },
+      [
+        {
+          $set: {
+            status: "in_call",
+            claimed_by: claimerId,
+            in_call_at: { $ifNull: ["$in_call_at", now] },
+            claimed_at: { $ifNull: ["$claimed_at", now] },
+          },
+        },
+      ],
+      { new: false }
+    );
+
     if (!sos) {
-      return res.status(404).json({ error: "SOS not found" });
-    }
-    if (!["pending", "in_call"].includes(sos.status)) {
+      // Nothing was written — re-read to report why the claim did not land.
+      const existing = await SOSRequest.findById(req.params.id).select(
+        "status claimed_by"
+      );
+      if (!existing) {
+        return res.status(404).json({ error: "SOS not found" });
+      }
+      if (!["pending", "in_call"].includes(existing.status)) {
+        return res.status(409).json({
+          error: "SOS is no longer available",
+          code: "SOS_UNAVAILABLE",
+          status: existing.status,
+        });
+      }
+      if (existing.claimed_by && String(existing.claimed_by) !== String(adminId)) {
+        return res.status(409).json({
+          error: "SOS already claimed by another dispatcher",
+          code: "SOS_ALREADY_CLAIMED",
+          claimed_by: existing.claimed_by.toString(),
+        });
+      }
       return res.status(409).json({
         error: "SOS is no longer available",
         code: "SOS_UNAVAILABLE",
-        status: sos.status,
-      });
-    }
-    if (sos.claimed_by && String(sos.claimed_by) !== String(adminId)) {
-      return res.status(409).json({
-        error: "SOS already claimed by another dispatcher",
-        code: "SOS_ALREADY_CLAIMED",
-        claimed_by: sos.claimed_by.toString(),
+        status: existing.status,
       });
     }
 
-    const now = new Date();
-    sos.status = "in_call";
-    sos.in_call_at = sos.in_call_at || now;
-    sos.claimed_by = adminId;
-    sos.claimed_at = sos.claimed_at || now;
-    await sos.save();
+    // `sos` is the pre-image returned by the atomic update, so it doubles as the
+    // "before" side of the audit diff; the "after" side is what was just written.
+    const prior = {
+      status: sos.status,
+      claimed_by: sos.claimed_by,
+      claimed_at: sos.claimed_at,
+      in_call_at: sos.in_call_at,
+    };
+    const applied = {
+      status: "in_call",
+      claimed_by: claimerId,
+      claimed_at: sos.claimed_at || now,
+      in_call_at: sos.in_call_at || now,
+    };
+
+    await recordAudit({
+      req,
+      action: "sos.claim",
+      entityType: "sos",
+      entityId: sos._id,
+      changes: computeChanges(prior, applied, [
+        "status",
+        "claimed_by",
+        "claimed_at",
+        "in_call_at",
+      ]),
+    });
 
     const populated = await SOSRequest.findById(sos._id)
       .populate("customer_id", "first_name last_name phone_number email")

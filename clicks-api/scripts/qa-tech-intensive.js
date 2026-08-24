@@ -165,7 +165,7 @@ async function preflightCleanup(techToken) {
       await json("POST", `${TECH_URL}/api/jobs/${id}/signature`, { token: techToken, form });
       await json("POST", `${TECH_URL}/api/jobs/${id}/complete`, {
         token: techToken,
-        body: { notes: "QA intensive cleanup" },
+        body: { notes: "QA intensive cleanup", job_reference: "QA-INTENSIVE" },
       });
       step("cleanup in_progress", true, id);
     } else if (["accepted", "en_route", "arrived"].includes(status)) {
@@ -390,7 +390,7 @@ async function main() {
 
     r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
       token: techToken,
-      body: { notes: "should fail — no signature/payment" },
+      body: { notes: "should fail — no signature/payment", job_reference: "QA-INTENSIVE" },
     });
     step("reject complete without signature/payment", r.status === 400, `status=${r.status}`);
 
@@ -398,7 +398,7 @@ async function main() {
 
     r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
       token: techToken,
-      body: { notes: "should fail — unpaid" },
+      body: { notes: "should fail — unpaid", job_reference: "QA-INTENSIVE" },
     });
     step("reject complete when unpaid", r.status === 400, `status=${r.status}`);
 
@@ -421,7 +421,7 @@ async function main() {
 
     r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
       token: techToken,
-      body: { notes: "QA gate job complete" },
+      body: { notes: "QA gate job complete", job_reference: "QA-INTENSIVE" },
     });
     step("complete after pay+sign", r.status === 200, `status=${r.status}`);
   }
@@ -457,7 +457,7 @@ async function main() {
 
     r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
       token: techToken,
-      body: { notes: `QA intensive ${method}` },
+      body: { notes: `QA intensive ${method}`, job_reference: `QA-INTENSIVE-${method}` },
     });
     step(`lifecycle[${method}] complete`, r.status === 200);
 

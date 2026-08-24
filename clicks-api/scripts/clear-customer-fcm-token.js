@@ -7,7 +7,7 @@ require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-admin-api/.env"),
   override: true,
 });
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const { Customer } = require("../clicks-shared/models");
 
 (async () => {

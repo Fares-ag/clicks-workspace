@@ -3,16 +3,16 @@ import 'package:clicks_user/features/activity/models/job_history_response.dart';
 import '../../../core/api/dio_helper.dart';
 
 class ActivityRepository {
-  Future<List<JobDto>> getJobsHistory() async {
+  Future<JobsHistoryResponse> getJobsHistory({int page = 1, int limit = 20}) async {
     final res = await DioHelper.getData(
       url: '/api/jobs/customer/history',
+      query: {'page': page, 'limit': limit},
       auth: true,
     );
 
-    // لو الـ API بيرجع 200..299 نجاح
     if ((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300) {
       final data = res.data as Map<String, dynamic>;
-      return JobsHistoryResponse.fromJson(data).jobs;
+      return JobsHistoryResponse.fromJson(data);
     }
 
     // Error message لو موجود من الباك

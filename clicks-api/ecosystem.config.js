@@ -23,6 +23,8 @@ module.exports = {
       script: "src/index.js",
       cwd: path.join(root, "clicks-admin-api"),
       env_file: ".env",
+      // clicks-shared models resolve mongoose via NODE_PATH (sibling package layout).
+      env: { NODE_PATH: path.join(root, "clicks-admin-api", "node_modules") },
       instances: 1,
       exec_mode: "fork",
     },
@@ -31,6 +33,8 @@ module.exports = {
       script: "src/index.js",
       cwd: path.join(root, "clicks-customer-tech-api"),
       env_file: ".env",
+      // clicks-shared models resolve mongoose via NODE_PATH (sibling package layout).
+      env: { NODE_PATH: path.join(root, "clicks-customer-tech-api", "node_modules") },
       instances: techInstances,
       exec_mode: techInstances > 1 ? "cluster" : "fork",
     },

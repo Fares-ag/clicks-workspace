@@ -2,8 +2,11 @@ const express = require("express");
 const router = express.Router();
 const upload = require("../middleware/upload");
 const adminController = require("../controllers/adminController");
+const adminAuditController = require("../controllers/adminAuditController");
 const authenticateToken = require("../middleware/auth");
 const { requireFullAdmin } = require("../middleware/rbac");
+
+router.get("/audit-log", authenticateToken, requireFullAdmin, adminAuditController.listAuditLog);
 
 router.get("/", authenticateToken, requireFullAdmin, adminController.getAdmins);
 

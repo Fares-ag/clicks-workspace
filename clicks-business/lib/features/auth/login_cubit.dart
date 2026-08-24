@@ -31,10 +31,11 @@ class LoginCubit extends Cubit<LoginState> {
         final data = res.data as Map;
         final token = data['accessToken']?.toString();
         if (token == null || token.isEmpty) {
+          if (isClosed) return;
           emit(const LoginError('Invalid login response'));
           return;
         }
-        await CacheHelper.set('token', token);
+        await CacheHelper.secureWrite(CacheHelper.authTokenKey, token);
         final user = data['user'];
         final business = data['business'];
         if (user is Map) {
@@ -53,8 +54,10 @@ class LoginCubit extends Cubit<LoginState> {
             business['cutPercent']?.toString() ?? '',
           );
         }
+        if (isClosed) return;
         emit(LoginSuccess());
       } else {
+        if (isClosed) return;
         emit(LoginError(DioHelper.errorMessage(res) ?? 'Invalid credentials'));
       }
     } catch (e) {
@@ -70,6 +73,7 @@ class LoginCubit extends Cubit<LoginState> {
           msg = 'Login failed. Check your connection.';
         }
       }
+      if (isClosed) return;
       emit(LoginError(msg));
     }
   }

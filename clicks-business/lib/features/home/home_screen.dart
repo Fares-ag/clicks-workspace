@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/job_status_labels.dart';
 import '../../core/helper/assets_manager.dart';
 import '../../core/helper/cache_helper.dart';
 import '../../core/routing/routes.dart';
@@ -251,12 +252,12 @@ class _MetricsGrid extends StatelessWidget {
           label: 'Submitted Jobs',
           value: '${cubit.submitted}',
           icon: Icons.article_outlined,
-          trend: cubit.completedTrendPct,
         ),
         _MetricCard(
           label: 'Completed Jobs',
           value: '${cubit.completed}',
           icon: Icons.check_circle_outline,
+          trend: cubit.completedTrendPct,
         ),
         _MetricCard(
           label: 'On Going Jobs',
@@ -596,7 +597,7 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
-        status.replaceAll('_', ' '),
+        JobStatusLabels.labelFor(status),
         style: GoogleFonts.dmSans(
           fontSize: 11,
           fontWeight: FontWeight.w600,

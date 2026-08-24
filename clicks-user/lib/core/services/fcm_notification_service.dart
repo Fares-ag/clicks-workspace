@@ -292,6 +292,20 @@ class FCMNotificationService {
     }
   }
 
+  /// Invalidate this device's FCM token.
+  ///
+  /// Must be called on logout: the token stays stored on the customer record
+  /// server-side, so without this the next account signing in on the device
+  /// would keep receiving the previous account's pushes.
+  Future<void> deleteToken() async {
+    try {
+      await _firebaseMessaging.deleteToken();
+      _log('🔕 FCM token deleted');
+    } catch (e) {
+      _log('❌ Error deleting FCM token: $e');
+    }
+  }
+
   /// Subscribe to a topic
   Future<void> subscribeToTopic(String topic) async {
     try {

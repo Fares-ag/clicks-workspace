@@ -1,0 +1,121 @@
+# Deploy clicks-admin-api and clicks-tech-api to Railway production.
+#
+# Prerequisites (one-time Railway service settings — do NOT rewrite config files in CI):
+#   Project: melodious-achievement
+#   Service root directory: clicks-api  (shared by BOTH services)
+#   Because the source directory is shared, each service needs its OWN
+#   config-as-code file — a default-named railway.toml would build the same
+#   Dockerfile for both. Set Settings → Config-as-code path to:
+#   clicks-admin-api → railway.admin.toml  (builds Dockerfile.admin-api)
+#   clicks-tech-api  → railway.tech.toml   (builds Dockerfile.tech-api)
+#   Health check path (/api/health, timeout 300s) comes from those files.
+#
+# GitHub secret required: RAILWAY_TOKEN (project token for melodious-achievement)
+
+name: Deploy Production
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-status-labels:
+    name: Sync job status labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify jobStatusLabels.js copies match
+        run: node scripts/check-status-labels.mjs
+
+  # Full CI (integration tests + Gitleaks + query hygiene) must pass for the
+  # tagged commit before anything is uploaded to Railway.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  verify-main:
+    name: Verify commit is on main
+    needs: [check-status-labels, ci]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if commit is not on origin/main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
+            echo "::error::Production deploy refused: ${{ github.sha }} is not on origin/main."
+            exit 1
+          fi
+          echo "Commit ${{ github.sha }} is on main — deploy may proceed."
+
+  deploy-admin-api:
+    name: Deploy clicks-admin-api
+    needs: verify-main
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clicks-api
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Preflight Railway deploy config
+        run: |
+          node scripts/check-railway-deploy.js
+          node scripts/check-shared-deps.js
+
+      - name: Set GIT_SHA on service
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway variable set "GIT_SHA=${{ github.sha }}" --service clicks-admin-api
+
+      - name: Deploy clicks-admin-api
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service clicks-admin-api --detach
+
+  deploy-tech-api:
+    name: Deploy clicks-tech-api
+    needs: verify-main
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clicks-api
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Preflight Railway deploy config
+        run: |
+          node scripts/check-railway-deploy.js
+          node scripts/check-shared-deps.js
+
+      - name: Set GIT_SHA on service
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway variable set "GIT_SHA=${{ github.sha }}" --service clicks-tech-api
+
+      - name: Deploy clicks-tech-api
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service clicks-tech-api --detach

@@ -137,7 +137,7 @@ async function readTechFromAdmin(adminToken, techId) {
 }
 
 async function readTechFromDb(techId) {
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Technician } = require("../clicks-shared/models");
   if (!process.env.MONGODB_URI) {
     throw new Error("MONGODB_URI not set");
@@ -149,7 +149,7 @@ async function readTechFromDb(techId) {
 }
 
 async function restoreFcmToken(techId, fcmToken) {
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Technician } = require("../clicks-shared/models");
   await mongoose.connect(process.env.MONGODB_URI);
   await Technician.findByIdAndUpdate(techId, { fcm_token: fcmToken });

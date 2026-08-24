@@ -19,12 +19,8 @@
 /**
  * NO IMPORTS ON PURPOSE.
  *
- * An earlier draft of this file did `require("mongoose")` for ObjectId
- * validation. That is a trap in this repo: `clicks-shared` pins mongoose ^7
- * while both APIs declare ^8, and `clicks-admin-api/src/controllers/jobHeatmapController.js:2`
- * already demonstrates the failure — a bare `require("mongoose")` from inside
- * admin-api resolves to a DIFFERENT module instance with its own connection
- * pool and model registry. A 24-character hex check needs none of that.
+ * ObjectId validation uses a 24-character hex check — no mongoose import needed.
+ * Host APIs and clicks-shared both declare mongoose ^8.3.5 (deduped per package tree).
  */
 
 /**

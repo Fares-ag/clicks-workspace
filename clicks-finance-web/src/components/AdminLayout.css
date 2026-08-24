@@ -1,0 +1,45 @@
+.admin-layout {
+  min-height: 100vh;
+  background: var(--color-bg-page);
+}
+
+.admin-layout-content {
+  margin-left: 292px;
+  transition: margin-left 0.2s;
+  min-height: 100vh;
+  background: var(--color-bg-page);
+  min-width: 0;
+}
+
+.admin-layout-content.content-sidebar-collapsed {
+  margin-left: 0;
+}
+
+.admin-layout-main {
+  min-height: calc(100vh - 72px);
+  background: var(--color-bg-page);
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.admin-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .admin-layout-content,
+  .admin-layout-content.content-sidebar-collapsed {
+    margin-left: 0;
+  }
+
+  .admin-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.45);
+    z-index: 999;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+}

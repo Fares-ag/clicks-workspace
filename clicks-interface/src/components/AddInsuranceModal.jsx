@@ -63,8 +63,8 @@ export default function AddInsuranceModal({ open, onClose, onSuccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!isValidLocalPhone(formData.phoneNumber)) {
-      alert("Phone number must be exactly 8 digits (without country code)");
+    if (!isValidLocalPhone(formData.phoneNumber, formData.countryCode)) {
+      alert("Enter a valid local phone number (without the country code)");
       return;
     }
     onSuccess({

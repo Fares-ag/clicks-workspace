@@ -14,8 +14,14 @@ const rawBase = fetchBaseQuery({
 
 async function baseQueryWithAuth(args, api, extraOptions) {
   const result = await rawBase(args, api, extraOptions);
-  if (result.error?.status === 401) {
-    api.dispatch(logout());
+  // authenticateBusiness answers an expired/invalid token (and a deactivated
+  // business) with 403, not 401, so a dead session has to clear auth on both or
+  // the portal keeps a useless token and renders zeros forever.
+  if (result.error?.status === 401 || result.error?.status === 403) {
+    api.dispatch(logout({ sessionExpired: true }));
+  }
+  if (result.meta?.response?.status === 304) {
+    return { data: undefined, meta: result.meta };
   }
   return result;
 }

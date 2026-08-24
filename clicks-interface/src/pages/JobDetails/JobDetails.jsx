@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery } from "../../store/jobApi";
 import { useGetTechniciansQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import io from "socket.io-client";
 import "./JobDetails.css";
-import { JOB_TYPE_MAPPING } from "../../constants/jobTypes";
+import { JOB_TYPE_MAPPING, jobTypeLabel } from "../../constants/jobTypes";
+import { isSourceLockedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
+import { getJobStatusCssClass, getJobStatusLabel } from "../../utils/jobStatusLabels";
+import { getJobDisplayId } from "../../utils/jobLabel.js";
 
 function getJobVehicleInfo(job) {
   if (!job) return null;
@@ -177,7 +180,6 @@ function JobDetails() {
     setTechSearch("");
   };
 
-  // Handle save
   const handleSave = async () => {
     try {
   const result = await updateJob({
@@ -313,25 +315,17 @@ function JobDetails() {
     hour12: true 
   });
 
-  // Get job status label and class
-  const getJobStatusInfo = (status) => {
-    const statusMap = {
-      "pending": { label: "Pending", class: "pending" },
-      "assigned": { label: "Assigned", class: "assigned" },
-      "accepted": { label: "Accepted", class: "accepted" },
-      "en_route": { label: "En Route", class: "enroute" },
-      "arrived": { label: "Arrived", class: "arrived" },
-      "in_progress": { label: "In Progress", class: "inprogress" },
-      "completed": { label: "Completed", class: "completed" },
-      "paid": { label: "Paid", class: "paid" },
-      "confirmed": { label: "Confirmed", class: "confirmed" },
-      "on_hold": { label: "On Hold", class: "onhold" },
-      "cancelled": { label: "Cancelled", class: "cancelled" }
-    };
-    return statusMap[status] || { label: status, class: "default" };
-  };
-
-  const statusInfo = getJobStatusInfo(job.job_status);
+  const statusCssClass = getJobStatusCssClass(job.job_status);
+  const statusLabel = getJobStatusLabel(job.job_status);
+  const leadRef = job.lead_id;
+  const leadId =
+    leadRef && typeof leadRef === "object"
+      ? leadRef._id
+      : leadRef || null;
+  const leadInternalNotes =
+    leadRef && typeof leadRef === "object"
+      ? String(leadRef.internalNotes || "").trim()
+      : "";
 
   return (
     <div className="job-details-container">
@@ -340,6 +334,9 @@ function JobDetails() {
       <div className="job-details-card">
         <div className="job-details-header">
           <h2 className="job-details-title">Job Details</h2>
+          <span className="job-details-header-jobid" title="Job ID">
+            {getJobDisplayId(job)}
+          </span>
         </div>
 
         <div className="job-details-content">
@@ -352,7 +349,7 @@ function JobDetails() {
                 <div className="job-details-info-column">
                   <div className="job-details-info-group">
                     <span className="job-details-label">Job ID</span>
-                    <span className="job-details-value">{job._id?.slice(-8).toUpperCase() || 'N/A'}</span>
+                    <span className="job-details-value">{getJobDisplayId(job)}</span>
                   </div>
                   
                   <div className="job-details-info-group">
@@ -402,8 +399,15 @@ function JobDetails() {
                   
                   <div className="job-details-info-group">
                     <span className="job-details-label">Job Status</span>
-                    <span className={`job-details-status-badge ${statusInfo.class}`}>
-                      {statusInfo.label}
+                    <span className={`job-details-status-badge ${statusCssClass}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  <div className="job-details-info-group">
+                    <span className="job-details-label">Job type</span>
+                    <span className="job-details-value">
+                      {jobTypeLabel(job.jobType) || job.jobType || "—"}
                     </span>
                   </div>
                   
@@ -504,7 +508,17 @@ function JobDetails() {
               {job.source && (
                 <div className="job-details-info-group">
                   <span className="job-details-label">Source</span>
-                  <span className="job-details-value">{job.source.mainSourceName}{job.subSource ? ` — ${job.subSource}` : ''}</span>
+                  <span className="job-details-value">
+                    {formatJobSourceLabel(job)}
+                    {isSourceLockedJob(job) && (
+                      <>
+                        {" "}
+                        <span className="job-source-locked" title="Source is locked for Technician App and Business Portal jobs">
+                          🔒 Locked
+                        </span>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
 
@@ -591,6 +605,68 @@ function JobDetails() {
                 <div className="job-details-signature-card empty">
                   <p className="job-details-signature-empty">Not signed yet</p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Internal notes from the source lead */}
+          {leadId ? (
+            <div className="job-details-section-full">
+              <div className="job-details-internal-notes-head">
+                <h3 className="job-details-section-title">Internal notes</h3>
+                <Link className="job-details-lead-link" to={`/leads/${leadId}`}>
+                  View lead
+                </Link>
+              </div>
+              <p className="job-details-internal-notes-hint">
+                From the lead record — edit on the lead page.
+              </p>
+              {leadInternalNotes ? (
+                <div className="job-details-admin-notes">
+                  <div className="admin-note-item">
+                    <p className="admin-note-text">{leadInternalNotes}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="job-details-completion-notes-empty">
+                  No internal notes on this lead.
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          {/* Technician completion notes (added when marking job complete) */}
+          {job.job_status === "completed" && (
+            <div className="job-details-section-full">
+              <h3 className="job-details-section-title">Technician completion notes</h3>
+              {job.completion_notes?.trim() ? (
+                <div className="job-details-admin-notes">
+                  <div className="admin-note-item">
+                    <div className="admin-note-header">
+                      <span className="admin-note-author">
+                        {selectedTechnician
+                          ? `${selectedTechnician.firstName} ${selectedTechnician.lastName}`
+                          : job.legacyTechnicianName?.trim() || "Technician"}
+                      </span>
+                      {job.completed_at && (
+                        <span className="admin-note-date">
+                          {new Date(job.completed_at).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                            hour12: true,
+                            timeZone: "Asia/Qatar",
+                          })}
+                        </span>
+                      )}
+                    </div>
+                    <p className="admin-note-text">{job.completion_notes.trim()}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="job-details-completion-notes-empty">No notes provided</p>
               )}
             </div>
           )}

@@ -1,3 +1,25 @@
-node_modules
-.env
+node_modules/
 test-scripts/
+
+# Secrets — never commit live values
+.env
+**/.env
+**/.env.*
+!**/.env.example
+**/Secrets.xcconfig
+!**/Secrets.xcconfig.example
+**/local.properties
+**/key.properties
+SECRETS.TRANSFER.md
+**/SECRETS.TRANSFER.md
+
+# Google / Firebase
+**/google-services.json
+**/GoogleService-Info.plist
+**/*firebase*adminsdk*.json
+**/*firebase-adminsdk*.json
+**/*service*account*.json
+clicks-468120-ac337c1b05a9.json
+
+# Release artifacts
+release-apks/

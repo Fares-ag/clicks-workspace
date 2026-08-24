@@ -51,9 +51,14 @@
 	<string>Clicks needs Always location access while you are Online so your position stays visible on the Live Map even when the app is in the background.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Clicks needs Always location access while you are Online so your position stays visible on the Live Map even when the app is in the background.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Clicks uses the camera to capture job and vehicle photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Clicks uses your photo library to attach job and registration documents.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>remote-notification</string>
 	</array>
 </dict>
 </plist>

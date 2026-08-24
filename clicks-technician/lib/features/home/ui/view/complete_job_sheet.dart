@@ -21,24 +21,43 @@ class BeginTasksScreen extends StatefulWidget {
 
 class _BeginTasksScreenState extends State<BeginTasksScreen> {
   final _notesCtrl = TextEditingController();
+  final _jobRefCtrl = TextEditingController();
   bool _submitting = false;
+  String? _jobRefError;
+  bool _draftCleared = false;
 
-  String get _draftKey => 'task_draft_${widget.cubit.jobId ?? 'none'}';
+  /// Job this sheet was opened for. Pinned once: the 25s session poll keeps
+  /// reassigning [HomeCubit.activeJob] while the sheet is open.
+  String? _jobId;
 
-  bool get _isPaid =>
-      widget.cubit.activeJob?['payment_status']?.toString() == 'paid';
+  String get _draftKey => 'task_draft_${_jobId ?? 'none'}';
+  String get _jobRefDraftKey => 'task_job_ref_${_jobId ?? 'none'}';
+
+  /// The pinned job, looked up from the live session so guards never read a
+  /// job the poll swapped in behind the sheet.
+  Map<String, dynamic>? get _job {
+    final active = widget.cubit.activeJob;
+    if (_jobId == null) return active;
+    if ((active?['_id'] ?? active?['job_id'])?.toString() == _jobId) {
+      return active;
+    }
+    for (final j in widget.cubit.activeJobs) {
+      if ((j['_id'] ?? j['job_id'])?.toString() == _jobId) return j;
+    }
+    return null;
+  }
+
+  bool get _isPaid => _job?['payment_status']?.toString() == 'paid';
 
   bool _hasValidSignature() {
-    return (widget.cubit.activeJob?['customerSignatureUrl']
-                ?.toString()
-                .isNotEmpty ??
-            false) &&
+    return (_job?['customerSignatureUrl']?.toString().isNotEmpty ?? false) &&
         !widget.cubit.signatureClearedBanner;
   }
 
   @override
   void initState() {
     super.initState();
+    _jobId = widget.cubit.jobId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_isPaid) {
@@ -56,10 +75,22 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     if (notes != null && notes.isNotEmpty) {
       _notesCtrl.text = notes;
     }
+    final jobRef = CacheHelper.get(_jobRefDraftKey)?.toString();
+    if (jobRef != null && jobRef.isNotEmpty) {
+      _jobRefCtrl.text = jobRef;
+    } else {
+      // No local draft (reinstall / other device): fall back to the Job ID the
+      // server already holds so a re-completion cannot blank it out.
+      final saved = _job?['job_reference']?.toString() ?? '';
+      if (saved.isNotEmpty) {
+        _jobRefCtrl.text = saved;
+      }
+    }
   }
 
   Future<void> _saveDraft() async {
     await CacheHelper.save(_draftKey, _notesCtrl.text.trim());
+    await CacheHelper.save(_jobRefDraftKey, _jobRefCtrl.text.trim());
     if (mounted) {
       AppSnackBars.successSnackBar('Progress saved');
     }
@@ -79,6 +110,15 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
   }
 
   Future<void> _complete() async {
+    final jobReference = _jobRefCtrl.text.trim();
+    if (jobReference.isEmpty) {
+      setState(() => _jobRefError = 'Job ID is required');
+      AppSnackBars.errorSnackBar('Enter the Job ID before completing');
+      return;
+    }
+    if (_jobRefError != null) {
+      setState(() => _jobRefError = null);
+    }
     if (ProductRules.requireSignatureBeforeComplete) {
       var hasSig = _hasValidSignature();
       if (!hasSig) {
@@ -97,25 +137,41 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
       if (mounted) Navigator.pop(context);
       return;
     }
+    // Snapshot the draft keys: completing clears activeJob, and the keys must
+    // still resolve to this job's entries afterwards.
+    final draftKey = _draftKey;
+    final jobRefDraftKey = _jobRefDraftKey;
     final ok = await widget.cubit.completeJob(
       notes: _notesCtrl.text.trim(),
+      jobReference: jobReference,
+      jobId: _jobId,
     );
+    if (!mounted) return;
     setState(() => _submitting = false);
-    if (!ok || !mounted) {
-      if (mounted) {
-        AppSnackBars.errorSnackBar(
-          widget.cubit.lastActionError ??
-              'Could not complete — collect payment and customer signature first',
-        );
-      }
+    if (!ok) {
+      AppSnackBars.errorSnackBar(
+        widget.cubit.lastActionError ??
+            'Could not complete — collect payment and customer signature first',
+      );
       return;
     }
-    await CacheHelper.remove(_draftKey);
+    _draftCleared = true;
+    await CacheHelper.remove(draftKey);
+    await CacheHelper.remove(jobRefDraftKey);
     if (mounted) Navigator.pop(context);
   }
 
   @override
   void dispose() {
+    // Keep a typed Job ID across sheet closes, same as the notes draft.
+    if (!_draftCleared) {
+      final jobReference = _jobRefCtrl.text.trim();
+      if (jobReference.isNotEmpty) {
+        // ignore: discarded_futures
+        CacheHelper.save(_jobRefDraftKey, jobReference);
+      }
+    }
+    _jobRefCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
   }
@@ -138,6 +194,38 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           Text(
             widget.cubit.jobIssue,
             style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
+          ),
+          SizedBox(height: 16.h),
+          Text(
+            'Job ID',
+            style: TextStyles.font16RegularBlack
+                .copyWith(fontWeight: FontWeight.w600),
+          ),
+          SizedBox(height: 8.h),
+          TextField(
+            controller: _jobRefCtrl,
+            maxLength: 64,
+            textInputAction: TextInputAction.next,
+            // Finance identifier — never let the IME rewrite what was typed.
+            autocorrect: false,
+            enableSuggestions: false,
+            onChanged: (value) {
+              if (_jobRefError != null && value.trim().isNotEmpty) {
+                setState(() => _jobRefError = null);
+              }
+            },
+            decoration: InputDecoration(
+              hintText: 'Enter the Job ID',
+              errorText: _jobRefError,
+              counterText: '',
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: EdgeInsets.fromLTRB(12.w, 12.h, 12.w, 12.h),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10.r),
+                borderSide: BorderSide(color: ColorsManager.border),
+              ),
+            ),
           ),
           SizedBox(height: 16.h),
           Text(

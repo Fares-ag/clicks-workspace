@@ -3,10 +3,19 @@ import { apiSlice } from "./apiSlice";
 export const technicianApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getTechnicians: builder.query({
-      query: ({ page = 1, limit = 10, search = "" } = {}) => ({
-        url: `/technicians?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`,
-        method: "GET"
-      }),
+      query: ({ page = 1, limit = 10, search = "", currentStatus, applicationStatus } = {}) => {
+        let url = `/technicians?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`;
+        if (currentStatus) {
+          url += `&currentStatus=${encodeURIComponent(currentStatus)}`;
+        }
+        if (applicationStatus) {
+          url += `&applicationStatus=${encodeURIComponent(applicationStatus)}`;
+        }
+        return {
+          url,
+          method: "GET"
+        };
+      },
       providesTags: ["Technician"]
     }),
     getOnlineTechnicians: builder.query({

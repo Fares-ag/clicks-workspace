@@ -4,7 +4,7 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-admin-api/.env"),
 });
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const Technician = require("../clicks-shared/models/Technician");
 
 async function main() {

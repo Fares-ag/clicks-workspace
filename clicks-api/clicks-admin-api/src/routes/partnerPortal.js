@@ -1,9 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const authenticateToken = require("../middleware/auth");
+const { authLimiter } = require("../middleware/rateLimiter");
 const ctrl = require("../controllers/partnerController");
 
-router.post("/login", ctrl.partnerLogin);
+router.post("/login", authLimiter, ctrl.partnerLogin);
 router.get("/me", authenticateToken, ctrl.requirePartner, ctrl.partnerMe);
 router.patch(
   "/me",

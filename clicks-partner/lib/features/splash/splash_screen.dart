@@ -38,7 +38,7 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _boot() async {
     await Future.delayed(const Duration(milliseconds: 1100));
     if (!mounted) return;
-    final token = CacheHelper.get('token');
+    final token = CacheHelper.getAuthToken();
     Navigator.of(context).pushReplacementNamed(
       token != null && token.isNotEmpty ? Routes.home : Routes.login,
     );

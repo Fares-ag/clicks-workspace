@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
 
-    final token = CacheHelper.get('token');
+    final token = CacheHelper.getAuthToken();
     if (token == null || token.isEmpty) {
       _go(Routes.login);
       return;
@@ -34,6 +34,12 @@ class _SplashScreenState extends State<SplashScreen> {
 
     try {
       final res = await DioHelper.getData(url: EndPoints.me);
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        await CacheHelper.clear();
+        if (!mounted) return;
+        _go(Routes.login);
+        return;
+      }
       if (res.statusCode == 200 && res.data is Map) {
         final data = res.data as Map;
         final user = data['user'];
@@ -64,11 +70,13 @@ class _SplashScreenState extends State<SplashScreen> {
         _go(Routes.home);
         return;
       }
-    } catch (_) {}
+    } catch (_) {
+      // Offline / timeout / server error — keep the session and use cached data.
+    }
 
-    await CacheHelper.clear();
+    // Only an explicit auth rejection clears credentials (handled above).
     if (!mounted) return;
-    _go(Routes.login);
+    _go(Routes.home);
   }
 
   void _go(String route) {

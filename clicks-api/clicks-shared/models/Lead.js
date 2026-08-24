@@ -62,12 +62,45 @@ const LeadSchema = new mongoose.Schema(
       ref: "Admin",
       default: null,
     },
+    // Business portal provenance — stamped when partner submits a request
+    business_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Business",
+      default: null,
+    },
+    businessName: { type: String, default: null },
+    businessCutType: { type: String, default: undefined },
+    businessCutPercent: { type: Number, default: undefined },
+    created_by_business_user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BusinessUser",
+      default: null,
+    },
+    /** Partner-quoted price; used to prefill convert-to-job. */
+    proposedPrice: { type: Number, default: null },
+    search_phone: { type: String, default: "", index: true },
+    search_name: { type: String, default: "", index: true },
   },
   { timestamps: true }
 );
 
+const { computeLeadSearchFields } = require("../utils/searchFields");
+
+LeadSchema.pre("save", function leadSearchFieldsPreSave(next) {
+  const fields = computeLeadSearchFields(this);
+  this.search_phone = fields.search_phone;
+  this.search_name = fields.search_name;
+  next();
+});
+
+// leadController unfiltered list: Lead.find({}).sort({ createdAt: -1 })
+LeadSchema.index({ createdAt: -1 });
+// business portal conditional polling freshness probe
+LeadSchema.index({ business_id: 1, updatedAt: -1 });
+
 LeadSchema.index({ status: 1, createdAt: -1 });
 LeadSchema.index({ clientMobileNumber: 1 });
+LeadSchema.index({ business_id: 1, createdAt: -1 });
 LeadSchema.index(
   { service_request_id: 1 },
   { unique: true, sparse: true }

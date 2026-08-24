@@ -7,6 +7,7 @@ import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/active_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/add_job_screen.dart';
+import 'package:clicks_technician/features/home/ui/view/widgets/home_hero_image.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/notifications_popup.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/slide_status_toggle.dart';
 import 'package:flutter/material.dart';
@@ -150,14 +151,10 @@ class _IdleHeroHome extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if (cubit.homeHeroUrl != null && cubit.homeHeroUrl!.isNotEmpty)
-                Image.network(
-                  cubit.homeHeroUrl!,
-                  key: ValueKey(cubit.homeHeroUrl),
+                HomeHeroImage(
+                  url: cubit.homeHeroUrl!,
+                  fallbackAsset: AssetsManager.homeHeroTech,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Image.asset(
-                    AssetsManager.homeHeroTech,
-                    fit: BoxFit.cover,
-                  ),
                 )
               else
                 Image.asset(

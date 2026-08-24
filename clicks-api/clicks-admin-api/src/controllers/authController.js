@@ -5,45 +5,73 @@ const { sendPasswordResetEmail, sendPasswordResetConfirmationEmail } = require("
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { str, normaliseEmail } = require("../../../clicks-shared/utils/coerce");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 
 const RESET_MAX_ATTEMPTS = Number(process.env.RESET_MAX_ATTEMPTS || 5);
 
+/**
+ * Look an admin up by email, case-insensitively.
+ *
+ * createAdmin stores the address lower-cased while the login form posts it
+ * exactly as typed, so an exact match locked out every admin whose address was
+ * issued with a capital letter. Matching on an anchored /^…$/i keeps rows that
+ * predate the lower-casing reachable too, so no data migration is required.
+ * Callers must use the returned `admin.email` as the canonical address for
+ * anything they write (password reset rows, emails).
+ */
+async function findAdminByEmail(email, { withPassword = false } = {}) {
+  if (!email) return null;
+  const exact = new RegExp(`^${escapeRegex(email)}$`, "i");
+  const query = Admin.findOne({ email: exact });
+  if (withPassword) query.select("+password");
+  return query;
+}
+
 // Login
 async function login(req, res) {
-  // Coerced: {"email":{"$ne":null}} would otherwise match an arbitrary admin.
-  // NOTE: not lower-cased on lookup — existing rows were stored as typed, so
-  // normalising here would lock out anyone who registered with capitals.
-  // Case normalisation + dedupe is a later, separate migration.
-  const email = str(req.body.email, { maxLength: 254 });
-  const password = str(req.body.password, { maxLength: 200 });
-  const admin = await Admin.findOne({ email });
-  if (!admin) return res.status(401).json({ message: "Invalid credentials" });
+  // Express 4 does not forward async rejections to the error middleware, and
+  // Node's default unhandledRejection mode is `throw` — an unwrapped await here
+  // kills the container on any transient Mongo blip. Same shape as refreshToken.
+  try {
+    // Coerced: {"email":{"$ne":null}} would otherwise match an arbitrary admin.
+    // Matched case-insensitively: createAdmin lower-cases on insert while the
+    // login form posts the address exactly as typed, so an exact match locked
+    // out every admin whose address was issued with a capital letter. Rows that
+    // predate the lower-casing stay reachable, so no migration is needed.
+    const email = str(req.body.email, { maxLength: 254 });
+    const password = str(req.body.password, { maxLength: 200 });
+    const admin = await findAdminByEmail(email, { withPassword: true });
+    if (!admin) return res.status(401).json({ message: "Invalid credentials" });
 
-  // Check if admin account is active
-  if (!admin.isActive) {
-    return res.status(403).json({ message: "Account is deactivated. Please contact an administrator." });
-  }
-
-  const valid = comparePassword(password, admin.password);
-  if (!valid) return res.status(401).json({ message: "Invalid credentials" });
-
-  const payload = { id: admin._id, role: admin.role, email: admin.email };
-  const accessToken = generateAccessToken(payload);
-  const refreshToken = generateRefreshToken(payload);
-
-  res.json({
-    accessToken,
-    refreshToken,
-    user: {
-      id: admin._id,
-      firstName: admin.firstName,
-      lastName: admin.lastName,
-      role: admin.role,
-      email: admin.email,
-      phone: admin.phone,
-      profilePicture: admin.profilePicture
+    // Check if admin account is active
+    if (!admin.isActive) {
+      return res.status(403).json({ message: "Account is deactivated. Please contact an administrator." });
     }
-  });
+
+    const valid = comparePassword(password, admin.password);
+    if (!valid) return res.status(401).json({ message: "Invalid credentials" });
+
+    const payload = { id: admin._id, role: admin.role, email: admin.email };
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(payload);
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: admin._id,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        role: admin.role,
+        email: admin.email,
+        phone: admin.phone,
+        profilePicture: admin.profilePicture
+      }
+    });
+  } catch (err) {
+    console.error("login failed:", err.message);
+    return res.status(503).json({ message: "Auth temporarily unavailable" });
+  }
 }
 
 // Logout (invalidate refresh token on client side)
@@ -60,27 +88,30 @@ async function forgotPassword(req, res) {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    const admin = await Admin.findOne({ email });
+    const admin = await findAdminByEmail(email);
 
     // Only send when the account exists — but respond identically either way.
     // The old code returned 404 for unknown emails, which let an attacker
     // confirm which admin addresses are real before attacking them.
     if (admin) {
+      // Key the reset record off the stored address, not the typed one, so the
+      // lookup in resetPassword finds it whatever case the admin types.
+      const canonicalEmail = admin.email;
       // 100000..999999 inclusive-exclusive upper bound; the original excluded
       // 999999. Kept as-is to avoid changing code length expectations.
       const resetToken = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-      await PasswordReset.deleteMany({ email });
+      await PasswordReset.deleteMany({ email: canonicalEmail });
       await PasswordReset.create({
-        email,
+        email: canonicalEmail,
         token: resetToken,
         expiresAt,
         used: false,
       });
 
       await sendPasswordResetEmail(
-        email,
+        canonicalEmail,
         `${admin.firstName} ${admin.lastName}`,
         resetToken
       );
@@ -114,11 +145,17 @@ async function resetPassword(req, res) {
       return res.status(400).json({ message: "Invalid or expired reset token" });
     }
 
+    // Resolve the account first (case-insensitively) because forgotPassword
+    // stores the reset record under the address exactly as it is stored on the
+    // admin, which is not necessarily the case the admin types here.
+    const admin = await findAdminByEmail(email);
+    const lookupEmail = admin ? admin.email : email;
+
     // Look the record up by email + used only. The supplied token NEVER enters
     // the filter — that is what allowed `{"token":{"$gt":""}}` to reset any
     // admin's password without ever reading the emailed code.
     const resetRecord = await PasswordReset.findOne({
-      email,
+      email: lookupEmail,
       used: false
     }).sort({ createdAt: -1 });
 
@@ -160,8 +197,7 @@ async function resetPassword(req, res) {
       });
     }
     
-    // Find the admin
-    const admin = await Admin.findOne({ email });
+    // Admin resolved above, alongside the reset record
     if (!admin) {
       return res.status(404).json({ message: "Admin not found" });
     }
@@ -177,7 +213,7 @@ async function resetPassword(req, res) {
     
     // Send confirmation email
     try {
-      await sendPasswordResetConfirmationEmail(email, `${admin.firstName} ${admin.lastName}`);
+      await sendPasswordResetConfirmationEmail(lookupEmail, `${admin.firstName} ${admin.lastName}`);
     } catch (emailError) {
       console.error("Failed to send confirmation email:", emailError);
       // Don't fail the request if confirmation email fails

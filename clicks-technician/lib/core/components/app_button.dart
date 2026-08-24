@@ -48,7 +48,9 @@ class AppButton extends StatelessWidget {
       ),
       child: MaterialButton(
         elevation: elevation ?? 2,
-        onPressed: onPressed,
+        // The shimmer alone leaves the tap target live, which lets a double-tap
+        // fire the same request twice — disable while loading.
+        onPressed: isLoading ? null : onPressed,
 
         minWidth: width,
         color: bgColor ?? ColorsManager.whiteColor,

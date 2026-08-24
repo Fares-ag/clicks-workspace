@@ -1,10 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'app_root.dart';
 import 'core/api/dio_helper.dart';
+import 'core/config/app_config.dart';
 import 'core/helper/app_navigator.dart';
 import 'core/helper/cache_helper.dart';
 import 'core/notifications/partner_notification_service.dart';
@@ -12,6 +14,11 @@ import 'core/routing/routes.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppConfig.validateReleaseConfig();
+
+  // Must register synchronously before any await — required for background FCM.
+  FirebaseMessaging.onBackgroundMessage(partnerFirebaseMessagingBackgroundHandler);
+
   GoogleFonts.config.allowRuntimeFetching = false;
   await EasyLocalization.ensureInitialized();
 
@@ -33,7 +40,6 @@ void main() async {
   };
 
   await PartnerNotificationService.instance.init();
-  await PartnerNotificationService.instance.requestPermissions();
 
   final savedLang = CacheHelper.get('app_language');
   final startLocale =

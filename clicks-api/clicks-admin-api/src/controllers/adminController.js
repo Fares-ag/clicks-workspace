@@ -1,5 +1,6 @@
 const Admin = require("../models/Admin");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 
 // POST /api/admins/:id/upload-profile
 async function uploadProfilePicture(req, res) {
@@ -89,8 +90,13 @@ async function createAdmin(req, res) {
       });
     }
 
-    // Check if email already exists
-    const exists = await Admin.findOne({ email });
+    // The row is stored lower-cased (below), so normalise once here and match
+    // the duplicate check case-insensitively — otherwise "Ahmed@clicks.qa" and
+    // "ahmed@clicks.qa" both get created and only one of them can ever sign in.
+    const normalisedEmail = email.trim().toLowerCase();
+    const exists = await Admin.findOne({
+      email: new RegExp(`^${escapeRegex(normalisedEmail)}$`, "i"),
+    });
     if (exists) return res.status(409).json({ message: "Email already exists" });
     
     const hashedPassword = hashPassword(password);
@@ -100,7 +106,7 @@ async function createAdmin(req, res) {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       role: role.trim(),
-      email: email.trim().toLowerCase(),
+      email: normalisedEmail,
       phone: phone.trim(),
       password: hashedPassword
     };

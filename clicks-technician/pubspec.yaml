@@ -2,7 +2,7 @@ name: clicks_technician
 description: "A new Flutter project."
 publish_to: "none"
 
-version: 1.2.2+15
+version: 1.2.3+16
 
 environment:
   sdk: ^3.7.2
@@ -25,6 +25,7 @@ dependencies:
   pretty_dio_logger: ^1.4.0
   responsive_builder: ^0.7.1
   shared_preferences: ^2.5.2
+  flutter_secure_storage: ^11.0.0
   geolocator: ^14.0.2
   google_maps_flutter: ^2.6.1
   flutter_polyline_points: ^2.1.0
@@ -37,6 +38,7 @@ dependencies:
   firebase_messaging: ^15.2.9
   flutter_local_notifications: ^19.4.0
   flutter_ringtone_player: ^4.0.0+4
+  sentry_flutter: ^9.27.0
 
 dev_dependencies:
   flutter_test:

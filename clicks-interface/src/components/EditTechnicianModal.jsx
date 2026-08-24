@@ -6,7 +6,9 @@ import PhoneInput from "./PhoneInput";
 import { useUpdateTechnicianMutation } from "../store/technicianApi";
 import {
   DEFAULT_COUNTRY_CODE,
+  countryCodeFromPhone,
   isValidLocalPhone,
+  localLengthHint,
   toE164,
   toLocalDigits,
 } from "../utils/phone";
@@ -33,8 +35,11 @@ export default function EditTechnicianModal({
         firstName: technician.firstName || "",
         lastName: technician.lastName || "",
         email: technician.email || "",
-        phone: toLocalDigits(technician.phone || "", DEFAULT_COUNTRY_CODE),
-        countryCode: DEFAULT_COUNTRY_CODE,
+        phone: toLocalDigits(
+          technician.phone || "",
+          countryCodeFromPhone(technician.phone)
+        ),
+        countryCode: countryCodeFromPhone(technician.phone),
         expertise: technician.expertise || [],
         profileImage: null,
         password: "",
@@ -85,8 +90,9 @@ export default function EditTechnicianModal({
     if (!fields.lastName) newErrors.lastName = "Last Name required.";
     if (!fields.email) newErrors.email = "Email Address required.";
     if (!fields.phone) newErrors.phone = "Phone required.";
-    else if (!isValidLocalPhone(fields.phone)) {
-      newErrors.phone = "Enter the 8-digit local number (without +974).";
+    else if (!isValidLocalPhone(fields.phone, fields.countryCode)) {
+      const cc = fields.countryCode || DEFAULT_COUNTRY_CODE;
+      newErrors.phone = `Enter the ${localLengthHint(cc)} local number (without ${cc}).`;
     }
     if (!fields.expertise || fields.expertise.length === 0) newErrors.expertise = "At least one expertise required.";
     if (fields.password) {

@@ -55,18 +55,44 @@ router.post("/notify-technician", authenticateInternal, async (req, res) => {
   }
 });
 
-// Notify admins of a new business-portal job (called from admin-api after portal create)
+// Notify admins of a new business-portal lead (called from admin-api after portal create)
+router.post("/notify-business-lead", authenticateInternal, async (req, res) => {
+  try {
+    const payload = req.body;
+    if (!payload?.lead_id) {
+      return res.status(400).json({ message: "lead_id is required" });
+    }
+    const notifyAdminBusinessLead = req.app.get("notifyAdminBusinessLead");
+    if (!notifyAdminBusinessLead) {
+      return res.status(500).json({ message: "Socket service not initialized" });
+    }
+    notifyAdminBusinessLead(payload);
+    res.json({ message: "Admins notified" });
+  } catch (error) {
+    console.error("Error notifying business lead:", error);
+    res.status(500).json({
+      message: "Failed to notify business lead",
+      error: error.message,
+    });
+  }
+});
+
+// Legacy alias — older admin-api builds may still call this after creating a job
 router.post("/notify-business-job", authenticateInternal, async (req, res) => {
   try {
     const payload = req.body;
-    if (!payload?.job_id) {
-      return res.status(400).json({ message: "job_id is required" });
+    if (!payload?.job_id && !payload?.lead_id) {
+      return res.status(400).json({ message: "job_id or lead_id is required" });
     }
+    const notifyAdminBusinessLead = req.app.get("notifyAdminBusinessLead");
     const notifyAdminBusinessJob = req.app.get("notifyAdminBusinessJob");
-    if (!notifyAdminBusinessJob) {
+    if (payload.lead_id && notifyAdminBusinessLead) {
+      notifyAdminBusinessLead(payload);
+    } else if (notifyAdminBusinessJob) {
+      notifyAdminBusinessJob(payload);
+    } else {
       return res.status(500).json({ message: "Socket service not initialized" });
     }
-    notifyAdminBusinessJob(payload);
     res.json({ message: "Admins notified" });
   } catch (error) {
     console.error("Error notifying business job:", error);

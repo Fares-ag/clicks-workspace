@@ -56,9 +56,11 @@ git clone <YOUR_CLICKS_API_GIT_URL> "$CLICKS_API_ROOT"
 cd "$CLICKS_API_ROOT"
 git checkout staging   # or main — match CI branch
 
-# Install deps
-cd clicks-shared && npm ci --omit=dev || npm install --omit=dev
-cd ../clicks-admin-api && npm ci --omit=dev || npm install --omit=dev
+# Install deps — do NOT install inside clicks-shared: it declares mongoose as a
+# peerDependency and has no dependencies of its own, so installing there creates
+# clicks-shared/node_modules/mongoose, which shadows the service's copy and
+# registers every shared model on a second, never-connected mongoose instance.
+cd clicks-admin-api && npm ci --omit=dev || npm install --omit=dev
 cd ../clicks-customer-tech-api && npm ci --omit=dev || npm install --omit=dev
 cd "$CLICKS_API_ROOT"
 

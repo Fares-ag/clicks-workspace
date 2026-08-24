@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const {
+  Admin,
   SOSRequest,
   ServiceRequest,
   Technician,
@@ -9,9 +10,25 @@ const {
 } = require("../../../clicks-shared/models");
 const { broadcastMs, inCallTimeoutMs } = require("../utils/sosTimeout");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
-const { assertJobAccess, sameId } = require("../utils/ownership");
+const {
+  assertJobAccess,
+  assertSosAccess,
+  assertVehicleOwner,
+  sameId,
+} = require("../utils/ownership");
 const { parseJobLocation } = require("../../../clicks-shared/utils/parseJobLocation");
 const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
+const {
+  applyTechnicianLocationWrite,
+  parseCoordinatePair,
+} = require("../../../clicks-shared/utils/technicianLocationWrite");
+const { captureException } = require("../../../clicks-shared/middleware/sentry");
+const { durationEnv } = require("../../../clicks-shared/utils/durationEnv");
+
+const isDev = process.env.NODE_ENV === "development";
+function devLog(...args) {
+  if (isDev) console.log(...args);
+}
 
 function socketTechnicianUser(socket) {
   if (!socket?.user?.id) return null;
@@ -25,31 +42,60 @@ function assertSocketJobAccess(job, socket) {
 }
 
 /**
- * Admin JWT roles may be "Super Admin", "Admin", "Job Dispatcher", etc.
+ * Admin JWT roles are exactly the Admin model's role enum. The business, finance
+ * and partner portals mint tokens with the SAME JWT_SECRET, so the /admin
+ * namespace must match against this allow-list only — never fall through to
+ * "any role that isn't customer/technician".
  */
+const ADMIN_ROLES = new Set([
+  "Super Admin",
+  "Admin",
+  "Job Dispatcher",
+  "Coordinator",
+  "Call Center Agent",
+]);
+
 function isAllowedAdminRole(role) {
   if (role == null) return false;
-  const r = String(role);
-  if (r === "customer" || r === "technician") return false;
-  if (r.includes("Admin")) return true;
-  if (["Job Dispatcher", "Coordinator", "Call Center Agent"].includes(r)) return true;
-  // Any other non-customer/technician staff role
-  return true;
+  return ADMIN_ROLES.has(String(role));
 }
 
 function attachNamespaceAuth(namespace, expectedRole) {
-  namespace.use((socket, next) => {
+  namespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.query?.token;
     if (!token) return next(new Error("Unauthorized"));
     if (!process.env.JWT_SECRET) return next(new Error("Unauthorized"));
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       if (expectedRole === "admin") {
-        if (!isAllowedAdminRole(decoded.role)) {
+        // `decoded.id` must be present: mongoose strips undefined filter values,
+        // so Admin.exists({_id: undefined, ...}) would match the first active admin.
+        if (!decoded.id || !isAllowedAdminRole(decoded.role)) {
           return next(new Error("Unauthorized"));
         }
+        // The role claim alone is forgeable across portals that share JWT_SECRET —
+        // confirm the subject really is an active Admin document.
+        const isAdmin = await Admin.exists({ _id: decoded.id, isActive: true });
+        if (!isAdmin) return next(new Error("Unauthorized"));
       } else if (decoded.role !== expectedRole) {
         return next(new Error("Unauthorized"));
+      } else if (expectedRole === "technician") {
+        // Mirror requireApprovedTechnician, which guards the REST location
+        // endpoint. Without this a rejected, pending or deactivated technician
+        // was 403'd on PATCH /location but could still open this socket, write
+        // currentLocation, and paint a live marker on the admin map — and the
+        // isActive:true filter in the sweeps meant nothing reconciled them off.
+        if (!decoded.id) return next(new Error("Unauthorized"));
+        const technician = await Technician.findById(decoded.id).select(
+          "applicationStatus isActive"
+        );
+        if (
+          !technician ||
+          technician.isActive === false ||
+          technician.applicationStatus !== "Approved"
+        ) {
+          return next(new Error("Unauthorized"));
+        }
       }
       socket.user = decoded;
       next();
@@ -83,7 +129,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
  * Initialize Socket.IO for SOS functionality
  * @param {Server} io - Socket.IO server instance
  */
-const DEFAULT_LOCATION_STALE_MS = Number(process.env.TECH_LOCATION_STALE_MS || 60000);
+const DEFAULT_LOCATION_STALE_MS = durationEnv("TECH_LOCATION_STALE_MS", 60000);
 
 function locationAgeMs(lastLocationAt) {
   if (!lastLocationAt) return Infinity;
@@ -139,20 +185,36 @@ function initializeSOSSocket(io) {
   attachNamespaceAuth(technicianNamespace, "technician");
   attachNamespaceAuth(adminNamespace, "admin");
 
-  // Store socket connections mapped to user IDs
-  const customerSockets = new Map(); // customer_id -> socket.id
-  const technicianSockets = new Map(); // technician_id -> socket.id
-  const adminSockets = new Map(); // admin_id -> socket.id
+  /** Per-user Socket.IO rooms (`user:${jwtUserId}`) — Redis-adapter safe across instances. */
   /** Grace timers so brief reconnects don't yank Offline on Live Map */
   const technicianOfflineTimers = new Map(); // technician_id -> timeout
   /** Dedup On Job stale broadcasts (cleared on fresh location) */
   const staleLocationEmittedFor = new Set();
 
+  function userRoom(userId) {
+    return `user:${String(userId)}`;
+  }
+
+  async function userHasLiveSockets(namespace, userId) {
+    try {
+      const sockets = await namespace.in(userRoom(userId)).fetchSockets();
+      return sockets.length > 0;
+    } catch (err) {
+      console.error("fetchSockets failed:", err.message);
+      captureException(err);
+      return false;
+    }
+  }
+
+  function emitToUser(namespace, userId, event, payload) {
+    namespace.to(userRoom(userId)).emit(event, payload);
+  }
+
   const pendingExpireTimers = new Map(); // sosId -> timeout
   const inCallExpireTimers = new Map(); // sosId -> timeout
   const DISCONNECT_OFFLINE_MS = Number(process.env.TECH_DISCONNECT_OFFLINE_MS || 30000);
   // How long without a location heartbeat before we consider the tech truly gone (force-quit).
-  const LOCATION_STALE_MS = Number(process.env.TECH_LOCATION_STALE_MS || 60000);
+  const LOCATION_STALE_MS = durationEnv("TECH_LOCATION_STALE_MS", 60000);
 
   function clearSosTimers(sosId) {
     const key = String(sosId);
@@ -178,16 +240,13 @@ function initializeSOSSocket(io) {
     clearSosTimers(sos._id);
 
     const customerId = String(sos.customer_id);
-    const customerSocketId = customerSockets.get(customerId);
     const payload = {
       sos_id: sos._id.toString(),
       message:
         message ||
         "No dispatcher accepted your SOS request in time. Please try again or call support.",
     };
-    if (customerSocketId) {
-      customerNamespace.to(customerSocketId).emit("sosExpired", payload);
-    }
+    emitToUser(customerNamespace, customerId, "sosExpired", payload);
     adminNamespace.emit("sosExpired", payload);
     return true;
   }
@@ -226,13 +285,88 @@ function initializeSOSSocket(io) {
       }
     } catch (err) {
       console.error("On Job stale location sweep failed:", err);
+      captureException(err);
     }
   }, 30000).unref?.();
+
+  // Durable offline reconciliation. The disconnect grace timers live only in this
+  // process, so a restart/redeploy loses them and strands the technician at
+  // "Online" forever (dispatchable, and still accruing online hours). Re-derive
+  // presence from the DB: Online + no live socket anywhere + no heartbeat.
+  // "On Job" is deliberately excluded — that flow surfaces a stale location
+  // instead of flipping the technician Offline mid-job.
+  const OFFLINE_SWEEP_MS = durationEnv("TECH_OFFLINE_SWEEP_MS", 60000);
+
+  /**
+   * Auto-Offline: the technician did not choose this, we inferred it from a
+   * missing socket or a stale heartbeat. Stamp autoOfflineAt so a later
+   * reconnect can undo it.
+   */
+  async function markTechnicianAutoOffline(technicianOrId) {
+    const tech = await setTechnicianStatus(technicianOrId, "Offline");
+    if (!tech) return null;
+    await Technician.updateOne({ _id: tech._id }, { autoOfflineAt: new Date() });
+    return tech;
+  }
+
+  /**
+   * A technician whose socket comes back after we auto-Offlined them was never
+   * really off shift — a tunnel or a backgrounded app is not a shift change.
+   * Without this they stay Offline and undispatchable until they happen to
+   * notice and toggle manually, which is invisible to both them and dispatch.
+   */
+  async function restoreAutoOfflinedTechnician(technicianId) {
+    try {
+      const tech = await Technician.findById(technicianId).select(
+        "currentStatus autoOfflineAt"
+      );
+      if (!tech || !tech.autoOfflineAt) return;
+
+      if (tech.currentStatus !== "Offline") {
+        // Something already moved them on (e.g. a job assignment) — just clear.
+        await Technician.updateOne({ _id: technicianId }, { autoOfflineAt: null });
+        return;
+      }
+
+      await setTechnicianStatus(technicianId, "Online");
+      await Technician.updateOne({ _id: technicianId }, { autoOfflineAt: null });
+      await emitAdminTechnicianPresence(technicianId, "Online");
+      devLog(`Technician ${technicianId} restored to Online after reconnect`);
+    } catch (err) {
+      console.error("Failed to restore auto-offlined technician:", err);
+      captureException(err);
+    }
+  }
+
+  async function sweepGhostOnlineTechnicians() {
+    try {
+      const cutoff = new Date(Date.now() - LOCATION_STALE_MS);
+      const ghosts = await Technician.find({
+        currentStatus: "Online",
+        isActive: true,
+        $or: [{ lastLocationAt: { $lt: cutoff } }, { lastLocationAt: null }],
+      });
+      for (const tech of ghosts) {
+        const technicianId = tech._id.toString();
+        // A disconnect timer in this process is already on the case.
+        if (technicianOfflineTimers.has(technicianId)) continue;
+        if (await userHasLiveSockets(technicianNamespace, technicianId)) continue;
+        await markTechnicianAutoOffline(tech);
+        await emitAdminTechnicianPresence(technicianId, "Offline");
+        devLog(`Technician ${technicianId} marked Offline by reconciliation sweep`);
+      }
+    } catch (err) {
+      console.error("Ghost Online technician sweep failed:", err);
+      captureException(err);
+    }
+  }
+
+  setInterval(sweepGhostOnlineTechnicians, OFFLINE_SWEEP_MS).unref?.();
 
   function emitAdminTechnicianLocationStale(technician_id, lastLocationAt) {
     const id = technician_id.toString();
     staleLocationEmittedFor.add(id);
-    adminNamespace.emit("technicianLocationStale", {
+    liveMap().emit("technicianLocationStale", {
       technician_id: id,
       lastLocationAt: lastLocationAt
         ? new Date(lastLocationAt).toISOString()
@@ -241,11 +375,63 @@ function initializeSOSSocket(io) {
     });
   }
 
+  const ADMIN_MAP_BATCH_MS = durationEnv("ADMIN_MAP_BATCH_MS", 2000);
+  // Every fix used to go out twice — once immediately as technicianLocationUpdate
+  // and again inside the ≤2s batch — so the admin client applied and re-rendered
+  // each move twice, and an out-of-order pair could rubber-band a marker
+  // backwards. The Live Map consumes technicianLocationBatch, so the duplicate
+  // is now off by default; set ADMIN_MAP_LEGACY_EVENTS=true to roll back.
+  const ADMIN_MAP_LEGACY_EVENTS =
+    String(process.env.ADMIN_MAP_LEGACY_EVENTS ?? "false") === "true";
+  /**
+   * Admins watching the Live Map.
+   *
+   * Location and presence were broadcast namespace-wide, so every admin session
+   * received the entire fleet's coordinates, phone numbers and vehicle plates on
+   * every page — including the second notification socket that has no location
+   * handlers at all. Only sockets that explicitly join get the feed now.
+   */
+  const LIVE_MAP_ROOM = "live-map";
+  // Deploy escape hatch: an admin bundle from before joinLiveMap existed never
+  // joins the room, so scoping the feed would leave its map blank. Set
+  // LIVE_MAP_ROOM_SCOPED=false to fan out namespace-wide until the web client
+  // has rolled out, then remove the override.
+  const LIVE_MAP_ROOM_SCOPED =
+    String(process.env.LIVE_MAP_ROOM_SCOPED ?? "true") === "true";
+  const liveMap = () =>
+    LIVE_MAP_ROOM_SCOPED ? adminNamespace.to(LIVE_MAP_ROOM) : adminNamespace;
+
+  const adminLocationBatch = new Map();
+  /**
+   * Technicians we have already broadcast as Offline.
+   *
+   * A location fix arriving after that must not be fanned out to the admin map:
+   * the batch flush lands up to ADMIN_MAP_BATCH_MS later, so an Offline event
+   * was routinely followed by a trailing location for the same technician,
+   * which the Live Map rendered as a resurrected marker.
+   */
+  const offlineTechnicians = new Set();
+
+  function flushAdminLocationBatch() {
+    if (adminLocationBatch.size === 0) return;
+    const updates = [...adminLocationBatch.values()];
+    adminLocationBatch.clear();
+    liveMap().emit("technicianLocationBatch", {
+      updates,
+      ts: new Date().toISOString(),
+    });
+  }
+
+  const adminLocationBatchTimer = setInterval(flushAdminLocationBatch, ADMIN_MAP_BATCH_MS);
+  adminLocationBatchTimer.unref?.();
+
   function emitAdminTechnicianLocation(technician_id, latitude, longitude, updatedAt) {
     const id = technician_id.toString();
+    if (offlineTechnicians.has(id)) return;
     staleLocationEmittedFor.delete(id);
     const iso = updatedAt ? new Date(updatedAt).toISOString() : new Date().toISOString();
-    adminNamespace.emit("technicianLocationUpdate", {
+
+    adminLocationBatch.set(id, {
       technician_id: id,
       latitude,
       longitude,
@@ -253,12 +439,23 @@ function initializeSOSSocket(io) {
       lastLocationAt: iso,
       locationStale: false,
     });
+
+    if (ADMIN_MAP_LEGACY_EVENTS) {
+      liveMap().emit("technicianLocationUpdate", {
+        technician_id: id,
+        latitude,
+        longitude,
+        updatedAt: iso,
+        lastLocationAt: iso,
+        locationStale: false,
+      });
+    }
   }
 
   /** On Job techs stay on the map but surface stale when heartbeat stops. */
   function scheduleOnJobStaleCheck(technicianId, locationAge) {
     const checkAndEmit = async () => {
-      if (technicianSockets.has(technicianId)) return;
+      if (await userHasLiveSockets(technicianNamespace, technicianId)) return;
       try {
         const t = await Technician.findById(technicianId).select(
           "currentStatus lastLocationAt"
@@ -269,6 +466,7 @@ function initializeSOSSocket(io) {
         }
       } catch (err) {
         console.error("On Job stale check failed:", err);
+        captureException(err);
       }
     };
 
@@ -289,9 +487,12 @@ function initializeSOSSocket(io) {
   async function emitAdminTechnicianPresence(technicianId, status) {
     try {
       if (status === "Offline") {
-        adminNamespace.emit("technicianOffline", {
-          technician_id: technicianId.toString(),
-        });
+        const id = technicianId.toString();
+        // Drop any pending batch entry before announcing the departure,
+        // otherwise the next flush re-adds them to the map.
+        adminLocationBatch.delete(id);
+        offlineTechnicians.add(id);
+        liveMap().emit("technicianOffline", { technician_id: id });
         return;
       }
 
@@ -312,30 +513,45 @@ function initializeSOSSocket(io) {
 
       // Live Map only shows Online / On Job
       if (!["Online", "On Job"].includes(technician.currentStatus)) {
-        adminNamespace.emit("technicianOffline", {
-          technician_id: technician._id.toString(),
-        });
+        const offId = technician._id.toString();
+        adminLocationBatch.delete(offId);
+        offlineTechnicians.add(offId);
+        liveMap().emit("technicianOffline", { technician_id: offId });
         return;
       }
 
-      adminNamespace.emit(
+      // Back on the map — allow their location fanout again.
+      offlineTechnicians.delete(technician._id.toString());
+
+      liveMap().emit(
         "technicianOnline",
         buildAdminTechnicianPayload(technician)
       );
     } catch (err) {
       console.error("Error emitting admin technician presence:", err);
+      captureException(err);
     }
   }
 
   // Admin namespace handlers
   adminNamespace.on("connection", (socket) => {
-    console.log("Admin connected:", socket.id);
+    devLog("Admin connected:", socket.id);
 
     socket.on("register", () => {
       const adminId = String(socket.user.id);
-      adminSockets.set(adminId, socket.id);
+      socket.join(userRoom(adminId));
       socket.adminId = adminId;
-      console.log(`Admin ${adminId} registered with socket ${socket.id}`);
+      devLog(`Admin ${adminId} registered with socket ${socket.id}`);
+    });
+
+    // Opt in to the technician location/presence feed. Only the Live Map does.
+    socket.on("joinLiveMap", () => {
+      socket.join(LIVE_MAP_ROOM);
+      devLog(`Admin ${socket.user?.id} joined the live map feed`);
+    });
+
+    socket.on("leaveLiveMap", () => {
+      socket.leave(LIVE_MAP_ROOM);
     });
 
     // Admin claims SOS (Create Job) — first claim wins
@@ -343,10 +559,54 @@ function initializeSOSSocket(io) {
       try {
         const { sos_id, customer_id } = data;
         const adminId = socket.user?.id;
-        console.log(`Admin ${adminId} claiming SOS ${sos_id}`);
+        devLog(`Admin ${adminId} claiming SOS ${sos_id}`);
 
-        const sos = await SOSRequest.findById(sos_id);
-        if (!sos || !["pending", "in_call"].includes(sos.status)) {
+        const now = new Date();
+        // First claim wins — the guard lives in the update filter so two dispatchers
+        // racing on the same SOS cannot both pass a read-then-save check.
+        // $min keeps the earliest stamp (and sets it when the field is absent),
+        // matching the old `sos.in_call_at || now` semantics.
+        const sos = await SOSRequest.findOneAndUpdate(
+          {
+            _id: sos_id,
+            status: { $in: ["pending", "in_call"] },
+            $or: [
+              { claimed_by: null },
+              { claimed_by: { $exists: false } },
+              { claimed_by: adminId },
+            ],
+          },
+          {
+            $set: { status: "in_call", claimed_by: adminId },
+            $min: { in_call_at: now, claimed_at: now },
+          },
+          { new: true }
+        );
+
+        if (!sos) {
+          // Either the SOS is gone/terminal, or another dispatcher won the race.
+          const current = await SOSRequest.findById(sos_id).select(
+            "status claimed_by customer_id"
+          );
+          if (
+            current &&
+            ["pending", "in_call"].includes(current.status) &&
+            current.claimed_by &&
+            String(current.claimed_by) !== String(adminId)
+          ) {
+            socket.emit("error", {
+              message: "SOS already claimed by another dispatcher",
+              code: "SOS_ALREADY_CLAIMED",
+              sos_id,
+              claimed_by: current.claimed_by.toString(),
+            });
+            adminNamespace.emit("sosClaimed", {
+              sos_id: current._id.toString(),
+              admin_id: current.claimed_by.toString(),
+              customer_id: String(current.customer_id),
+            });
+            return;
+          }
           socket.emit("error", {
             message: "SOS is no longer available",
             code: "SOS_UNAVAILABLE",
@@ -355,30 +615,6 @@ function initializeSOSSocket(io) {
           return;
         }
 
-        if (
-          sos.claimed_by &&
-          String(sos.claimed_by) !== String(adminId)
-        ) {
-          socket.emit("error", {
-            message: "SOS already claimed by another dispatcher",
-            code: "SOS_ALREADY_CLAIMED",
-            sos_id,
-            claimed_by: sos.claimed_by.toString(),
-          });
-          adminNamespace.emit("sosClaimed", {
-            sos_id: sos._id.toString(),
-            admin_id: sos.claimed_by.toString(),
-            customer_id: String(sos.customer_id),
-          });
-          return;
-        }
-
-        const now = new Date();
-        sos.status = "in_call";
-        sos.in_call_at = sos.in_call_at || now;
-        sos.claimed_by = adminId;
-        sos.claimed_at = sos.claimed_at || now;
-        await sos.save();
         clearSosTimers(sos._id);
         scheduleInCallExpiry(sos);
 
@@ -388,19 +624,16 @@ function initializeSOSSocket(io) {
           customer_id: String(sos.customer_id),
         });
 
-        const customerSocketId = customerSockets.get(
-          String(customer_id || sos.customer_id)
-        );
-        if (customerSocketId) {
-          customerNamespace.to(customerSocketId).emit("sosInCall", {
-            sos_id: sos._id.toString(),
-            status: "in_call",
-            message:
-              "An operator is reviewing your request and will call you shortly",
-          });
-        }
+        const targetCustomerId = String(customer_id || sos.customer_id);
+        emitToUser(customerNamespace, targetCustomerId, "sosInCall", {
+          sos_id: sos._id.toString(),
+          status: "in_call",
+          message:
+            "An operator is reviewing your request and will call you shortly",
+        });
       } catch (err) {
         console.error("Error handling sosAccepted:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to claim SOS" });
       }
     });
@@ -409,20 +642,53 @@ function initializeSOSSocket(io) {
     socket.on("adminCancelJob", async (data) => {
       try {
         const { job_id, customer_id, technician_id, reason } = data;
-        console.log(`Admin cancelling job ${job_id}`);
+        devLog(`Admin cancelling job ${job_id}`);
 
         // Get job first to find linked SOS
         const jobBefore = await Job.findById(job_id);
-        
-        // Update job status to cancelled
-        const job = await Job.findByIdAndUpdate(job_id, {
-          job_status: 'cancelled',
-          cancelled_at: new Date(),
-          cancellation_reason: reason || 'Cancelled by admin'
-        }, { new: true });
+
+        if (!jobBefore) {
+          socket.emit("error", { message: "Job not found" });
+          return;
+        }
+
+        const cancellationReason =
+          (typeof reason === "string" && reason.trim()) || 'Cancelled by admin';
+        const cancelledAt = new Date();
+
+        // Never re-cancel a terminal job: a completed/paid job has already issued a
+        // receipt, credited the technician and accrued partner commission, so
+        // flipping it to cancelled desyncs the books.
+        const job = await Job.findOneAndUpdate(
+          {
+            _id: job_id,
+            job_status: {
+              $in: [
+                'pending',
+                'assigned',
+                'accepted',
+                'en_route',
+                'arrived',
+                'in_progress',
+              ],
+            },
+            payment_status: { $ne: 'paid' },
+          },
+          {
+            job_status: 'cancelled',
+            cancelled_at: cancelledAt,
+            cancellation_reason: cancellationReason,
+            cancelled_by: 'admin'
+          },
+          { new: true }
+        );
 
         if (!job) {
-          socket.emit("error", { message: "Job not found" });
+          socket.emit("error", {
+            message: `Cannot cancel job in status ${jobBefore.job_status} (payment ${jobBefore.payment_status})`,
+            code: "JOB_NOT_CANCELLABLE",
+            job_id,
+          });
           return;
         }
 
@@ -431,7 +697,7 @@ function initializeSOSSocket(io) {
           await SOSRequest.findByIdAndUpdate(jobBefore.sos_request_id, {
             status: 'cancelled'
           });
-          console.log(`SOS ${jobBefore.sos_request_id} cancelled due to job cancellation`);
+          devLog(`SOS ${jobBefore.sos_request_id} cancelled due to job cancellation`);
         }
 
         // Update technician status back to "Online" if assigned
@@ -440,34 +706,49 @@ function initializeSOSSocket(io) {
           job.assignedTechnician?.toString?.() ||
           job.assignedTechnician;
         if (techId) {
-          await setTechnicianStatus(techId, "Online");
-          await emitAdminTechnicianPresence(techId, "Online");
-          console.log(`Technician ${techId} status reset to Online`);
+          // A technician may hold several live jobs at once — only free them up
+          // if this was their last one, otherwise dispatch/Live Map treat them
+          // as available while they are still working.
+          const stillBusy = await Job.exists({
+            assignedTechnician: techId,
+            _id: { $ne: job._id },
+            job_status: {
+              $in: ["accepted", "en_route", "arrived", "in_progress"],
+            },
+          });
+          const nextStatus = stillBusy ? "On Job" : "Online";
+          await setTechnicianStatus(techId, nextStatus);
+          await emitAdminTechnicianPresence(techId, nextStatus);
+          devLog(`Technician ${techId} status reset to ${nextStatus}`);
         }
 
         const cancellationData = {
           job_id,
           status: "cancelled",
-          reason: reason || 'Cancelled by admin',
-          cancelled_at: new Date()
+          reason: cancellationReason,
+          cancelled_at: cancelledAt
         };
 
         // Notify customer
         if (customer_id) {
-          const customerSocketId = customerSockets.get(customer_id.toString());
-          if (customerSocketId) {
-            customerNamespace.to(customerSocketId).emit("jobCancelled", cancellationData);
-            console.log(`Customer ${customer_id} notified: job cancelled`);
-          }
+          emitToUser(
+            customerNamespace,
+            customer_id.toString(),
+            "jobCancelled",
+            cancellationData
+          );
+          devLog(`Customer ${customer_id} notified: job cancelled`);
         }
 
         // Notify technician
         if (technician_id) {
-          const technicianSocketId = technicianSockets.get(technician_id.toString());
-          if (technicianSocketId) {
-            technicianNamespace.to(technicianSocketId).emit("jobCancelled", cancellationData);
-            console.log(`Technician ${technician_id} notified: job cancelled`);
-          }
+          emitToUser(
+            technicianNamespace,
+            technician_id.toString(),
+            "jobCancelled",
+            cancellationData
+          );
+          devLog(`Technician ${technician_id} notified: job cancelled`);
         }
 
         // Confirm to admin
@@ -476,31 +757,31 @@ function initializeSOSSocket(io) {
           message: "Job cancelled successfully"
         });
 
-        console.log(`Job ${job_id} cancelled by admin`);
+        devLog(`Job ${job_id} cancelled by admin`);
       } catch (err) {
         console.error("Error cancelling job:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to cancel job" });
       }
     });
 
     socket.on("disconnect", () => {
       if (socket.adminId) {
-        adminSockets.delete(socket.adminId);
-        console.log(`Admin ${socket.adminId} disconnected`);
+        devLog(`Admin ${socket.adminId} disconnected`);
       }
     });
   });
 
   // Customer namespace handlers
   customerNamespace.on("connection", (socket) => {
-    console.log("Customer connected:", socket.id);
+    devLog("Customer connected:", socket.id);
 
     // Customer registers their ID (from JWT — ignore client-supplied id)
     socket.on("register", () => {
       const customerId = String(socket.user.id);
-      customerSockets.set(customerId, socket.id);
+      socket.join(userRoom(customerId));
       socket.customerId = customerId;
-      console.log(`Customer ${customerId} registered with socket ${socket.id}`);
+      devLog(`Customer ${customerId} registered with socket ${socket.id}`);
     });
 
     // Customer creates SOS request
@@ -537,7 +818,7 @@ function initializeSOSSocket(io) {
             ? serviceTypeRaw.trim()
             : null;
 
-        console.log("Received createSOS:", {
+        devLog("Received createSOS:", {
           customer_id,
           customer_vehicle_id,
           latitude,
@@ -607,7 +888,7 @@ function initializeSOSSocket(io) {
           vehicle = await CustomerVehicle.findById(customer_vehicle_id)
             .populate("vehicle_make")
             .populate("vehicle_model");
-          if (!vehicle) {
+          if (!vehicle || !assertVehicleOwner(vehicle, socket.user)) {
             console.error("Vehicle not found:", customer_vehicle_id);
             emitSosError({
               message: "Vehicle not found",
@@ -678,11 +959,12 @@ function initializeSOSSocket(io) {
           status: "pending",
         };
 
-        console.log(`Broadcasting SOS ${sos._id} to ${adminSockets.size} admin(s)`);
+        devLog(`Broadcasting SOS ${sos._id} to admin namespace`);
         adminNamespace.emit('newSOSRequest', sosData);
 
       } catch (err) {
         console.error("Error creating SOS:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to create SOS request", details: err.message });
       }
     });
@@ -691,103 +973,128 @@ function initializeSOSSocket(io) {
     socket.on("cancelSOS", async (data) => {
       try {
         const { sos_id, reason } = data;
+        const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+
+        if (
+          !trimmedReason ||
+          trimmedReason === "cancelled_by_customer" ||
+          trimmedReason === "other"
+        ) {
+          socket.emit("error", {
+            message: "Cancellation reason is required",
+            code: "SOS_CANCEL_REASON_REQUIRED",
+          });
+          return;
+        }
+
         const sos = await SOSRequest.findById(sos_id);
+
+        // Only the customer who raised the SOS may cancel it.
+        if (!assertSosAccess(sos, socket.user)) {
+          socket.emit("error", {
+            message: "SOS cannot be cancelled at this stage",
+            code: "SOS_NOT_CANCELLABLE",
+          });
+          return;
+        }
 
         if (sos && ["pending", "in_call"].includes(sos.status) && !sos.job_id) {
           sos.status = "cancelled";
-          sos.cancel_reason = reason;
+          sos.cancel_reason = trimmedReason;
           await sos.save();
           clearSosTimers(sos._id);
 
-          socket.emit("sosCancelled", { sos_id, status: "cancelled" });
+          socket.emit("sosCancelled", { sos_id, status: "cancelled", cancel_reason: trimmedReason });
           adminNamespace.emit("sosCancelled", {
             sos_id: sos._id.toString(),
             customer_id: String(sos.customer_id),
+            cancel_reason: trimmedReason,
+          });
+        } else {
+          socket.emit("error", {
+            message: "SOS cannot be cancelled at this stage",
+            code: "SOS_NOT_CANCELLABLE",
           });
         }
       } catch (err) {
         console.error("Error cancelling SOS:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to cancel SOS", details: err.message });
       }
     });
 
     socket.on("disconnect", () => {
       if (socket.customerId) {
-        customerSockets.delete(socket.customerId);
-        console.log(`Customer ${socket.customerId} disconnected`);
+        devLog(`Customer ${socket.customerId} disconnected`);
       }
     });
   });
 
   // Technician namespace handlers
   technicianNamespace.on("connection", (socket) => {
-    console.log("Technician connected:", socket.id);
+    devLog("Technician connected:", socket.id);
 
     // Technician registers their ID (from JWT — ignore client-supplied id)
-    socket.on("register", () => {
+    socket.on("register", async () => {
       const technicianId = String(socket.user.id);
       // Cancel pending offline mark from a brief disconnect
       if (technicianOfflineTimers.has(technicianId)) {
         clearTimeout(technicianOfflineTimers.get(technicianId));
         technicianOfflineTimers.delete(technicianId);
       }
-      technicianSockets.set(technicianId, socket.id);
+      socket.join(userRoom(technicianId));
       socket.technicianId = technicianId;
-      console.log(`Technician ${technicianId} registered with socket ${socket.id}`);
+      devLog(`Technician ${technicianId} registered with socket ${socket.id}`);
+      // The grace timer only covers a disconnect this process is still holding.
+      // A longer outage, or a redeploy, already flipped them Offline in the DB.
+      await restoreAutoOfflinedTechnician(technicianId);
     });
 
-    // Technician updates location (throttle writes ~3s per socket)
-    const locationThrottleMs = Number(process.env.LOCATION_THROTTLE_MS || 3000);
     socket.on("updateLocation", async (data) => {
       try {
-        const now = Date.now();
-        if (socket._lastLocationWrite && now - socket._lastLocationWrite < locationThrottleMs) {
-          return;
-        }
-        socket._lastLocationWrite = now;
-
         const technician_id = String(socket.user.id);
-        const { latitude, longitude, job_id } = data;
-        if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+        if (!data || typeof data !== "object") return;
+        const { latitude, longitude, job_id, accuracy, fix_time } = data;
+        if (!parseCoordinatePair(latitude, longitude)) {
           return;
         }
 
-        const lastLocationAt = new Date();
-        await Technician.findByIdAndUpdate(technician_id, {
-          "currentLocation.coordinates": [longitude, latitude],
-          lastLocationAt,
+        const result = await applyTechnicianLocationWrite({
+          Technician,
+          technicianId: technician_id,
+          latitude,
+          longitude,
+          accuracy,
+          fixTime: fix_time,
+          onAdminBroadcast: emitAdminTechnicianLocation,
         });
 
-        // Broadcast to all admin Live Map clients (with timestamp for freshness check)
-        emitAdminTechnicianLocation(technician_id, latitude, longitude, lastLocationAt);
+        if (!result.ok) return;
 
-        // If there's an active job, broadcast location to customer
-        if (job_id) {
+        if (result.coordsChanged && job_id) {
           const job = await Job.findById(job_id);
           if (
             job &&
             assertSocketJobAccess(job, socket) &&
             job.customer_id
           ) {
-            const customerSocketId = customerSockets.get(job.customer_id.toString());
-            if (customerSocketId) {
-              customerNamespace.to(customerSocketId).emit("locationUpdate", {
-                job_id,
-                latitude,
-                longitude,
-                timestamp: new Date()
-              });
-            }
+            emitToUser(customerNamespace, job.customer_id.toString(), "locationUpdate", {
+              job_id,
+              latitude: result.lat,
+              longitude: result.lng,
+              timestamp: result.lastLocationAt || new Date(),
+            });
           }
         }
 
-        console.log(
-          process.env.NODE_ENV === "development"
-            ? `Technician ${technician_id} location updated: [${latitude}, ${longitude}]`
-            : `Technician ${technician_id} location updated`
-        );
+        if (result.coordsChanged) {
+          devLog(
+            `Technician ${technician_id} location updated: [${result.lat}, ${result.lng}]`
+          );
+        }
       } catch (err) {
         console.error("Error updating technician location:", err);
+        captureException(err);
       }
     });
 
@@ -795,7 +1102,7 @@ function initializeSOSSocket(io) {
     socket.on("startEnRoute", async (data) => {
       try {
         const { job_id } = data;
-        console.log(`Technician starting en route for job ${job_id}`);
+        devLog(`Technician starting en route for job ${job_id}`);
 
         const job = await Job.findById(job_id)
           .populate('assignedTechnician', 'firstName lastName phone profilePicture currentLocation');
@@ -827,9 +1134,8 @@ function initializeSOSSocket(io) {
         });
 
         // Notify customer
-        const customerSocketId = customerSockets.get(job.customer_id?.toString());
-        if (customerSocketId) {
-          customerNamespace.to(customerSocketId).emit("technicianEnRoute", {
+        if (job.customer_id) {
+          emitToUser(customerNamespace, job.customer_id.toString(), "technicianEnRoute", {
             job_id,
             status: "en_route",
             en_route_at: job.en_route_at,
@@ -857,10 +1163,11 @@ function initializeSOSSocket(io) {
               return payload;
             })(),
           });
-          console.log(`Customer ${job.customer_id} notified: technician en route`);
+          devLog(`Customer ${job.customer_id} notified: technician en route`);
         }
       } catch (err) {
         console.error("Error starting en route:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to start en route" });
       }
     });
@@ -869,7 +1176,7 @@ function initializeSOSSocket(io) {
     socket.on("markArrived", async (data) => {
       try {
         const { job_id } = data;
-        console.log(`Technician marking arrived for job ${job_id}`);
+        devLog(`Technician marking arrived for job ${job_id}`);
 
         const job = await Job.findById(job_id);
 
@@ -901,17 +1208,17 @@ function initializeSOSSocket(io) {
         });
 
         // Notify customer
-        const customerSocketId = customerSockets.get(job.customer_id?.toString());
-        if (customerSocketId) {
-          customerNamespace.to(customerSocketId).emit("technicianArrived", {
+        if (job.customer_id) {
+          emitToUser(customerNamespace, job.customer_id.toString(), "technicianArrived", {
             job_id,
             status: "arrived",
             arrived_at: job.arrived_at
           });
-          console.log(`Customer ${job.customer_id} notified: technician arrived`);
+          devLog(`Customer ${job.customer_id} notified: technician arrived`);
         }
       } catch (err) {
         console.error("Error marking arrived:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to mark as arrived" });
       }
     });
@@ -921,7 +1228,7 @@ function initializeSOSSocket(io) {
     socket.on("startJob", async (data) => {
       try {
         const { job_id, latitude, longitude, lat, lng } = data || {};
-        console.log(`Technician starting job ${job_id}`);
+        devLog(`Technician starting job ${job_id}`);
 
         const job = await Job.findById(job_id);
 
@@ -1012,17 +1319,17 @@ function initializeSOSSocket(io) {
         });
 
         // Notify customer
-        const customerSocketId = customerSockets.get(job.customer_id?.toString());
-        if (customerSocketId) {
-          customerNamespace.to(customerSocketId).emit("jobStarted", {
+        if (job.customer_id) {
+          emitToUser(customerNamespace, job.customer_id.toString(), "jobStarted", {
             job_id,
             status: "in_progress",
             started_at: job.started_at
           });
-          console.log(`Customer ${job.customer_id} notified: job started`);
+          devLog(`Customer ${job.customer_id} notified: job started`);
         }
       } catch (err) {
         console.error("Error starting job:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to start job" });
       }
     });
@@ -1033,7 +1340,7 @@ function initializeSOSSocket(io) {
     socket.on("paymentReceived", async (data) => {
       try {
         const { job_id, payment_method } = data;
-        console.log(`Technician confirming payment for job ${job_id}`);
+        devLog(`Technician confirming payment for job ${job_id}`);
 
         const job = await Job.findById(job_id)
           .populate("assignedTechnician", "firstName lastName phone profilePicture")
@@ -1090,17 +1397,9 @@ function initializeSOSSocket(io) {
                 }
               : null,
           };
-          const customerSocketId = customerId
-            ? customerSockets.get(customerId)
-            : null;
-          if (customerSocketId) {
-            customerNamespace.to(customerSocketId).emit(
-              "paymentConfirmed",
-              paymentPayload
-            );
-            console.log(`Customer ${customerId} notified: payment received`);
-          }
           if (customerId) {
+            emitToUser(customerNamespace, customerId, "paymentConfirmed", paymentPayload);
+            devLog(`Customer ${customerId} notified: payment received`);
             await pushCustomerEvent(customerId, "paymentConfirmed", paymentPayload);
           }
         };
@@ -1140,6 +1439,7 @@ function initializeSOSSocket(io) {
         notifyCustomerPaid(receiptData);
       } catch (err) {
         console.error("Error confirming payment:", err);
+        captureException(err);
         socket.emit("error", { message: "Failed to confirm payment" });
       }
     });
@@ -1147,11 +1447,7 @@ function initializeSOSSocket(io) {
     socket.on("disconnect", () => {
       if (socket.technicianId) {
         const technicianId = socket.technicianId;
-        // Only clear if this socket is still the mapped one (reconnect may have replaced it)
-        if (technicianSockets.get(technicianId) === socket.id) {
-          technicianSockets.delete(technicianId);
-        }
-        console.log(`Technician ${technicianId} disconnected`);
+        devLog(`Technician ${technicianId} disconnected`);
 
         // Grace window: if the tech reconnects quickly (or their REST heartbeats keep arriving)
         // we don't want to flip them Offline. Check lastLocationAt before acting.
@@ -1160,8 +1456,8 @@ function initializeSOSSocket(io) {
         }
         const timer = setTimeout(async () => {
           technicianOfflineTimers.delete(technicianId);
-          // If the tech reconnected via socket, leave them alone.
-          if (technicianSockets.has(technicianId)) return;
+          // If the tech reconnected via socket (any instance), leave them alone.
+          if (await userHasLiveSockets(technicianNamespace, technicianId)) return;
           try {
             const tech = await Technician.findById(technicianId);
             if (!tech) return;
@@ -1182,11 +1478,11 @@ function initializeSOSSocket(io) {
             // If a REST heartbeat arrived recently the app is still alive in background —
             // keep them Online. We'll re-check in LOCATION_STALE_MS.
             if (locationAge < LOCATION_STALE_MS) {
-              console.log(`Technician ${technicianId} socket gone but REST heartbeat fresh (${Math.round(locationAge / 1000)}s ago) — keeping Online`);
+              devLog(`Technician ${technicianId} socket gone but REST heartbeat fresh (${Math.round(locationAge / 1000)}s ago) — keeping Online`);
               // Schedule a follow-up check after stale window expires.
               const followUp = setTimeout(async () => {
                 technicianOfflineTimers.delete(technicianId);
-                if (technicianSockets.has(technicianId)) return;
+                if (await userHasLiveSockets(technicianNamespace, technicianId)) return;
                 try {
                   const t2 = await Technician.findById(technicianId);
                   if (!t2 || t2.currentStatus === "On Job") {
@@ -1202,11 +1498,12 @@ function initializeSOSSocket(io) {
                     ? Date.now() - new Date(t2.lastLocationAt).getTime()
                     : Infinity;
                   if (age2 < LOCATION_STALE_MS) return; // still heartbeating
-                  await setTechnicianStatus(t2, "Offline");
+                  await markTechnicianAutoOffline(t2);
                   await emitAdminTechnicianPresence(technicianId, "Offline");
-                  console.log(`Technician ${technicianId} marked Offline after heartbeat stale`);
+                  devLog(`Technician ${technicianId} marked Offline after heartbeat stale`);
                 } catch (err) {
                   console.error("Failed to mark technician Offline on follow-up:", err);
+                  captureException(err);
                 }
               }, LOCATION_STALE_MS);
               followUp.unref?.();
@@ -1214,11 +1511,12 @@ function initializeSOSSocket(io) {
               return;
             }
             // No fresh heartbeat — app is gone (force-quit / crash). Mark Offline now.
-            await setTechnicianStatus(tech, "Offline");
+            await markTechnicianAutoOffline(tech);
             await emitAdminTechnicianPresence(technicianId, "Offline");
-            console.log(`Technician ${technicianId} marked Offline after disconnect grace (no heartbeat)`);
+            devLog(`Technician ${technicianId} marked Offline after disconnect grace (no heartbeat)`);
           } catch (err) {
             console.error("Failed to mark technician Offline after disconnect:", err);
+            captureException(err);
           }
         }, DISCONNECT_OFFLINE_MS);
         timer.unref?.();
@@ -1232,7 +1530,7 @@ function initializeSOSSocket(io) {
   // Notify technician of new job assignment (called from /api/sos/notify-technician)
   async function notifyAssignedTechnician(jobId) {
     try {
-      console.log(`notifyAssignedTechnician called with jobId: ${jobId}`);
+      devLog(`notifyAssignedTechnician called with jobId: ${jobId}`);
       
       // Fetch job with all populated fields (+ fcm_token for push)
       const job = await Job.findById(jobId)
@@ -1250,18 +1548,17 @@ function initializeSOSSocket(io) {
         });
 
       if (!job) {
-        console.log('Job not found:', jobId);
+        devLog('Job not found:', jobId);
         return false;
       }
 
       if (!job.assignedTechnician) {
-        console.log('No technician assigned to job:', jobId);
+        devLog('No technician assigned to job:', jobId);
         return false;
       }
 
       const technicianId = job.assignedTechnician._id.toString();
-      console.log(`Looking for technician ${technicianId} in connected sockets...`);
-      console.log(`Connected technicians: ${Array.from(technicianSockets.keys()).join(', ')}`);
+      devLog(`Notifying technician ${technicianId} via user room...`);
 
       const customerName = job.customer_id
         ? `${job.customer_id.first_name || ''} ${job.customer_id.last_name || ''}`.trim()
@@ -1290,16 +1587,15 @@ function initializeSOSSocket(io) {
         status: job.job_status
       };
       
-      const socketId = technicianSockets.get(technicianId);
       let socketOk = false;
-      
-      if (socketId) {
-        technicianNamespace.to(socketId).emit("newJobAssigned", jobData);
-        console.log(`✅ Technician ${technicianId} notified via socket ${socketId}`);
-        console.log('Job data sent:', JSON.stringify(jobData, null, 2));
+
+      if (await userHasLiveSockets(technicianNamespace, technicianId)) {
+        emitToUser(technicianNamespace, technicianId, "newJobAssigned", jobData);
+        devLog(`✅ Technician ${technicianId} notified via socket room ${userRoom(technicianId)}`);
+        devLog('Job data sent:', JSON.stringify(jobData, null, 2));
         socketOk = true;
       } else {
-        console.log(`❌ Technician ${technicianId} is not connected (socket not found)`);
+        devLog(`❌ Technician ${technicianId} is not connected (no sockets in room)`);
       }
 
       // Always attempt FCM so background / killed devices wake
@@ -1318,6 +1614,7 @@ function initializeSOSSocket(io) {
         });
       } catch (fcmErr) {
         console.error("[fcm] notifyAssignedTechnician push error:", fcmErr.message);
+        captureException(fcmErr);
       }
 
       // Notify customer so waiting / service-request screens can advance
@@ -1339,6 +1636,7 @@ function initializeSOSSocket(io) {
       return socketOk;
     } catch (error) {
       console.error("Error notifying technician:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1360,28 +1658,29 @@ function initializeSOSSocket(io) {
       });
     } catch (fcmErr) {
       console.error(`[fcm] customer ${event} push error:`, fcmErr.message);
+      captureException(fcmErr);
     }
   }
 
   // Notify customer that technician was assigned
   async function notifyCustomerTechnicianAssigned(customerId, data) {
     try {
-      console.log(`Notifying customer ${customerId} of technician assignment`);
-      const socketId = customerSockets.get(customerId.toString());
+      devLog(`Notifying customer ${customerId} of technician assignment`);
       let socketOk = false;
 
-      if (socketId) {
-        customerNamespace.to(socketId).emit("technicianAssigned", data);
-        console.log(`Customer ${customerId} notified via socket ${socketId}`);
+      if (await userHasLiveSockets(customerNamespace, customerId.toString())) {
+        emitToUser(customerNamespace, customerId.toString(), "technicianAssigned", data);
+        devLog(`Customer ${customerId} notified via socket room ${userRoom(customerId)}`);
         socketOk = true;
       } else {
-        console.log(`Customer ${customerId} is not connected`);
+        devLog(`Customer ${customerId} is not connected`);
       }
 
       await pushCustomerEvent(customerId, "technicianAssigned", data);
       return socketOk;
     } catch (error) {
       console.error("Error notifying customer:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1389,22 +1688,22 @@ function initializeSOSSocket(io) {
   // Notify customer of technician acceptance
   async function notifyCustomerTechnicianAccepted(customerId, data) {
     try {
-      console.log(`Notifying customer ${customerId} of technician acceptance`);
-      const socketId = customerSockets.get(customerId.toString());
+      devLog(`Notifying customer ${customerId} of technician acceptance`);
       let socketOk = false;
 
-      if (socketId) {
-        customerNamespace.to(customerId).emit("technicianAccepted", data);
-        console.log(`Customer ${customerId} notified of acceptance via socket ${socketId}`);
+      if (await userHasLiveSockets(customerNamespace, customerId.toString())) {
+        emitToUser(customerNamespace, customerId.toString(), "technicianAccepted", data);
+        devLog(`Customer ${customerId} notified of acceptance via socket room ${userRoom(customerId)}`);
         socketOk = true;
       } else {
-        console.log(`Customer ${customerId} is not connected`);
+        devLog(`Customer ${customerId} is not connected`);
       }
 
       await pushCustomerEvent(customerId, "technicianAccepted", data);
       return socketOk;
     } catch (error) {
       console.error("Error notifying customer of acceptance:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1424,33 +1723,24 @@ function initializeSOSSocket(io) {
       customer_id: String(customer_id || sos.customer_id),
     });
 
-    const customerSocketId = customerSockets.get(
-      String(customer_id || sos.customer_id)
-    );
+    const targetCustomerId = String(customer_id || sos.customer_id);
     const sosPayload = {
       sos_id: String(sos_id),
       status: "in_call",
       message:
         "An operator is reviewing your request and will call you shortly",
     };
-    if (customerSocketId) {
-      customerNamespace.to(customerSocketId).emit("sosInCall", sosPayload);
-    }
-    await pushCustomerEvent(
-      String(customer_id || sos.customer_id),
-      "sosInCall",
-      sosPayload
-    );
+    emitToUser(customerNamespace, targetCustomerId, "sosInCall", sosPayload);
+    await pushCustomerEvent(targetCustomerId, "sosInCall", sosPayload);
     return true;
   }
 
   /** Notify customer of fulfill-path status from REST controllers */
   async function notifyCustomerJobEvent(customerId, event, data) {
     try {
-      const socketId = customerSockets.get(String(customerId));
       let socketOk = false;
-      if (socketId) {
-        customerNamespace.to(socketId).emit(event, data);
+      if (await userHasLiveSockets(customerNamespace, String(customerId))) {
+        emitToUser(customerNamespace, String(customerId), event, data);
         socketOk = true;
       }
       const { CUSTOMER_PUSH_EVENTS } = require("./fcmService");
@@ -1460,20 +1750,41 @@ function initializeSOSSocket(io) {
       return socketOk;
     } catch (error) {
       console.error(`Error emitting ${event} to customer:`, error);
+      captureException(error);
       return false;
     }
   }
 
-  /** Business portal → admin: same urgency surface as SOS, with business tag. */
+  /** Business portal → admin: partner request as Lead. */
+  function notifyAdminBusinessLead(payload) {
+    try {
+      devLog(
+        `Broadcasting business lead ${payload?.lead_id} to admin namespace`
+      );
+      adminNamespace.emit("newBusinessLead", payload);
+      return true;
+    } catch (error) {
+      console.error("Error emitting newBusinessLead to admin:", error);
+      captureException(error);
+      return false;
+    }
+  }
+
+  /** @deprecated Prefer notifyAdminBusinessLead. */
   function notifyAdminBusinessJob(payload) {
     try {
-      console.log(
-        `Broadcasting business job ${payload?.job_id} to ${adminSockets.size} admin(s)`
+      devLog(
+        `Broadcasting business job ${payload?.job_id || payload?.lead_id} to admin namespace`
       );
-      adminNamespace.emit("newBusinessJob", payload);
+      if (payload?.lead_id) {
+        adminNamespace.emit("newBusinessLead", payload);
+      } else {
+        adminNamespace.emit("newBusinessJob", payload);
+      }
       return true;
     } catch (error) {
       console.error("Error emitting newBusinessJob to admin:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1481,26 +1792,28 @@ function initializeSOSSocket(io) {
   /** Technician-app created job → admin intake badge. */
   function notifyAdminTechnicianJob(payload) {
     try {
-      console.log(
-        `Broadcasting technician job ${payload?.job_id} to ${adminSockets.size} admin(s)`
+      devLog(
+        `Broadcasting technician job ${payload?.job_id} to admin namespace`
       );
       adminNamespace.emit("newTechnicianJob", payload);
       return true;
     } catch (error) {
       console.error("Error emitting newTechnicianJob to admin:", error);
+      captureException(error);
       return false;
     }
   }
 
   function notifyAdminServiceRequest(payload) {
     try {
-      console.log(
-        `Broadcasting service request ${payload?.id || payload?._id} to ${adminSockets.size} admin(s)`
+      devLog(
+        `Broadcasting service request ${payload?.id || payload?._id} to admin namespace`
       );
       adminNamespace.emit("newServiceRequest", payload);
       return true;
     } catch (error) {
       console.error("Error emitting newServiceRequest to admin:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1511,6 +1824,7 @@ function initializeSOSSocket(io) {
       return true;
     } catch (error) {
       console.error("Error emitting serviceRequestCancelled to admin:", error);
+      captureException(error);
       return false;
     }
   }
@@ -1526,13 +1840,12 @@ function initializeSOSSocket(io) {
     notifyAdminTechnicianPresence: emitAdminTechnicianPresence,
     notifyAdminTechnicianLocation: emitAdminTechnicianLocation,
     notifySosClaimed,
+    notifyAdminBusinessLead,
     notifyAdminBusinessJob,
     notifyAdminTechnicianJob,
     notifyAdminServiceRequest,
     notifyAdminServiceRequestCancelled,
-    customerSockets,
-    technicianSockets,
-    adminSockets
+    stopAdminLocationBatchTimer: () => clearInterval(adminLocationBatchTimer),
   };
 }
 

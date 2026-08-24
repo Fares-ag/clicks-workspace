@@ -19,7 +19,12 @@ function formatJobWhen(dateTime) {
   }
 }
 
-function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0 }) {
+function BusinessJobNotification({
+  jobData,
+  onOpenJob,
+  onDismiss,
+  queueCount = 0,
+}) {
   const vehicle = jobData.vehicle || {};
   const location = jobData.location || {};
   const companyName =
@@ -27,6 +32,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
     jobData.companyName?.trim() ||
     "Unknown business";
   const portalLabel = jobData.sourceLabel || "Business Portal";
+  const leadId = jobData.lead_id || jobData.job_id;
 
   return (
     <div className="sos-notification-overlay biz-portal-overlay">
@@ -34,7 +40,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
         <div className="sos-header biz-portal-header">
           <div className="biz-portal-header-main">
             <span className="biz-portal-source-pill">{portalLabel}</span>
-            <h2 className="sos-header-title biz-portal-title">New job submitted</h2>
+            <h2 className="sos-header-title biz-portal-title">New business lead</h2>
             <p className="biz-portal-company-name">{companyName}</p>
           </div>
           <button className="sos-close-btn" onClick={onDismiss} type="button">
@@ -56,14 +62,14 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
           </button>
         </div>
 
-        <div className="sos-content">
+        <div className="sos-content biz-portal-body">
           <NotificationQueueNote queueCount={queueCount} />
 
           <div className="biz-portal-alert-banner">
             <span className="biz-portal-alert-label">Action required</span>
             <span className="biz-portal-alert-text">
-              A partner business submitted a new job through the portal. Review details
-              and assign a technician.
+              A partner business submitted a new lead through the portal. Review
+              details and convert to a job.
             </span>
           </div>
 
@@ -93,7 +99,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
               <div className="sos-info-group">
                 <span className="sos-info-label">Status</span>
                 <span className="sos-info-value biz-portal-status-pending">
-                  Pending assignment
+                  Pending review
                 </span>
               </div>
             </div>
@@ -142,7 +148,7 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
                   </span>
                 </div>
                 <div className="sos-info-group">
-                  <span className="sos-info-label">Job type</span>
+                  <span className="sos-info-label">Service type</span>
                   <span className="sos-info-value">
                     {jobData.jobType || "—"}
                   </span>
@@ -164,20 +170,20 @@ function BusinessJobNotification({ jobData, onOpenJob, onDismiss, queueCount = 0
 
           <div className="sos-section">
             <h3 className="sos-section-title">Location</h3>
-            <span className="sos-info-value">
+            <span className="sos-info-value biz-portal-location">
               {location.address || jobData.location || "Unknown"}
             </span>
           </div>
+        </div>
 
-          <div className="sos-actions">
-            <button
-              type="button"
-              className="sos-btn-create-job biz-portal-btn-primary"
-              onClick={() => onOpenJob(jobData)}
-            >
-              View job &amp; assign technician
-            </button>
-          </div>
+        <div className="sos-actions biz-portal-footer">
+          <button
+            type="button"
+            className="sos-btn-create-job biz-portal-btn-primary"
+            onClick={() => onOpenJob({ ...jobData, lead_id: leadId })}
+          >
+            View lead &amp; convert to job
+          </button>
         </div>
       </div>
     </div>

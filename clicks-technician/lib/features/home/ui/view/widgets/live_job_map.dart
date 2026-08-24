@@ -41,12 +41,21 @@ class _LiveJobMapState extends State<LiveJobMap> {
   static const _qatarCenter = LatLng(25.276987, 51.520008);
   static final Map<String, LatLng> _geocodeCache = {};
 
+  /// Minimum wall-clock spacing between billed Directions calls while driving.
+  static const _routeMinInterval = Duration(seconds: 30);
+
+  /// Minimum origin movement (metres) before a new Directions call is worth it.
+  static const _routeMinMove = 150.0;
+
   GoogleMapController? _controller;
   BitmapDescriptor? _vanIcon;
   LatLng? _destination;
   LatLng? _localTechPos;
   List<LatLng> _routePoints = [];
   bool _fetchingRoute = false;
+  DateTime? _lastRouteAt;
+  LatLng? _lastRouteOrigin;
+  LatLng? _lastRouteDest;
   bool _geocoding = false;
   bool _mapReady = false;
   String? _error;
@@ -109,6 +118,8 @@ class _LiveJobMapState extends State<LiveJobMap> {
         if (_destination != null && !_fetchingRoute) {
           _fetchRoute(_localTechPos!);
         }
+        // Camera follow must not depend on the throttled Directions call.
+        _fitBounds();
       }
     }
     if (oldWidget.bottomPadding != widget.bottomPadding) {
@@ -192,8 +203,10 @@ class _LiveJobMapState extends State<LiveJobMap> {
   }
 
   Future<void> _applyDestination(LatLng dest) async {
-    final cacheKey = widget.jobId ?? widget.locationLabel;
-    _geocodeCache[cacheKey] = dest;
+    // Key on the resolved address, never on the job id: dispatch can correct a
+    // job's location and the new label must not read back the old coordinates.
+    final cacheKey = widget.locationLabel.trim();
+    if (cacheKey.isNotEmpty) _geocodeCache[cacheKey] = dest;
     if (!mounted) return;
     setState(() {
       _destination = dest;
@@ -213,8 +226,7 @@ class _LiveJobMapState extends State<LiveJobMap> {
       return;
     }
 
-    final cacheKey = widget.jobId ?? label;
-    final cached = _geocodeCache[cacheKey];
+    final cached = _geocodeCache[label];
     if (cached != null) {
       await _applyDestination(cached);
       return;
@@ -264,10 +276,36 @@ class _LiveJobMapState extends State<LiveJobMap> {
     });
   }
 
+  /// True when a billed Directions call for [techPos] → [dest] is worth making.
+  ///
+  /// The GPS stream re-emits every ~5 m, which would otherwise fire a Directions
+  /// request back-to-back for the whole en-route leg. Once a route is drawn we
+  /// only redraw it when the destination changed, or the tech has both moved a
+  /// meaningful distance and enough time has passed.
+  bool _shouldRefreshRoute(LatLng techPos, LatLng dest) {
+    final lastAt = _lastRouteAt;
+    final lastOrigin = _lastRouteOrigin;
+    final lastDest = _lastRouteDest;
+    if (lastAt == null || lastOrigin == null || lastDest == null) return true;
+    if (lastDest.latitude != dest.latitude ||
+        lastDest.longitude != dest.longitude) {
+      return true;
+    }
+    if (DateTime.now().difference(lastAt) < _routeMinInterval) return false;
+    final moved = Geolocator.distanceBetween(
+      lastOrigin.latitude,
+      lastOrigin.longitude,
+      techPos.latitude,
+      techPos.longitude,
+    );
+    return moved >= _routeMinMove;
+  }
+
   Future<void> _fetchRoute(LatLng techPos, {bool force = false}) async {
     final dest = _destination;
     if (dest == null) return;
     if (_fetchingRoute && !force) return;
+    if (!force && !_shouldRefreshRoute(techPos, dest)) return;
 
     // Always show a connector immediately so En Route never looks empty
     // while Directions is in flight (or if the dart-define key is missing).
@@ -276,6 +314,9 @@ class _LiveJobMapState extends State<LiveJobMap> {
     }
 
     _fetchingRoute = true;
+    _lastRouteAt = DateTime.now();
+    _lastRouteOrigin = techPos;
+    _lastRouteDest = dest;
     try {
       final res = await DioHelper.getData(
         url: EndPoints.mapsDirections,
@@ -508,7 +549,14 @@ class _LiveJobMapState extends State<LiveJobMap> {
             children: [
               _MapFab(
                 icon: Icons.alt_route_rounded,
-                onTap: () => openJobLocationInMaps(widget.locationLabel),
+                onTap: () {
+                  final dest = _destination;
+                  return openJobLocationInMaps(
+                    widget.locationLabel,
+                    lat: dest?.latitude,
+                    lng: dest?.longitude,
+                  );
+                },
               ),
               SizedBox(height: 10.h),
               _MapFab(

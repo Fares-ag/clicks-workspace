@@ -50,7 +50,7 @@ const login = async (req, res) => {
     // filter and match an arbitrary customer record.
     const phone_number = str(req.body.phone_number, { maxLength: 24 });
     const password = str(req.body.password, { maxLength: 200 });
-    const customer = await Customer.findOne({ phone_number });
+    const customer = await Customer.findOne({ phone_number }).select("+password");
     if (!customer) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
@@ -96,8 +96,19 @@ const getProfile = async (req, res) => {
 const updatePassword = async (req, res) => {
   try {
     const { id } = req.user;
-    const { oldPassword, newPassword } = req.body;
-    const customer = await Customer.findById(id);
+    const oldPassword = str(req.body.oldPassword, { maxLength: 200 });
+    const newPassword = str(req.body.newPassword, { maxLength: 200 });
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: "Old and new password are required" });
+    }
+    if (newPassword.length < 8) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 8 characters long" });
+    }
+    // `password` is select:false on the schema, so without this the compare
+    // below ran against undefined and every request 500'd.
+    const customer = await Customer.findById(id).select("+password");
     if (!customer) {
       return res.status(404).json({ error: "Customer not found" });
     }
@@ -157,7 +168,7 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ error: "Phone number is required" });
     }
 
-    const customer = await Customer.findOne({ phone_number });
+    const customer = await Customer.findOne({ phone_number }).select("+password");
 
     // Only send when the account exists — but respond identically either way.
     // The old code returned 404 for unknown numbers, which made the entire
@@ -246,7 +257,7 @@ const resetPassword = async (req, res) => {
       return res.status(result.status).json({ error: result.error });
     }
 
-    const customer = await Customer.findOne({ phone_number });
+    const customer = await Customer.findOne({ phone_number }).select("+password");
     if (!customer) {
       // Should be unreachable — a verified OTP implies the account existed.
       return res.status(400).json({ error: "Invalid or expired code" });
@@ -322,6 +333,13 @@ const saveFcmToken = async (req, res) => {
     if (!fcm_token) {
       return res.status(400).json({ error: "fcm_token is required" });
     }
+    // A device token belongs to exactly one account. Detach it from anyone
+    // else still holding it (previous owner of this handset), otherwise their
+    // pushes keep being delivered to whoever signs in here next.
+    await Customer.updateMany(
+      { _id: { $ne: req.user.id }, fcm_token },
+      { $unset: { fcm_token: 1 } }
+    );
     await Customer.findByIdAndUpdate(req.user.id, { fcm_token });
     res.json({ message: "FCM token saved" });
   } catch (err) {

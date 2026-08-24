@@ -4,6 +4,7 @@ import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/config/app_config.dart';
 import 'package:clicks_user/core/helper/app_context.dart';
 import 'package:clicks_user/core/helper/google_maps_loader.dart';
+import 'package:clicks_user/core/monitoring/sentry_config.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/services/customer_notification_router.dart';
 import 'package:clicks_user/core/services/fcm_notification_service.dart';
@@ -25,9 +26,16 @@ void _log(String msg) {
   }
 }
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fail closed: a release build without --dart-define=ENV=production would
+  // otherwise silently ship pointing at the staging backend.
+  AppConfig.validateReleaseConfig();
+  await SentryConfig.initIfEnabled();
+  await _bootstrap();
+}
 
+Future<void> _bootstrap() async {
   // Must register synchronously before any await — required for background FCM.
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -94,7 +102,10 @@ void _initializeFCMInBackground() {
         CustomerNotificationRouter.handleTap(data);
       };
       fcmService.onTokenRefresh = (token) async {
-        if (token != null) {
+        // Never register a refreshed token while signed out — the refresh
+        // fired by logout's deleteToken() would otherwise re-attach this
+        // device to the account we just left.
+        if (token != null && CacheHelper.getAuthToken() != null) {
           try {
             await DioHelper.postData(
               url: EndPoints.fcmToken,

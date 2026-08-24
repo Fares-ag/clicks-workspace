@@ -11,7 +11,7 @@ require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-admin-api/.env"),
 });
 
-const mongoose = require("../clicks-shared/node_modules/mongoose");
+const mongoose = require("mongoose");
 const xlsx = require("../clicks-admin-api/node_modules/xlsx");
 const { Job } = require("../clicks-shared/models");
 

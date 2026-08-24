@@ -1,0 +1,12 @@
+# Config-as-code for the clicks-admin-api Railway service ONLY.
+# Set Railway -> clicks-admin-api -> Settings -> Config-as-code path to this file.
+# Do not re-add a plain railway.toml: both services share the clicks-api source
+# directory, so a single default-named file builds one image for both services.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.admin-api"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

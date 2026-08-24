@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
@@ -144,7 +145,7 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
                 jobId: jobId ?? "",
                 dateText: dateText,
                 estimatedTime: estimateText,
-                statusPillText: 'tracking.in_progress'.tr(),
+                statusPillText: JobStatusLabels.labelFor('in_progress'),
                 technicianName: techInfo?["name"] ?? "",
                 technicianPhone: techInfo?["phone"] ?? "",
                 technicianAvatarUrl: techInfo?["photo"] ?? "",
@@ -154,6 +155,14 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
                 onCallDispatch: () {},
                 onCallTechnician: () {},
               ),
+            );
+          } else if (state is SosError) {
+            // A cancel the server refuses comes back as an `error` event, not
+            // `sosCancelled` — without this the sheet closes silently.
+            AppSnackBars.errorSnackBar(
+              state.message.trim().isEmpty
+                  ? 'home.cancel_failed'.tr()
+                  : state.message,
             );
           }
         },

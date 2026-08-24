@@ -220,23 +220,27 @@ async function getJobHeatmap(req, res) {
       },
     ];
 
+    // Dots need the popup metadata, so they get their own projection: the
+    // shared projectStage drops everything except lat/lng/dateTime, and a
+    // second $project after it cannot resurrect fields that are already gone.
+    const dotProjectStage = {
+      $project: {
+        lat: { $arrayElemAt: ["$locationCoordinates.coordinates", 1] },
+        lng: { $arrayElemAt: ["$locationCoordinates.coordinates", 0] },
+        clientName: 1,
+        issue: 1,
+        dateTime: 1,
+        job_status: 1,
+        jobType: 1,
+      },
+    };
+
     const dotPipeline =
       dotLimit > 0
         ? [
             { $match: withCoords },
-            projectStage,
+            dotProjectStage,
             validCoordStage,
-            {
-              $project: {
-                lat: 1,
-                lng: 1,
-                clientName: 1,
-                issue: 1,
-                dateTime: 1,
-                job_status: 1,
-                jobType: 1,
-              },
-            },
             { $limit: dotLimit },
           ]
         : null;

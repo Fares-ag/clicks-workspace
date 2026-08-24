@@ -1,10 +1,7 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  useCreateJobMutation,
-  useLazyVehicleModelsQuery,
-  useVehicleMakesQuery,
-} from "../../store/portalApi";
+import { useCreateJobMutation } from "../../store/portalApi";
+import VehicleMakeModelFields from "../../components/VehicleMakeModelFields.jsx";
 import CustomSelect from "../../components/CustomSelect.jsx";
 import DateTimePicker from "../../components/DateTimePicker.jsx";
 import PhoneInput from "../../components/PhoneInput.jsx";
@@ -27,13 +24,7 @@ const JOB_TYPES = [
 
 function NewJob() {
   const navigate = useNavigate();
-  const { data: makesData } = useVehicleMakesQuery();
-  const [fetchModels] = useLazyVehicleModelsQuery();
   const [createJob, { isLoading }] = useCreateJobMutation();
-
-  const makes = makesData?.makes || [];
-  const [models, setModels] = useState([]);
-  const [useFreeTextVehicle, setUseFreeTextVehicle] = useState(false);
   const [dateTimePickerOpen, setDateTimePickerOpen] = useState(false);
   const dateTimeInputRef = useRef(null);
 
@@ -58,24 +49,6 @@ function NewJob() {
   const [formError, setFormError] = useState("");
   const [locating, setLocating] = useState(false);
 
-  const selectedMakeId = useMemo(() => {
-    const match = makes.find((m) => m.makeName === form.vehicleMake);
-    return match?._id || "";
-  }, [makes, form.vehicleMake]);
-
-  const vehicleMakeOptions = useMemo(
-    () => makes.map((m) => ({ value: m.makeName, label: m.makeName })),
-    [makes]
-  );
-
-  const vehicleModelOptions = useMemo(
-    () => [
-      ...models.map((m) => ({ value: m.modelName, label: m.modelName })),
-      { value: "Other", label: "Other" },
-    ],
-    [models]
-  );
-
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setFormError("");
@@ -88,24 +61,6 @@ function NewJob() {
       setPhoneError("Enter the 8-digit local number (without +974)");
     } else {
       setPhoneError("");
-    }
-  };
-
-  const onMakeChange = async (makeName) => {
-    setForm((prev) => ({
-      ...prev,
-      vehicleMake: makeName,
-      vehicleModel: "",
-      otherModel: "",
-    }));
-    setModels([]);
-    const make = makes.find((m) => m.makeName === makeName);
-    if (!make?._id) return;
-    try {
-      const res = await fetchModels(make._id).unwrap();
-      setModels(res?.models || []);
-    } catch {
-      setModels([]);
     }
   };
 
@@ -156,8 +111,9 @@ function NewJob() {
       setFormError("Job type is required");
       return;
     }
-    if (form.price === "" || Number.isNaN(Number(form.price))) {
-      setFormError("Price is required");
+    const priceNum = Number(form.price);
+    if (form.price === "" || !Number.isFinite(priceNum) || priceNum <= 0) {
+      setFormError("Price must be greater than 0");
       return;
     }
     if (!form.dateTime) {
@@ -193,23 +149,25 @@ function NewJob() {
       issue: form.issue.trim(),
       location: form.location.trim(),
       jobType: form.jobType,
-      price: Number(form.price),
+      price: priceNum,
       dateTime: new Date(form.dateTime).toISOString(),
     };
 
     try {
-      const res = await createJob(payload).unwrap();
-      const id = res?.job?._id || res?._id;
-      if (id) navigate(`/jobs/${id}`, { replace: true });
-      else navigate("/", { replace: true });
+      await createJob(payload).unwrap();
+      navigate("/jobs", {
+        replace: true,
+        state: {
+          successMessage:
+            "Request submitted — Clicks will review and assign a technician.",
+        },
+      });
     } catch (err) {
       setFormError(
-        err?.data?.message || err?.error || "Failed to create job"
+        err?.data?.message || err?.error || "Failed to submit request"
       );
     }
   };
-
-  const showCatalog = makes.length > 0 && !useFreeTextVehicle;
 
   const dateTimeDisplay = form.dateTime
     ? new Date(form.dateTime).toLocaleString("en-US", {
@@ -232,7 +190,7 @@ function NewJob() {
         >
           <img src="/icons/long-arrow-left.svg" alt="Back" />
         </button>
-        <h1 className="add-new-job-title">New Job</h1>
+        <h1 className="add-new-job-title">New Request</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="add-new-job-form">
@@ -285,89 +243,38 @@ function NewJob() {
             </div>
 
             <div className="add-new-job-row">
-              {showCatalog ? (
-                <>
-                  <div className="add-new-job-field">
-                    <label>Vehicle Make*</label>
-                    <CustomSelect
-                      value={form.vehicleMake}
-                      onChange={onMakeChange}
-                      options={vehicleMakeOptions}
-                      placeholder="Select vehicle make"
-                      searchable
-                    />
-                  </div>
-                  <div className="add-new-job-field">
-                    <label>Vehicle Model*</label>
-                    <CustomSelect
-                      value={form.vehicleModel}
-                      onChange={(value) => setField("vehicleModel", value)}
-                      options={vehicleModelOptions}
-                      placeholder={
-                        form.vehicleMake ? "Select vehicle model" : "Select make first"
-                      }
-                      disabled={!form.vehicleMake}
-                      searchable
-                    />
-                  </div>
-                  {form.vehicleModel === "Other" ? (
-                    <div className="add-new-job-field">
-                      <label>Other Model*</label>
-                      <input
-                        type="text"
-                        value={form.otherModel}
-                        onChange={(e) => setField("otherModel", e.target.value)}
-                        placeholder="Model name"
-                      />
-                    </div>
-                  ) : (
-                    <div className="add-new-job-field">
-                      <label>Vehicle Year</label>
-                      <input
-                        type="number"
-                        value={form.vehicleYear}
-                        onChange={(e) => setField("vehicleYear", e.target.value)}
-                        placeholder="e.g. 2024"
-                        min="1900"
-                        max="2030"
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="add-new-job-field">
-                    <label>Vehicle Make*</label>
-                    <input
-                      type="text"
-                      value={form.vehicleMake}
-                      onChange={(e) => setField("vehicleMake", e.target.value)}
-                      placeholder="Enter make"
-                    />
-                  </div>
-                  <div className="add-new-job-field">
-                    <label>Vehicle Model*</label>
-                    <input
-                      type="text"
-                      value={form.vehicleModel}
-                      onChange={(e) => setField("vehicleModel", e.target.value)}
-                      placeholder="Enter model"
-                    />
-                  </div>
-                  <div className="add-new-job-field">
-                    <label>Vehicle Year</label>
-                    <input
-                      type="number"
-                      value={form.vehicleYear}
-                      onChange={(e) => setField("vehicleYear", e.target.value)}
-                      placeholder="e.g. 2024"
-                    />
-                  </div>
-                </>
-              )}
+              <VehicleMakeModelFields
+                make={form.vehicleMake}
+                model={form.vehicleModel}
+                otherModel={form.otherModel}
+                onMakeChange={(value) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    vehicleMake: value,
+                    vehicleModel: "",
+                    otherModel: "",
+                  }));
+                  setFormError("");
+                }}
+                onModelChange={(value) => setField("vehicleModel", value)}
+                onOtherModelChange={(value) => setField("otherModel", value)}
+              />
+              {form.vehicleModel !== "Other" ? (
+                <div className="add-new-job-field">
+                  <label>Vehicle Year</label>
+                  <input
+                    type="number"
+                    value={form.vehicleYear}
+                    onChange={(e) => setField("vehicleYear", e.target.value)}
+                    placeholder="e.g. 2024"
+                    min="1900"
+                    max="2030"
+                  />
+                </div>
+              ) : null}
             </div>
 
-            {showCatalog && form.vehicleModel !== "Other" && (
+            {form.vehicleModel !== "Other" ? (
               <div className="add-new-job-row">
                 <div className="add-new-job-field">
                   <label>License Plate</label>
@@ -387,46 +294,9 @@ function NewJob() {
                     placeholder="Enter VIN number"
                   />
                 </div>
-                <div className="add-new-job-field">
-                  {makes.length > 0 && (
-                    <button
-                      type="button"
-                      className="add-new-job-cancel"
-                      style={{ marginTop: 28 }}
-                      onClick={() => {
-                        setUseFreeTextVehicle(true);
-                        setField("vehicleMake", "");
-                        setField("vehicleModel", "");
-                        setField("otherModel", "");
-                        setModels([]);
-                      }}
-                    >
-                      Enter vehicle manually
-                    </button>
-                  )}
-                </div>
+                <div className="add-new-job-field" />
               </div>
-            )}
-
-            {!showCatalog && makes.length > 0 && (
-              <div className="add-new-job-row">
-                <div className="add-new-job-field">
-                  <button
-                    type="button"
-                    className="add-new-job-cancel"
-                    onClick={() => {
-                      setUseFreeTextVehicle(false);
-                      setField("vehicleMake", "");
-                      setField("vehicleModel", "");
-                      setField("otherModel", "");
-                      setModels([]);
-                    }}
-                  >
-                    Use vehicle catalog
-                  </button>
-                </div>
-              </div>
-            )}
+            ) : null}
           </div>
 
           <div className="add-new-job-section">
@@ -498,7 +368,7 @@ function NewJob() {
                     type="text"
                     value={form.location}
                     onChange={(e) => setField("location", e.target.value)}
-                    placeholder="Address or lat, lng"
+                    placeholder="Address, lat/lng, or Google Maps / Waze link"
                     required
                     style={{ flex: 1 }}
                   />
@@ -535,7 +405,7 @@ function NewJob() {
             className="add-new-job-submit"
             disabled={isLoading}
           >
-            {isLoading ? "Creating…" : "Create job"}
+            {isLoading ? "Submitting…" : "Submit request"}
           </button>
         </div>
       </form>

@@ -1,13 +1,17 @@
+import 'package:clicks_technician/core/constants/job_status_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 /// Shared formatting for Activity / job cards (Figma labels).
 class JobDisplay {
   static String ocId(Map<String, dynamic> job) {
+    // Technician-entered Job ID; legacy jobs fall back to the mongo id tail.
+    final ref = (job['job_reference'] ?? '').toString().trim();
+    if (ref.isNotEmpty) return ref;
     final id = (job['_id'] ?? job['job_id'] ?? '').toString();
-    if (id.isEmpty) return 'OC - —';
-    final tail = id.length >= 3 ? id.substring(id.length - 3) : id;
-    return 'OC - ${tail.toUpperCase()}';
+    if (id.isEmpty) return '—';
+    final tail = id.length > 6 ? id.substring(id.length - 6) : id;
+    return '#$tail';
   }
 
   static String formatWhen(Map<String, dynamic> job) {
@@ -84,28 +88,7 @@ class JobDisplay {
     return line;
   }
 
-  static String statusLabel(String status) {
-    switch (status) {
-      case 'in_progress':
-        return 'In progress';
-      case 'completed':
-        return 'Completed';
-      case 'cancelled':
-        return 'Cancelled';
-      case 'assigned':
-        return 'Incoming';
-      case 'accepted':
-        return 'Confirmed';
-      case 'en_route':
-        return 'En route';
-      case 'arrived':
-        return 'Arrived';
-      case 'pending':
-        return 'Pending';
-      default:
-        return status.replaceAll('_', ' ');
-    }
-  }
+  static String statusLabel(String status) => JobStatusLabels.labelFor(status);
 
   static Color statusColor(String status) {
     switch (status) {

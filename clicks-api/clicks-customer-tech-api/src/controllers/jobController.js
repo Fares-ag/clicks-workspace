@@ -8,10 +8,25 @@ const { assertJobAccess, sameId } = require("../utils/ownership");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
 const {
   parseJobLocation,
-  parseJobLocationToGeoPoint,
 } = require("../../../clicks-shared/utils/parseJobLocation");
+const {
+  resolveJobLocationToGeoPoint,
+} = require("../../../clicks-shared/utils/resolveJobLocation");
 const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
 const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
+const { captureException } = require("../../../clicks-shared/middleware/sentry");
+const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
+const { num } = require("../../../clicks-shared/utils/coerce");
+const {
+  MOBILE_JOB_LIST_SELECT,
+  MOBILE_JOB_LIST_POPULATE,
+  paginateQuery,
+} = require("../../../clicks-shared/utils/mobileJobList");
+const {
+  completionCasMissError,
+  isCompletionCasMiss,
+  isReplicaSetTransactionError,
+} = require("../../../clicks-shared/utils/mongoTransactions");
 
 const JOB_STATUS_PRIORITY = {
   in_progress: 0,
@@ -99,74 +114,35 @@ function sortActiveJobs(jobs) {
   });
 }
 
-const createJob = async (req, res) => {
-  try {
-    const { 
-      clientName, 
-      clientMobileNumber, 
-      issue, 
-      location, 
-      dateTime, 
-      jobType,
-      assignedTechnician, 
-      price, 
-      source,
-      sos_id // NEW: Accept sos_id for SOS-created jobs
-    } = req.body;
-    
-    if (!clientName || !clientMobileNumber || !issue || !location || !dateTime || !jobType || !assignedTechnician || !price) {
-      return res.status(400).json({ error: "All required fields must be provided" });
-    }
+// Statuses that still occupy a technician (multi-job workflow).
+// "assigned" is deliberately excluded: a dispatched-but-unaccepted job never sets
+// the technician to "On Job" (only acceptJob does) and nothing expires it, so
+// counting it here would hide a technician from dispatch permanently.
+const TECH_BUSY_JOB_STATUSES = [
+  "accepted",
+  "en_route",
+  "arrived",
+  "in_progress",
+];
 
-    const locationCoordinates = parseJobLocationToGeoPoint(location);
-    
-    const job = new Job({
-      clientName,
-      clientMobileNumber,
-      issue,
-      location,
-      ...(locationCoordinates ? { locationCoordinates } : {}),
-      dateTime,
-      jobType,
-      assignedTechnician,
-      price,
-      source: source || null,
-      job_status: "assigned",
-      customer_id: req.user?.id,
-      sos_request_id: sos_id || null // NEW: Link to SOS if provided
-    });
-    
-    await job.save();
-    
-    // NEW: If job is created from SOS, update SOS status and notify technician
-    if (sos_id) {
-      await SOSRequest.findByIdAndUpdate(sos_id, {
-        status: "accepted",
-        assigned_technician: assignedTechnician,
-        accepted_at: new Date(),
-        job_id: job._id
-      });
+/**
+ * A technician may hold several live jobs at once, so finishing/cancelling one
+ * must not blanket-reset them to "Online". Returns the status they should end
+ * up in once `excludeJobId` is no longer active.
+ */
+async function resolveTechnicianStatusAfterJob(technicianId, excludeJobId) {
+  const stillBusy = await Job.exists({
+    assignedTechnician: technicianId,
+    _id: { $ne: excludeJobId },
+    job_status: { $in: TECH_BUSY_JOB_STATUSES },
+  });
+  return stillBusy ? "On Job" : "Online";
+}
 
-      // Update technician status
-      await setTechnicianStatus(assignedTechnician, "On Job");
-
-      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-      if (typeof notifyPresence === "function") {
-        await notifyPresence(assignedTechnician, "On Job");
-      }
-
-      // Notify assigned technician via socket
-      const notifyFunction = req.app.get('notifyAssignedTechnician');
-      if (notifyFunction) {
-        await notifyFunction(job._id);
-      }
-    }
-    
-    res.status(201).json({ message: "Job created successfully", job });
-  } catch (err) {
-    res.status(500).json({ error: "Create job failed", details: err.message });
-  }
-};
+// NOTE: the customer-facing `POST /api/jobs` handler (createJob) was removed.
+// It trusted client-supplied price / assignedTechnician / job_status and mutated
+// an arbitrary SOSRequest by id with no ownership check. Customer jobs are now
+// created only through the SOS and service-request dispatch paths (admin API).
 
 const getJobs = async (req, res) => {
   try {
@@ -178,8 +154,29 @@ const getJobs = async (req, res) => {
     } else {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const jobs = await Job.find(filter);
-    res.json({ jobs });
+
+    const { page, limit, skip } = paginateQuery(req.query.page, req.query.limit);
+    const sort = req.user.role === "technician" ? { createdAt: -1 } : { dateTime: -1 };
+
+    const jobs = await Job.find(filter)
+      .select(MOBILE_JOB_LIST_SELECT)
+      .populate(MOBILE_JOB_LIST_POPULATE)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    let total = null;
+    if (page === 1) {
+      total = await Job.countDocuments(filter);
+    }
+
+    res.json({
+      jobs,
+      total,
+      page,
+      has_more: jobs.length === limit,
+    });
   } catch (err) {
     res.status(500).json({ error: "Fetch jobs failed", details: err.message });
   }
@@ -192,8 +189,28 @@ const getCustomerJobs = async (req, res) => {
     const { status } = req.query;
     const filter = { customer_id };
     if (status) filter.job_status = status;
-    const jobs = await Job.find(filter).sort({ dateTime: -1 });
-    res.json({ jobs });
+
+    const { page, limit, skip } = paginateQuery(req.query.page, req.query.limit);
+
+    const jobs = await Job.find(filter)
+      .select(MOBILE_JOB_LIST_SELECT)
+      .populate(MOBILE_JOB_LIST_POPULATE)
+      .sort({ dateTime: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    let total = null;
+    if (page === 1) {
+      total = await Job.countDocuments(filter);
+    }
+
+    res.json({
+      jobs,
+      total,
+      page,
+      has_more: jobs.length === limit,
+    });
   } catch (err) {
     res.status(500).json({ error: "Fetch customer jobs failed", details: err.message });
   }
@@ -304,6 +321,260 @@ const getJobById = async (req, res) => {
 };
 
 const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
+
+async function ensureCompletionReceipt(job, jobId, session = null) {
+  let query = Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+  if (session) query = query.session(session);
+  const existing = await query;
+  if (existing) return existing;
+
+  let repairsQuery = RepairProcedure.find({ job_id: jobId });
+  if (session) repairsQuery = repairsQuery.session(session);
+  const repairs = await repairsQuery;
+  const pricing = computeJobPricing(job, repairs);
+  const receiptDoc = {
+    job_id: job._id,
+    customer_id: job.customer_id,
+    technician_id: job.assignedTechnician,
+    total_amount: pricing.total,
+    payment_status: "paid",
+    items: repairs.map((r) => ({
+      description: r.description,
+      quantity: r.quantity,
+      price: r.price,
+      receipt_image_url: r.receipt_image_url,
+    })),
+  };
+
+  if (session) {
+    const [created] = await Receipt.create([receiptDoc], { session });
+    return created;
+  }
+  return Receipt.create(receiptDoc);
+}
+
+async function runCompletionMoneyPath(id, completionSet, session = null) {
+  const updateOpts = session ? { new: true, session } : { new: true };
+  const updated = await Job.findOneAndUpdate(
+    { _id: id, job_status: "in_progress" },
+    { $set: completionSet },
+    updateOpts
+  );
+
+  if (!updated) {
+    throw completionCasMissError();
+  }
+
+  await creditTechnicianForJob(updated, session ? { session } : {});
+  const receipt = await ensureCompletionReceipt(updated, id, session);
+  return { updated, receipt };
+}
+
+async function runCompletionWithTransaction(id, completionSet) {
+  const session = await Job.db.startSession();
+  let result;
+  try {
+    await session.withTransaction(async () => {
+      result = await runCompletionMoneyPath(id, completionSet, session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+async function respondCompletionCasMiss(res, id) {
+  const current = await Job.findById(id);
+  if (!current) return res.status(404).json({ error: "Job not found" });
+  if (current.job_status === "completed") {
+    return res.json({ message: "Job already completed", job_status: "completed" });
+  }
+  return res.status(400).json({
+    error: `Cannot complete job with status: ${current.job_status}`,
+  });
+}
+
+/** Standalone Mongo: sequential writes + credit outbox on partial failure. */
+async function runCompletionWithoutTransaction(id, completionSet) {
+  const updated = await Job.findOneAndUpdate(
+    { _id: id, job_status: "in_progress" },
+    { $set: completionSet },
+    { new: true }
+  );
+
+  if (!updated) {
+    throw completionCasMissError();
+  }
+
+  try {
+    await creditTechnicianForJob(updated);
+  } catch (creditErr) {
+    console.error("Technician credit failed:", creditErr.message);
+    try {
+      const {
+        enqueueOutboxEvent,
+        OUTBOX_TYPES,
+      } = require("../../../clicks-shared/services/outboxWorker");
+      await enqueueOutboxEvent(OUTBOX_TYPES.TECHNICIAN_CREDIT, {
+        job_id: updated._id.toString(),
+      });
+    } catch (outboxErr) {
+      console.error("Failed to enqueue technician credit outbox:", outboxErr.message);
+    }
+  }
+
+  const receipt = await ensureCompletionReceipt(updated, id, null);
+  return { updated, receipt };
+}
+
+let loggedTransactionFallback = false;
+
+const markCompleted = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (job.payment_status !== "paid") {
+      return res.status(400).json({
+        error: "Payment must be collected before completing the job",
+      });
+    }
+    if (!job.customerSignatureUrl || !job.customerSignedAt) {
+      return res.status(400).json({
+        error: "Customer signature is required before completing the job",
+      });
+    }
+    const jobReference =
+      typeof req.body?.job_reference === "string" ? req.body.job_reference.trim() : "";
+    if (job.job_status === "in_progress" && !jobReference) {
+      return res.status(400).json({
+        error: "Job ID is required to complete the job",
+      });
+    }
+    if (jobReference.length > 64) {
+      return res.status(400).json({
+        error: "Job ID must be 64 characters or fewer",
+      });
+    }
+    const completionSet = {
+      job_status: "completed",
+      completed_at: new Date(),
+      job_reference: jobReference,
+    };
+    const notes = req.body?.completion_notes ?? req.body?.notes;
+    if (typeof notes === "string" && notes.trim()) {
+      completionSet.completion_notes = notes.trim().slice(0, 2000);
+    }
+    const photos = req.body?.completion_photos;
+    if (Array.isArray(photos)) {
+      completionSet.completion_photos = photos
+        .filter((p) => typeof p === "string" && p.trim())
+        .map((p) => p.trim().slice(0, 500))
+        .slice(0, 10);
+    }
+
+    let updated;
+    let receipt;
+
+    try {
+      ({ updated, receipt } = await runCompletionWithTransaction(id, completionSet));
+    } catch (txnErr) {
+      if (isCompletionCasMiss(txnErr)) {
+        return respondCompletionCasMiss(res, id);
+      }
+      if (isReplicaSetTransactionError(txnErr)) {
+        if (!loggedTransactionFallback) {
+          loggedTransactionFallback = true;
+          console.warn(
+            JSON.stringify({
+              level: "warn",
+              msg: "completion_transaction_unavailable",
+              detail: txnErr.message,
+              fallback: "non_transactional",
+            })
+          );
+        }
+        try {
+          ({ updated, receipt } = await runCompletionWithoutTransaction(id, completionSet));
+        } catch (fallbackErr) {
+          if (isCompletionCasMiss(fallbackErr)) {
+            return respondCompletionCasMiss(res, id);
+          }
+          throw fallbackErr;
+        }
+      } else {
+        return res.status(500).json({
+          error: "Mark completed failed",
+          details: txnErr.message,
+        });
+      }
+    }
+
+    try {
+      const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
+      const populated = await Job.findById(updated._id).populate("source", "mainSourceName");
+      await accruePartnerFromCompletedJob(populated);
+    } catch (partnerErr) {
+      console.error("Partner accrual failed:", partnerErr.message);
+      try {
+        const {
+          enqueueOutboxEvent,
+          OUTBOX_TYPES,
+        } = require("../../../clicks-shared/services/outboxWorker");
+        await enqueueOutboxEvent(OUTBOX_TYPES.PARTNER_ACCRUAL, {
+          job_id: updated._id.toString(),
+        });
+      } catch (outboxErr) {
+        console.error("Failed to enqueue partner accrual outbox:", outboxErr.message);
+      }
+    }
+
+    // Tech returns Online only after complete (payment no longer ends the job),
+    // and only when no other job of theirs is still active.
+    if (updated.assignedTechnician) {
+      const nextStatus = await resolveTechnicianStatusAfterJob(
+        updated.assignedTechnician,
+        updated._id
+      );
+      await setTechnicianStatus(updated.assignedTechnician, nextStatus);
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(updated.assignedTechnician, nextStatus);
+      }
+    }
+
+    if (updated.customer_id) {
+      try {
+        const notify = req.app.get("notifyCustomerJobEvent");
+        if (typeof notify === "function") {
+          await notify(updated.customer_id.toString(), "jobCompleted", {
+            job_id: updated._id.toString(),
+            job_status: "completed",
+            payment_status: updated.payment_status,
+          });
+        }
+      } catch (notifyErr) {
+        console.error("Customer jobCompleted notify failed:", notifyErr.message);
+        captureException(notifyErr, {
+          job_id: updated._id.toString(),
+          event: "jobCompleted",
+        });
+      }
+    }
+
+    res.json({
+      message: "Job marked as completed",
+      job_status: updated.job_status,
+      payment_status: updated.payment_status,
+      receipt,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Mark completed failed", details: err.message });
+  }
+};
 
 const markArrived = async (req, res) => {
   try {
@@ -514,183 +785,6 @@ const findNearbyTechnicians = async (req, res) => {
 };
 
 
-const markCompleted = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const job = await Job.findById(id);
-    if (!job) return res.status(404).json({ error: "Job not found" });
-    if (!assertJobAccess(job, req.user)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    // Idempotency guard — second call must not re-credit earnings
-    if (job.job_status === "completed") {
-      return res.json({ message: "Job already completed", job_status: "completed" });
-    }
-    // Only allow completion from in_progress
-    if (job.job_status !== "in_progress") {
-      return res.status(400).json({
-        error: `Cannot complete job with status: ${job.job_status}`,
-      });
-    }
-    if (job.payment_status !== "paid") {
-      return res.status(400).json({
-        error: "Payment must be collected before completing the job",
-      });
-    }
-    if (!job.customerSignatureUrl || !job.customerSignedAt) {
-      return res.status(400).json({
-        error: "Customer signature is required before completing the job",
-      });
-    }
-    const notes = req.body?.completion_notes ?? req.body?.notes;
-    if (typeof notes === "string" && notes.trim()) {
-      job.completion_notes = notes.trim().slice(0, 2000);
-    }
-    const photos = req.body?.completion_photos;
-    if (Array.isArray(photos)) {
-      job.completion_photos = photos
-        .filter((p) => typeof p === "string" && p.trim())
-        .map((p) => p.trim().slice(0, 500))
-        .slice(0, 10);
-    }
-    job.job_status = "completed";
-    job.completed_at = job.completed_at || new Date();
-    await job.save();
-
-    if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "jobCompleted", {
-          job_id: job._id.toString(),
-          job_status: "completed",
-          payment_status: job.payment_status,
-        });
-      }
-    }
-
-    try {
-      const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
-      const populated = await Job.findById(job._id).populate("source", "mainSourceName");
-      await accruePartnerFromCompletedJob(populated);
-    } catch (partnerErr) {
-      console.error("Partner accrual failed:", partnerErr.message);
-    }
-
-    // TechnicianEarnings is source of truth for money
-    if (job.assignedTechnician) {
-      const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
-      const amount = job.price || 0;
-
-      // Aggregate totals
-      await TechnicianEarnings.findOneAndUpdate(
-        { technician_id: job.assignedTechnician },
-        {
-          $inc: {
-            total_earned: amount,
-            cash_balance: amount,
-            "performance.total_completed_jobs": 1,
-          },
-          $set: { updated_at: new Date() },
-        },
-        { upsert: true, new: true }
-      );
-
-      // Weekly earnings bucket — ISO week (Monday 00:00 UTC → Sunday 23:59 UTC)
-      const now = new Date();
-      const dayOfWeek = now.getUTCDay(); // 0=Sun … 6=Sat
-      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      const weekStart = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysFromMonday)
-      );
-      const weekEnd = new Date(weekStart);
-      weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
-      weekEnd.setUTCHours(23, 59, 59, 999);
-
-      // Try to increment an existing bucket for this week
-      const bucketUpdate = await TechnicianEarnings.updateOne(
-        {
-          technician_id: job.assignedTechnician,
-          "weekly_earnings.week_start": weekStart,
-        },
-        {
-          $inc: {
-            "weekly_earnings.$.amount": amount,
-            "weekly_earnings.$.jobs_completed": 1,
-          },
-        }
-      );
-
-      // No existing bucket — push a new one
-      if (bucketUpdate.modifiedCount === 0) {
-        await TechnicianEarnings.updateOne(
-          { technician_id: job.assignedTechnician },
-          {
-            $push: {
-              weekly_earnings: {
-                week_start: weekStart,
-                week_end: weekEnd,
-                amount,
-                jobs_completed: 1,
-                jobs_rejected: 0,
-                jobs_cancelled: 0,
-                hours_online: 0,
-              },
-            },
-          },
-          { upsert: true }
-        );
-      }
-
-      // Keep non-money counters on Technician.performance in sync
-      const technician = await Technician.findById(job.assignedTechnician);
-      if (technician) {
-        if (!technician.performance) technician.performance = {};
-        technician.performance.completedJobs =
-          (technician.performance.completedJobs || 0) + 1;
-        await technician.save();
-      }
-    }
-
-    // Safety: ensure a receipt exists (normally created at Collect Payment).
-    let receipt = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
-    if (!receipt) {
-      const repairs = await RepairProcedure.find({ job_id: id });
-      const pricing = computeJobPricing(job, repairs);
-      receipt = await Receipt.create({
-        job_id: job._id,
-        customer_id: job.customer_id,
-        technician_id: job.assignedTechnician,
-        total_amount: pricing.total,
-        payment_status: "paid",
-        items: repairs.map((r) => ({
-          description: r.description,
-          quantity: r.quantity,
-          price: r.price,
-          receipt_image_url: r.receipt_image_url,
-        })),
-      });
-    }
-
-    // Tech returns Online only after complete (payment no longer ends the job).
-    if (job.assignedTechnician) {
-      await setTechnicianStatus(job.assignedTechnician, "Online");
-      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-      if (typeof notifyPresence === "function") {
-        await notifyPresence(job.assignedTechnician, "Online");
-      }
-    }
-
-    res.json({
-      message: "Job marked as completed",
-      job_status: job.job_status,
-      payment_status: job.payment_status,
-      receipt,
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Mark completed failed", details: err.message });
-  }
-};
-
 /** Technician cancels an assigned job after arrival / mid-fulfill. */
 const cancelJobByTechnician = async (req, res) => {
   try {
@@ -716,11 +810,39 @@ const cancelJobByTechnician = async (req, res) => {
         error: `Cannot cancel job in status ${job.job_status}`,
       });
     }
-    job.job_status = "cancelled";
-    job.rejection_description = reason.slice(0, 500);
-    if (!Array.isArray(job.rejection_reasons)) job.rejection_reasons = [];
-    job.rejection_reasons.push(reason.slice(0, 200));
-    await job.save();
+    // Cash has already been collected and a paid Receipt exists — cancelling
+    // here would strand that money outside the earnings ledger.
+    if (job.payment_status === "paid") {
+      return res.status(400).json({
+        error:
+          "Cannot cancel a job that has already been paid. Complete the job or request a refund.",
+      });
+    }
+    // Guarded CAS so a concurrent payment/complete cannot be cancelled out from
+    // under us, and so a repeated cancel does not double-count the counters.
+    const cancelled = await Job.findOneAndUpdate(
+      {
+        _id: id,
+        job_status: { $in: cancellable },
+        payment_status: { $ne: "paid" },
+      },
+      {
+        $set: {
+          job_status: "cancelled",
+          rejection_description: reason.slice(0, 500),
+        },
+        $push: { rejection_reasons: reason.slice(0, 200) },
+      },
+      { new: true }
+    );
+    if (!cancelled) {
+      const current = await Job.findById(id).select("job_status payment_status");
+      if (!current) return res.status(404).json({ error: "Job not found" });
+      return res.status(400).json({
+        error: `Cannot cancel job in status ${current.job_status} (payment ${current.payment_status})`,
+      });
+    }
+    job.job_status = cancelled.job_status;
 
     if (job.assignedTechnician) {
       const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
@@ -740,10 +862,15 @@ const cancelJobByTechnician = async (req, res) => {
         await technician.save();
       }
 
-      await setTechnicianStatus(job.assignedTechnician, "Online");
+      // Only free the technician when they have no other live job.
+      const nextStatus = await resolveTechnicianStatusAfterJob(
+        job.assignedTechnician,
+        job._id
+      );
+      await setTechnicianStatus(job.assignedTechnician, nextStatus);
       const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
       if (typeof notifyPresence === "function") {
-        await notifyPresence(job.assignedTechnician, "Online");
+        await notifyPresence(job.assignedTechnician, nextStatus);
       }
     }
 
@@ -1131,7 +1258,25 @@ const updateJobDetails = async (req, res) => {
       vinNumber,
       issue,
       location,
+      price,
     } = req.body;
+
+    if (price != null) {
+      if (job.payment_status === "paid") {
+        return res.status(400).json({
+          error: "Cannot change price after payment is collected",
+        });
+      }
+      const parsed = Number(price);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        return res.status(400).json({ error: "Invalid price" });
+      }
+      const maxPrice = Number(process.env.MAX_TECHNICIAN_JOB_PRICE || 100000);
+      if (parsed > maxPrice) {
+        return res.status(400).json({ error: `Price cannot exceed ${maxPrice} QAR` });
+      }
+      job.price = parsed;
+    }
 
     if (clientName != null) job.clientName = String(clientName).trim();
     if (clientMobileNumber != null) job.clientMobileNumber = String(clientMobileNumber).trim();
@@ -1142,9 +1287,32 @@ const updateJobDetails = async (req, res) => {
     if (licensePlate != null) job.licensePlate = String(licensePlate).trim();
     if (vinNumber != null) job.vinNumber = String(vinNumber).trim();
     if (issue != null) job.issue = String(issue).trim();
-    if (location != null) job.location = String(location).trim();
+    if (location != null) {
+      job.location = String(location).trim();
+      const geo = await resolveJobLocationToGeoPoint(job.location);
+      if (geo) {
+        job.locationCoordinates = geo;
+      } else if (job.locationCoordinates) {
+        await Job.updateOne({ _id: job._id }, { $unset: { locationCoordinates: 1 } });
+        job.locationCoordinates = undefined;
+      }
+    }
 
-    const signatureCleared = clearCustomerSignature(job);
+    let signatureCleared = false;
+    const detailsChanged =
+      clientName != null ||
+      clientMobileNumber != null ||
+      clientEmail != null ||
+      vehicleMake != null ||
+      vehicleModel != null ||
+      vehicleYear != null ||
+      licensePlate != null ||
+      vinNumber != null ||
+      issue != null ||
+      location != null;
+    if (detailsChanged) {
+      signatureCleared = clearCustomerSignature(job);
+    }
     await job.save();
 
     res.json({
@@ -1194,7 +1362,6 @@ const uploadCustomerSignature = async (req, res) => {
 };
 
 module.exports = {
-  createJob,
   getJobs,
   getCustomerJobs,
   updateJobStatus,

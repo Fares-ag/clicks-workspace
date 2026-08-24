@@ -45,7 +45,7 @@ class LoginCubit extends Cubit<LoginState> {
         final technician = (data['technician'] as Map?) ?? {};
 
         if (token != null && token.isNotEmpty) {
-          await CacheHelper.save("token", token);
+          await CacheHelper.secureWrite(CacheHelper.authTokenKey, token);
         }
         if (technician['id'] != null) {
           await CacheHelper.save("technician_id", technician['id'].toString());

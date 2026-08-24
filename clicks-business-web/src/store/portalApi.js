@@ -65,12 +65,13 @@ export const portalApi = apiSlice.injectEndpoints({
       providesTags: ["Analytics"],
     }),
     listJobs: builder.query({
-      query: ({ page = 1, limit = 50, bucket } = {}) => ({
+      query: ({ page = 1, limit = 50, bucket, search = "" } = {}) => ({
         url: "/business/jobs",
         params: {
           page,
           limit,
           ...(bucket && bucket !== "all" ? { bucket } : {}),
+          ...(search ? { search } : {}),
         },
       }),
       providesTags: ["Jobs"],

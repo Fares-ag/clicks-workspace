@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { useImportJobsMutation } from "../store/jobApi";
 import { normalizeLocationString } from "../pages/HeatMap/jobHeatmapUtils";
+import { getJobStatusLabel } from "../utils/jobStatusLabels";
 import "./ImportJobsModal.css";
 
 function mapStatus(status) {
@@ -185,7 +186,7 @@ function ImportJobsModal({ open, onClose, onSuccess }) {
                       <td>{row.phone}</td>
                       <td>{row.issue}</td>
                       <td>{row.jobType}</td>
-                      <td>{row.job_status}</td>
+                      <td>{getJobStatusLabel(row.job_status)}</td>
                       <td>{row.price}</td>
                       <td>{row.techName}</td>
                     </tr>

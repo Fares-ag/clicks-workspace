@@ -14,10 +14,38 @@ $env:PLAY_STORE_TRACK = $Track
 
 $creds = Join-Path $root "play-store\service-account.json"
 $keyProps = Join-Path $root "android\key.properties"
-$keystore = Join-Path $root "android\upload-keystore.jks"
 $aab = Join-Path $root "build\app\outputs\bundle\release\app-release.aab"
 
+# Validate credentials and signing config BEFORE building: checking them after
+# the build leaves an improperly signed app-release.aab sitting in the exact
+# directory the gradle play block uploads from, which a later -UploadOnly run
+# would happily ship.
+if (-not $BuildOnly) {
+    if (-not (Test-Path $creds)) {
+        throw "Missing play-store/service-account.json — see PLAY_STORE.md"
+    }
+}
+if (-not (Test-Path $keyProps)) {
+    throw "Missing android/key.properties — copy from key.properties.example"
+}
+$storeFile = ""
+Get-Content $keyProps | ForEach-Object {
+    if ($_ -match '^storeFile=(.+)$') { $storeFile = $matches[1].Trim() }
+}
+if (-not $storeFile) { throw "storeFile missing from android/key.properties" }
+# gradle resolves storeFile relative to android/app (see app/build.gradle.kts).
+$keystore = if ([System.IO.Path]::IsPathRooted($storeFile)) {
+    $storeFile
+} else {
+    Join-Path $root "android\app\$storeFile"
+}
+if (-not (Test-Path $keystore)) {
+    throw "Missing signing keystore at $keystore - generate upload keystore (PLAY_STORE.md)"
+}
+
 if (-not $UploadOnly) {
+    # Never let a previous run's bundle survive into this one's upload.
+    if (Test-Path $aab) { Remove-Item $aab -Force }
     & (Join-Path $PSScriptRoot "build-aab-production.ps1")
 }
 
@@ -26,15 +54,6 @@ if ($BuildOnly) {
     exit 0
 }
 
-if (-not (Test-Path $creds)) {
-    throw "Missing play-store/service-account.json — see PLAY_STORE.md"
-}
-if (-not (Test-Path $keyProps)) {
-    throw "Missing android/key.properties — copy from key.properties.example"
-}
-if (-not (Test-Path $keystore)) {
-    throw "Missing android/upload-keystore.jks — generate upload keystore (PLAY_STORE.md)"
-}
 if (-not (Test-Path $aab)) {
     throw "Missing AAB at build/app/outputs/bundle/release/app-release.aab — run build first"
 }

@@ -2,6 +2,7 @@ import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
+import 'package:clicks_user/core/services/fcm_notification_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/my_cars/my_cars_screen.dart';
 import 'package:clicks_user/features/settings/ui/cubit/settings_cubit.dart';
@@ -181,6 +182,13 @@ class SettingsScreen extends StatelessWidget {
                               } catch (_) {}
                             }
                             await CacheHelper.clear();
+                            // Invalidate this device's FCM token AFTER the
+                            // session is gone, so the refreshed token can no
+                            // longer be posted back onto the account we are
+                            // leaving. Without this the next account signing
+                            // in here inherits this account's pushes.
+                            await FCMNotificationService.instance
+                                .deleteToken();
 
                             if (context.mounted) {
                               AppSnackBars.successSnackBar(

@@ -32,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
-    final token = CacheHelper.get('token')?.toString();
+    final token = CacheHelper.getAuthToken();
     if (token == null || token.isEmpty) {
       await _go(Routes.welcome);
       return;

@@ -3,6 +3,10 @@ const { ALL_JOB_TYPES } = require("../constants/jobTypes");
 
 const JobSchema = new mongoose.Schema(
   {
+    // Technician-entered Job ID (typed in before completing the job). This is
+    // the job's display name everywhere (finance, admin, business portal, both
+    // apps); legacy rows are blank and clients fall back to "#" + last 6 of _id.
+    job_reference: { type: String, default: "", trim: true, maxlength: 64, index: true },
     clientName: { type: String, required: true },
     clientMobileNumber: { type: String, required: true },
     clientEmail: { type: String, default: "" },
@@ -63,6 +67,15 @@ const JobSchema = new mongoose.Schema(
     started_at: { type: Date },
     completed_at: { type: Date },
     paid_at: { type: Date },
+    // Cancellation audit — admin UI (JobDetails "Cancellation Reason") reads these.
+    // Without the declarations strict mode silently dropped every write.
+    cancelled_at: { type: Date, default: null },
+    cancellation_reason: { type: String, default: "" },
+    cancelled_by: {
+      type: String,
+      enum: ["admin", "technician", "customer"],
+      default: undefined,
+    },
     task_description: { type: String },
     rejection_reasons: [{ type: String }],
     rejection_description: { type: String, maxlength: 500 },
@@ -107,19 +120,97 @@ const JobSchema = new mongoose.Schema(
     customerSignatureUrl: { type: String, default: "" },
     customerSignedAt: { type: Date, default: null },
     customerSignatureInvalidatedAt: { type: Date, default: null },
-    // Legacy system job id (historical Excel import) — sparse unique for idempotent re-runs
-    legacy_id: { type: Number, default: null, sparse: true },
+    // Legacy system job id (historical Excel import) — left unset on normal jobs.
+    // Uniqueness comes from the partial index below; no path-level index here,
+    // otherwise mongoose declares two conflicting {legacy_id:1} indexes.
+    legacy_id: { type: Number },
     // Technician name from legacy export when no matching Technician record exists
     legacyTechnicianName: { type: String, default: "" },
+    // Finance portal audit (completed jobs only)
+    finance_status: {
+      type: String,
+      enum: ["pending", "audited"],
+      default: "pending",
+    },
+    finance_revenue: { type: Number, default: null },
+    finance_cost_total: { type: Number, default: null },
+    finance_net_profit: { type: Number, default: null },
+    finance_extra_costs: [
+      {
+        label: { type: String, default: "" },
+        amount: { type: Number, default: 0 },
+        // Optional supplier this cost row is attributed to (finance portal)
+        vendor_id: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Vendor",
+          default: null,
+        },
+      },
+    ],
+    finance_notes: { type: String, default: "", maxlength: 2000 },
+    finance_audited_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FinanceUser",
+      default: null,
+    },
+    finance_audited_at: { type: Date, default: null },
+    // Re-audit trail — an already-audited job can be edited again through the
+    // separate re-audit endpoint, which always requires a reason.
+    finance_reaudit_count: { type: Number, default: 0 },
+    finance_last_reaudit_reason: { type: String, default: "", maxlength: 1000 },
+    finance_last_reaudited_at: { type: Date, default: null },
+    // Normalized search digests — set by pre-save hook and write paths (admin jobs prefix search)
+    search_phone: { type: String, default: "", index: true },
+    search_name: { type: String, default: "", index: true },
   },
   { timestamps: true }
 );
 
+const { computeJobSearchFields } = require("../utils/searchFields");
+
+JobSchema.pre("save", function jobSearchFieldsPreSave(next) {
+  const fields = computeJobSearchFields(this);
+  this.search_phone = fields.search_phone;
+  this.search_name = fields.search_name;
+  next();
+});
+
+// admin getJobs unfiltered: Job.find({}).sort({ createdAt: -1 })
+JobSchema.index({ createdAt: -1 });
+// dashboard revenue paid_at window: { job_status ∈ COMPLETED, paid_at: range }
+JobSchema.index({ job_status: 1, paid_at: -1 });
+// dashboard revenue completed_at fallback: { job_status ∈ COMPLETED, paid_at absent, completed_at: range }
+JobSchema.index({ job_status: 1, completed_at: -1 });
+// tech-api getCustomerJobs: Job.find({ customer_id }).sort({ dateTime: -1 })
+JobSchema.index({ customer_id: 1, dateTime: -1 });
+// admin jobs prefix search on businessName
+JobSchema.index({ businessName: 1 });
+// business portal conditional polling freshness probe
+JobSchema.index({ business_id: 1, updatedAt: -1 });
+
 JobSchema.index({ job_status: 1, assignedTechnician: 1, createdAt: -1 });
 JobSchema.index({ customer_id: 1, createdAt: -1 });
 JobSchema.index({ business_id: 1, createdAt: -1 });
-JobSchema.index({ legacy_id: 1 }, { unique: true, sparse: true });
+// Idempotency guard for the historical import. Explicitly named so it does not
+// collide with the stale `legacy_id_1` index left by the old sparse declaration
+// (same key + different options = IndexOptionsConflict, and the unique index
+// would never build). Partial on $type:number so null/absent values are ignored.
+JobSchema.index(
+  { legacy_id: 1 },
+  {
+    unique: true,
+    name: "legacy_id_unique",
+    partialFilterExpression: { legacy_id: { $type: "number" } },
+  }
+);
 JobSchema.index({ locationCoordinates: "2dsphere" });
 JobSchema.index({ dateTime: -1, job_status: 1 });
+JobSchema.index({ job_status: 1, finance_status: 1, completed_at: -1 });
+// finance jobs list/export payment_method filter (+ completed_at range & sort)
+JobSchema.index({ job_status: 1, payment_method: 1, completed_at: -1 });
+// finance jobs list/export vendor_id filter — multikey over the cost rows
+JobSchema.index({ "finance_extra_costs.vendor_id": 1 });
+// job_reference is indexed at the path level (index: true) — no schema-level
+// declaration here, otherwise mongoose builds two identical job_reference_1.
 
 module.exports = mongoose.model("Job", JobSchema);

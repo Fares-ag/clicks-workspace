@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-
+import '../../core/constants/job_status_labels.dart';
 import '../../core/theme/app_colors.dart';
 import 'jobs_cubit.dart';
 
@@ -58,13 +57,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     });
   }
 
-  Future<void> _call(String phone) async {
-    final uri = Uri(scheme: 'tel', path: phone);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -107,15 +99,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
   Widget _buildBody(Map<String, dynamic> job) {
     final status = job['job_status']?.toString() ?? '';
     final payment = job['payment_status']?.toString() ?? '';
-    final tech = job['assignedTechnician'];
-    String techName = 'Not assigned yet';
-    String? techPhone;
-    if (tech is Map) {
-      techName =
-          '${tech['firstName'] ?? ''} ${tech['lastName'] ?? ''}'.trim();
-      if (techName.isEmpty) techName = 'Assigned';
-      techPhone = tech['phone']?.toString();
-    }
 
     DateTime? dt;
     final raw = job['dateTime'];
@@ -153,7 +136,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 ),
               ],
               const SizedBox(height: 12),
-              _row('Status', status.replaceAll('_', ' ')),
+              _row('Status', JobStatusLabels.labelFor(status)),
               if (payment.isNotEmpty)
                 _row('Payment', payment.replaceAll('_', ' ')),
               _row('Issue', job['issue']?.toString() ?? ''),
@@ -182,37 +165,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 _row(
                   'When',
                   DateFormat('dd MMM yyyy, HH:mm').format(dt.toLocal()),
-                ),
-              _row('Technician', techName),
-              if (techPhone != null && techPhone.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 100,
-                        child: Text(
-                          'Tech phone',
-                          style: GoogleFonts.dmSans(
-                            color: AppColors.muted,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: TextButton.icon(
-                          onPressed: () => _call(techPhone!),
-                          icon: const Icon(Icons.phone, size: 18),
-                          label: Text(techPhone),
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            alignment: Alignment.centerLeft,
-                            foregroundColor: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               if (job['businessName'] != null)
                 _row('Partner', job['businessName'].toString()),
@@ -264,13 +216,13 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
 
   List<Widget> _timeline(Map<String, dynamic> job) {
     final steps = [
-      ('pending', 'Created', 'createdAt'),
-      ('assigned', 'Assigned', 'assigned_at'),
-      ('accepted', 'Accepted', 'accepted_at'),
-      ('en_route', 'En route', 'en_route_at'),
-      ('arrived', 'Arrived', 'arrived_at'),
-      ('in_progress', 'In progress', 'started_at'),
-      ('completed', 'Completed', 'completed_at'),
+      ('pending', 'createdAt'),
+      ('assigned', 'assigned_at'),
+      ('accepted', 'accepted_at'),
+      ('en_route', 'en_route_at'),
+      ('arrived', 'arrived_at'),
+      ('in_progress', 'started_at'),
+      ('completed', 'completed_at'),
     ];
     final current = job['job_status']?.toString() ?? 'pending';
     final currentIdx = steps.indexWhere((s) => s.$1 == current);
@@ -280,7 +232,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       return [
         ListTile(
           leading: const Icon(Icons.cancel, color: AppColors.primary),
-          title: Text('Cancelled', style: GoogleFonts.dmSans()),
+          title: Text(
+            JobStatusLabels.labelFor('cancelled'),
+            style: GoogleFonts.dmSans(),
+          ),
         ),
       ];
     }
@@ -288,7 +243,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     return steps.asMap().entries.map((e) {
       final done = currentIdx >= e.key;
       final currentStep = currentIdx == e.key;
-      final ts = _ts(job, e.value.$3);
+      final ts = _ts(job, e.value.$2);
       return ListTile(
         leading: Icon(
           done ? Icons.check_circle : Icons.radio_button_unchecked,
@@ -297,7 +252,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               : (done ? AppColors.accent : AppColors.muted),
         ),
         title: Text(
-          e.value.$2,
+          JobStatusLabels.labelFor(e.value.$1),
           style: GoogleFonts.dmSans(
             fontWeight: currentStep || done ? FontWeight.w600 : FontWeight.w400,
             color: done || currentStep ? AppColors.text : AppColors.muted,

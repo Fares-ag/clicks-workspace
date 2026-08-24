@@ -1,5 +1,5 @@
 {
-  "date": "2026-08-15",
+  "date": "2026-08-16",
   "adminUrl": "http://localhost:5000",
   "passed": 42,
   "failed": 0,
@@ -19,11 +19,11 @@
     },
     "A1 list partners": {
       "ok": true,
-      "detail": "count=1"
+      "detail": "count=2"
     },
     "A1 filter active": {
       "ok": true,
-      "detail": "count=1"
+      "detail": "count=2"
     },
     "A2 search by name": {
       "ok": true,
@@ -31,7 +31,7 @@
     },
     "A3 create partner": {
       "ok": true,
-      "detail": "6a808251062f3b5629eddea6"
+      "detail": "6a820a80c5ce14629abeac85"
     },
     "A4 duplicate name": {
       "ok": true,
@@ -67,7 +67,7 @@
     },
     "F4 update phone": {
       "ok": true,
-      "detail": "+9745556865499"
+      "detail": "+9745556264182"
     },
     "F5 session/logout": {
       "ok": true,
@@ -87,7 +87,7 @@
     },
     "C1 accrual happy path": {
       "ok": true,
-      "detail": "accrued=500, job=6a808254062f3b5629eddece"
+      "detail": "accrued=500, job=6a820a83c5ce14629abeaca9"
     },
     "C2 idempotent accrual": {
       "ok": true,
@@ -171,7 +171,7 @@
     },
     "G3 portal isolation": {
       "ok": true,
-      "detail": "demoEarnings=6, qaEarnings=0"
+      "detail": "demoEarnings=10, qaEarnings=0"
     }
   }
 }

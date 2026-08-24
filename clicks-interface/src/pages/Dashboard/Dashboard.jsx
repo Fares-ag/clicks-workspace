@@ -5,6 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import { useGetJobsQuery } from "../../store/jobApi";
+import { getJobStatusLabel } from "../../utils/jobStatusLabels";
 import { useGetTechniciansQuery } from "../../store/technicianApi";
 import { useGetVehiclesQuery } from "../../store/vehicleApi";
 import { useGetCustomersQuery } from "../../store/customerApi";
@@ -17,6 +18,9 @@ import {
   useGetEarningsByDateQuery
 } from "../../store/dashboardApi";
 import { useGetSOSRequestsQuery } from "../../store/sosApi";
+import { useGetSourcesQuery } from "../../store/sourceApi";
+import { getJobSourceSubLabel, getSourceName } from "../../utils/jobOrigin";
+import { isHiddenSourceName } from "../../utils/systemSources";
 import DatePicker from "../../components/DatePicker";
 import { useAdminRole } from "../../utils/adminRoles";
 import "./Dashboard.css";
@@ -40,6 +44,37 @@ const renderActiveShape = (props) => {
   );
 };
 
+// The earnings card is keyed on a calendar day, never on an instant. Qatar is
+// UTC+3, so round-tripping a local midnight through toISOString() would hand the
+// API the previous day. Keep it as a local "YYYY-MM-DD" string end to end.
+const toLocalDateString = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalDateString = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  const [year, month, day] = String(value).split("T")[0].split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+
+const getSourceIcon = (name) => {
+  const normalized = String(name || "").toLowerCase();
+  if (normalized.includes("google ads")) return "/icons/google_ads.svg";
+  if (normalized.includes("google")) return "/icons/google.svg";
+  if (normalized.includes("instagram")) return "/icons/instagram.svg";
+  if (normalized.includes("facebook")) return "/icons/facebook.svg";
+  if (normalized.includes("whatsapp")) return "/icons/whatsapp.svg";
+  if (normalized.includes("business")) return "/icons/configurator.svg";
+  if (normalized.includes("technician")) return "/icons/technician.svg";
+  if (normalized.includes("app") || normalized.includes("store")) return "/icons/app_store.svg";
+  return "/icons/job.svg";
+};
+
 function Dashboard() {
   const navigate = useNavigate();
   const { isFullAdmin } = useAdminRole();
@@ -49,11 +84,9 @@ function Dashboard() {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   
   // Initialize with today's date - use useMemo or lazy initialization
-  const [selectedEarningsDate, setSelectedEarningsDate] = useState(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today.toISOString();
-  });
+  const [selectedEarningsDate, setSelectedEarningsDate] = useState(() =>
+    toLocalDateString(new Date())
+  );
 
   // Server summary (preferred). Falls back to client aggregation if API not deployed yet.
   const {
@@ -69,6 +102,7 @@ function Dashboard() {
   const { data: vehiclesData } = useGetVehiclesQuery({ limit: 1000 });
   const { data: customersData } = useGetCustomersQuery({ limit: 1000 });
   const { data: insuranceData } = useGetVehicleInsurancesQuery({ limit: 1000 });
+  const { data: sourcesData } = useGetSourcesQuery(undefined, { skip: summaryOk });
   const { data: sosListData } = useGetSOSRequestsQuery(
     { status: undefined, limit: 20 },
     { pollingInterval: 30000, skip: summaryOk }
@@ -150,16 +184,70 @@ function Dashboard() {
 
   const completedTrendPct = summaryOk ? summary.trends.completedJobsPct : null;
   const earningsTrendPct = summaryOk ? summary.trends.earningsPct : null;
+  const statsComputedAt = summaryOk ? summary.stats_computed_at : null;
 
-  /* Traffic sources - Commented out
-  const trafficSources = [
-    { name: "Google", count: 100, icon: "/icons/google.svg" },
-    { name: "Instagram", count: 55, icon: "/icons/instagram.svg" },
-    { name: "Facebook", count: 45, icon: "/icons/facebook.svg" },
-    { name: "App", count: 500, icon: "/icons/app_store.svg" },
-    { name: "Google Ads", count: 450, icon: "/icons/google_ads.svg" }
-  ];
-  */
+  const configuredSources = sourcesData?.sources || [];
+  const sourceNameById = configuredSources.reduce((acc, source) => {
+    acc[String(source._id)] = source.mainSourceName;
+    return acc;
+  }, {});
+
+  const jobSources = (summaryOk
+    ? (summary.sources?.top || [])
+    : Object.values(
+        jobs.reduce((acc, job) => {
+          const sourceId = job.source?._id || job.source;
+          const key = sourceId ? String(sourceId) : "unknown";
+          const name =
+            job.source?.mainSourceName ||
+            sourceNameById[key] ||
+            (key === "unknown" ? "Unknown" : "Source");
+          if (isHiddenSourceName(name)) return acc;
+          if (!acc[key]) {
+            acc[key] = { name, count: 0 };
+          }
+          acc[key].count += 1;
+          return acc;
+        }, {})
+      )
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5)
+        .map((row) => ({
+          ...row,
+          percentage:
+            submittedJobs > 0 ? Math.round((row.count / submittedJobs) * 100) : 0,
+        }))
+  ).filter((row) => !isHiddenSourceName(row.name));
+
+  const jobSubSources = (summaryOk
+    ? (summary.sources?.subSources || [])
+    : Object.values(
+        jobs.reduce((acc, job) => {
+          const sub = getJobSourceSubLabel(job);
+          if (!sub) return acc;
+          const main = getSourceName(job) || sourceNameById[String(job.source?._id || job.source)] || "Unknown";
+          if (isHiddenSourceName(main)) return acc;
+          const key = `${main}::${sub}`;
+          if (!acc[key]) {
+            acc[key] = {
+              name: sub,
+              subSource: sub,
+              sourceName: main,
+              count: 0,
+            };
+          }
+          acc[key].count += 1;
+          return acc;
+        }, {})
+      )
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5)
+        .map((row) => ({
+          ...row,
+          percentage:
+            submittedJobs > 0 ? Math.round((row.count / submittedJobs) * 100) : 0,
+        }))
+  ).filter((row) => !isHiddenSourceName(row.sourceName));
 
   // Job status distribution
   const cancelledJobs = summaryOk
@@ -216,8 +304,9 @@ function Dashboard() {
   );
 
   const handleEarningsDateSelect = (date) => {
-    // Convert Date object to string to avoid Redux serialization issues
-    const dateString = date instanceof Date ? date.toISOString() : date;
+    // Convert Date object to a local calendar-day string to avoid Redux
+    // serialization issues and any UTC day shift.
+    const dateString = date instanceof Date ? toLocalDateString(date) : date;
     setSelectedEarningsDate(dateString);
   };
 
@@ -235,8 +324,8 @@ function Dashboard() {
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
     
-    const dateObj = new Date(dateString);
-    dateObj.setHours(0, 0, 0, 0);
+    const dateObj = parseLocalDateString(dateString);
+    if (!dateObj) return "Today";
     
     if (dateObj.getTime() === today.getTime()) return "Today";
     if (dateObj.getTime() === yesterday.getTime()) return "Yesterday";
@@ -292,7 +381,7 @@ function Dashboard() {
           className="dashboard-ops-chip"
           onClick={() => navigate("/jobs")}
         >
-          <span className="dashboard-ops-chip-label">En Route</span>
+          <span className="dashboard-ops-chip-label">{getJobStatusLabel("en_route")}</span>
           <span className="dashboard-ops-chip-value">{jobsEnRoute}</span>
         </button>
       </div>
@@ -378,6 +467,11 @@ function Dashboard() {
             <div className="dashboard-earnings-content">
               <div className="dashboard-earnings-main">
                 <h3 className="dashboard-earnings-title">Total Earnings</h3>
+                {statsComputedAt && (
+                  <p className="dashboard-stats-as-of" style={{ fontSize: "0.75rem", color: "#667085", margin: 0 }}>
+                    As of {new Date(statsComputedAt).toLocaleString()}
+                  </p>
+                )}
                 <p className="dashboard-earnings-amount">{totalEarnings.toLocaleString()}</p>
                 {earningsTrendPct != null && (
                   <span className={`dashboard-metric-trend ${earningsTrendPct >= 0 ? "up" : "down"}`}>
@@ -407,7 +501,7 @@ function Dashboard() {
               <div className="dashboard-datepicker-modal">
                 <DatePicker
                   key={selectedEarningsDate}
-                  value={selectedEarningsDate}
+                  value={parseLocalDateString(selectedEarningsDate)}
                   onChange={handleEarningsDateSelect}
                   onClose={handleClearEarningsDate}
                 />
@@ -416,23 +510,6 @@ function Dashboard() {
           </div>
           )}
         </div>
-
-        {/* Traffic Sources - Commented out
-        <div className="dashboard-card dashboard-traffic-card">
-          <h3 className="dashboard-card-title">Top Traffic Source</h3>
-          <div className="dashboard-traffic-list">
-            {trafficSources.map((source, index) => (
-              <div key={index} className="dashboard-traffic-item">
-                <div className="dashboard-traffic-source">
-                  <img src={source.icon} alt={source.name} className="dashboard-traffic-icon" />
-                  <span className="dashboard-traffic-name">{source.name}</span>
-                </div>
-                <span className="dashboard-traffic-count">{source.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        */}
       </div>
 
       {/* Charts Section */}
@@ -616,8 +693,9 @@ function Dashboard() {
       {/* Bottom Section */}
       <div className="dashboard-bottom-section">
         <div className="dashboard-bottom-row">
-          {/* Job Status Distribution */}
-          <div className="dashboard-card dashboard-job-status-card">
+          <div className="dashboard-bottom-left-column">
+            {/* Job Status Distribution */}
+            <div className="dashboard-card dashboard-job-status-card">
           <h3 className="dashboard-card-title">Job Status Distribution</h3>
           <div className="dashboard-pie-chart">
             <div className="dashboard-pie-chart-container">
@@ -654,7 +732,94 @@ function Dashboard() {
               ))}
             </div>
           </div>
-        </div>
+            </div>
+
+            <div className="dashboard-card dashboard-sources-card">
+              <div className="dashboard-card-header dashboard-sources-card-header">
+                <h3 className="dashboard-card-title">Job Sources</h3>
+                <button
+                  type="button"
+                  className="dashboard-filter-btn"
+                  onClick={() => navigate("/sources")}
+                >
+                  Manage
+                </button>
+              </div>
+              <div className="dashboard-sources-list">
+                {jobSources.length > 0 ? (
+                  jobSources.map((source) => (
+                    <div key={source.sourceId || source.name} className="dashboard-sources-item">
+                      <div className="dashboard-sources-item-left">
+                        <img
+                          src={getSourceIcon(source.name)}
+                          alt=""
+                          className="dashboard-sources-icon"
+                        />
+                        <span className="dashboard-sources-name">{source.name}</span>
+                      </div>
+                      <div className="dashboard-sources-metrics">
+                        <span className="dashboard-sources-count">
+                          {source.count.toLocaleString()}
+                        </span>
+                        <span className="dashboard-sources-percentage">
+                          {source.percentage}%
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="dashboard-no-pending">No source data yet</p>
+                )}
+              </div>
+            </div>
+
+            <div className="dashboard-card dashboard-sources-card">
+              <div className="dashboard-card-header dashboard-sources-card-header">
+                <h3 className="dashboard-card-title">Job Sub-Sources</h3>
+                <button
+                  type="button"
+                  className="dashboard-filter-btn"
+                  onClick={() => navigate("/sources")}
+                >
+                  Manage
+                </button>
+              </div>
+              <div className="dashboard-sources-list">
+                {jobSubSources.length > 0 ? (
+                  jobSubSources.map((row) => (
+                    <div
+                      key={`${row.sourceName || row.sourceId || "unknown"}-${row.subSource || row.name}`}
+                      className="dashboard-sources-item"
+                    >
+                      <div className="dashboard-sources-item-left">
+                        <img
+                          src={getSourceIcon(row.sourceName)}
+                          alt=""
+                          className="dashboard-sources-icon"
+                        />
+                        <div className="dashboard-sources-text">
+                          <span className="dashboard-sources-name">{row.name}</span>
+                          {row.sourceName ? (
+                            <span className="dashboard-sources-parent">{row.sourceName}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="dashboard-sources-metrics">
+                        <span className="dashboard-sources-count">
+                          {row.count.toLocaleString()}
+                        </span>
+                        <span className="dashboard-sources-percentage">
+                          {row.percentage}%
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="dashboard-no-pending">No sub-source data yet</p>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Actionable queues */}
           <div className="dashboard-queues-column">

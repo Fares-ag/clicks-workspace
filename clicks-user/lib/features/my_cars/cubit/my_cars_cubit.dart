@@ -102,7 +102,15 @@ class MyCarsCubit extends Cubit<MyCarsState> {
   TextEditingController plateNumberController = TextEditingController();
   TextEditingController vinNumberController = TextEditingController();
 
+  /// Parsed vehicle year, or null when the field does not hold a plain integer.
+  int? get _parsedYear => int.tryParse(yearController.text.trim());
+
   void addVehicle(String customerId) async {
+    final year = _parsedYear;
+    if (year == null) {
+      emit(ErrorAddMyCarsState('my_cars.year_invalid'.tr()));
+      return;
+    }
     emit(LoadingAddMyCarsState());
     try {
       var response = await DioHelper.postData(
@@ -111,7 +119,7 @@ class MyCarsCubit extends Cubit<MyCarsState> {
           "customer_id": customerId,
           "vehicle_make": selectedMake!.sId,
           "vehicle_model": selectedModel!.sId,
-          "year": num.parse(yearController.text),
+          "year": year,
           "vehicle_color": colorController.text.trim(),
           "plate_number": plateNumberController.text.trim(),
           "vin_number": vinNumberController.text.trim(),
@@ -131,6 +139,11 @@ class MyCarsCubit extends Cubit<MyCarsState> {
   }
 
   void updateVehicle(String vehicleId) async {
+    final year = _parsedYear;
+    if (year == null) {
+      emit(ErrorAddMyCarsState('my_cars.year_invalid'.tr()));
+      return;
+    }
     emit(LoadingAddMyCarsState());
     try {
       var response = await DioHelper.putData(
@@ -138,7 +151,7 @@ class MyCarsCubit extends Cubit<MyCarsState> {
         data: {
           "vehicle_make": selectedMake!.sId,
           "vehicle_model": selectedModel!.sId,
-          "year": num.parse(yearController.text),
+          "year": year,
           "vehicle_color": colorController.text.trim(),
           "plate_number": plateNumberController.text.trim(),
           "vin_number": vinNumberController.text.trim(),

@@ -106,7 +106,7 @@ async function registerTestFcmToken(customerToken, { skipIfReal = true } = {}) {
 }
 
 async function readCustomerFromDb(customerId) {
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Customer } = require("../clicks-shared/models");
   if (!process.env.MONGODB_URI) {
     throw new Error("MONGODB_URI not set");
@@ -120,7 +120,7 @@ async function readCustomerFromDb(customerId) {
 }
 
 async function restoreFcmToken(customerId, fcmToken) {
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Customer } = require("../clicks-shared/models");
   await mongoose.connect(process.env.MONGODB_URI);
   await Customer.findByIdAndUpdate(customerId, { fcm_token: fcmToken });

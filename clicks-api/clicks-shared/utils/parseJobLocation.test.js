@@ -6,6 +6,8 @@ const {
   parseJobLocationToGeoPoint,
   normalizeLocationString,
   isWithinQatar,
+  extractGeocodeQuery,
+  isExpandableMapsUrl,
 } = require("./parseJobLocation");
 
 describe("parseJobLocation", () => {
@@ -48,6 +50,38 @@ describe("parseJobLocation", () => {
       lat: 25.2604477,
       lng: 51.4971613,
     });
+  });
+
+  it("parses Google Maps !3d!4d embed coords", () => {
+    const url =
+      "https://www.google.com/maps/place/Doha/data=!3d25.285447!4d51.53104!7e2";
+    assert.deepEqual(parseJobLocation(url), {
+      lat: 25.285447,
+      lng: 51.53104,
+    });
+  });
+
+  it("prefers the !3d place pin over the @ viewport centre", () => {
+    const url =
+      "https://www.google.com/maps/place/Villaggio+Mall/@25.2554,51.4429,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d25.2537!4d51.4441";
+    assert.deepEqual(parseJobLocation(url), {
+      lat: 25.2537,
+      lng: 51.4441,
+    });
+  });
+
+  it("parses address with trailing (lat, lng)", () => {
+    assert.deepEqual(
+      parseJobLocation("Al Rayyan, Doha (25.260448, 51.497161)"),
+      { lat: 25.260448, lng: 51.497161 }
+    );
+  });
+
+  it("parses Google Maps q=lat,lng", () => {
+    assert.deepEqual(
+      parseJobLocation("https://www.google.com/maps?q=25.35,51.52"),
+      { lat: 25.35, lng: 51.52 }
+    );
   });
 
   it("rejects phone numbers", () => {
@@ -103,5 +137,48 @@ describe("normalizeLocationString", () => {
 
   it("passes through other strings", () => {
     assert.equal(normalizeLocationString("  Doha  "), "Doha");
+  });
+});
+
+describe("extractGeocodeQuery", () => {
+  it("returns null when coords are parseable", () => {
+    assert.equal(extractGeocodeQuery("25.3, 51.5"), null);
+  });
+
+  it("extracts q= place name from Google Maps URL", () => {
+    assert.equal(
+      extractGeocodeQuery(
+        "https://www.google.com/maps/search/?api=1&query=Souq+Waqif+Doha"
+      ),
+      "Souq Waqif Doha"
+    );
+  });
+
+  it("extracts place segment from Google Maps place URL", () => {
+    const q = extractGeocodeQuery(
+      "https://www.google.com/maps/place/The+Pearl-Qatar"
+    );
+    assert.ok(q && q.includes("Pearl"));
+  });
+
+  it("returns plain address text", () => {
+    assert.equal(extractGeocodeQuery("Al Sadd, Doha"), "Al Sadd, Doha");
+  });
+
+  it("rejects phone numbers", () => {
+    assert.equal(extractGeocodeQuery("+974 5047 5279"), null);
+  });
+});
+
+describe("isExpandableMapsUrl", () => {
+  it("detects maps.app.goo.gl short links", () => {
+    assert.equal(
+      isExpandableMapsUrl("https://maps.app.goo.gl/abc123"),
+      true
+    );
+  });
+
+  it("returns false for plain addresses", () => {
+    assert.equal(isExpandableMapsUrl("Al Rayyan"), false);
   });
 });

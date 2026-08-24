@@ -3,11 +3,12 @@ import { apiSlice } from "./apiSlice";
 export const leadApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getLeads: builder.query({
-      query: ({ page = 1, limit = 20, search = "", status, open } = {}) => {
+      query: ({ page = 1, limit = 20, search = "", status, open, businessPortal } = {}) => {
         let url = `/leads?page=${page}&limit=${limit}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
         if (status) url += `&status=${encodeURIComponent(status)}`;
         if (open) url += "&open=1";
+        if (businessPortal) url += "&businessPortal=1";
         return { url, method: "GET" };
       },
       providesTags: ["Lead"],

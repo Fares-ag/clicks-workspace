@@ -7,6 +7,7 @@ import { useCreateTechnicianMutation } from "../store/technicianApi";
 import {
   DEFAULT_COUNTRY_CODE,
   isValidLocalPhone,
+  localLengthHint,
   toE164,
 } from "../utils/phone";
 import { TECHNICIAN_EXPERTISE_OPTIONS } from "../constants/jobTypes";
@@ -74,8 +75,9 @@ export default function AddTechnicianModal({ open, onClose, onSuccess }) {
     if (!fields.lastName) newErrors.lastName = "Last Name required.";
     if (!fields.email) newErrors.email = "Email Address required.";
     if (!fields.phone) newErrors.phone = "Phone required.";
-    else if (!isValidLocalPhone(fields.phone)) {
-      newErrors.phone = "Enter the 8-digit local number (without +974).";
+    else if (!isValidLocalPhone(fields.phone, fields.countryCode)) {
+      const cc = fields.countryCode || DEFAULT_COUNTRY_CODE;
+      newErrors.phone = `Enter the ${localLengthHint(cc)} local number (without ${cc}).`;
     }
     if (!fields.expertise || fields.expertise.length === 0) newErrors.expertise = "At least one expertise required.";
     if (!fields.profileImage) newErrors.profileImage = "Profile Image required.";

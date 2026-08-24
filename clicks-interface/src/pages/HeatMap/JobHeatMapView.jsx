@@ -10,6 +10,7 @@ import {
   useLazyGetJobsNearbyQuery,
 } from "../../store/jobApi";
 import DatePicker from "../../components/DatePicker";
+import { getJobStatusCssClass, getJobStatusLabel } from "../../utils/jobStatusLabels";
 import JobHeatmapCanvasLayer from "./JobHeatmapCanvasLayer";
 import {
   MAP_CENTER,
@@ -508,9 +509,9 @@ function JobHeatMapView() {
                     <div className="heat-map-job-card-top">
                       <strong>{selectedJob.clientName || "Unknown"}</strong>
                       <span
-                        className={`heat-map-status ${selectedJob.job_status || ""}`}
+                        className={`heat-map-status ${getJobStatusCssClass(selectedJob.job_status)}`}
                       >
-                        {selectedJob.job_status || "—"}
+                        {getJobStatusLabel(selectedJob.job_status) || "—"}
                       </span>
                     </div>
                     <p className="heat-map-job-meta">
@@ -572,8 +573,8 @@ function JobHeatMapView() {
                   <li key={job._id} className="heat-map-job-card">
                     <div className="heat-map-job-card-top">
                       <strong>{job.clientName || "Unknown"}</strong>
-                      <span className={`heat-map-status ${job.job_status || ""}`}>
-                        {job.job_status || "—"}
+                      <span className={`heat-map-status ${getJobStatusCssClass(job.job_status)}`}>
+                        {getJobStatusLabel(job.job_status) || "—"}
                       </span>
                     </div>
                     <p className="heat-map-job-meta">
@@ -612,9 +613,9 @@ function JobHeatMapView() {
                           <div className="heat-map-job-card-top">
                             <strong>{job.clientName || "Unknown"}</strong>
                             <span
-                              className={`heat-map-status ${job.job_status || ""}`}
+                              className={`heat-map-status ${getJobStatusCssClass(job.job_status)}`}
                             >
-                              {job.job_status || "—"}
+                              {getJobStatusLabel(job.job_status) || "—"}
                             </span>
                           </div>
                           <p className="heat-map-job-meta">

@@ -19,6 +19,7 @@ dependencies:
   flutter_svg: ^2.0.17
   intl: any
   shared_preferences: ^2.5.2
+  flutter_secure_storage: ^11.0.0
   geolocator: ^14.0.3
   url_launcher: ^6.3.2
 

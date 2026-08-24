@@ -4,6 +4,8 @@ const Job = require("../models/Job");
 const TechnicianEarnings = require("../models/TechnicianEarnings");
 const Receipt = require("../models/Receipt");
 const Vehicle = require("../../../clicks-shared/models/Vehicle");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { num } = require("../../../clicks-shared/utils/coerce");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
 const { addSASToTechnician, addSASToTechnicians } = require("../utils/sasHelper");
 
@@ -11,7 +13,13 @@ function looksHashed(password) {
   return typeof password === "string" && /^\$2[aby]?\$/.test(password);
 }
 
-const LOCATION_STALE_MS = Number(process.env.TECH_LOCATION_STALE_MS || 60000);
+const {
+  durationEnv,
+} = require("../../../clicks-shared/utils/durationEnv");
+
+// A non-numeric override used to yield NaN, and `age >= NaN` is false — which
+// silently marked the ENTIRE fleet permanently fresh. "0" was swallowed too.
+const LOCATION_STALE_MS = durationEnv("TECH_LOCATION_STALE_MS", 60000);
 
 function isLocationStaleForMap(lastLocationAt) {
   if (!lastLocationAt) return true;
@@ -62,15 +70,19 @@ async function getLiveMapTechnicians(req, res) {
           { path: "make", select: "makeName" },
           { path: "model", select: "modelName" },
         ],
-      });
+      })
+      // toLiveMapTechnician only reads plain fields, so full mongoose document
+      // hydration bought nothing on a route polled every 8s per open admin tab.
+      .lean();
 
     res.json({
       technicians: technicians.map(toLiveMapTechnician),
     });
   } catch (err) {
+    // Do not hand driver internals to the browser.
+    console.error("live-map fetch failed:", err);
     res.status(500).json({
       message: "Failed to fetch live map technicians",
-      error: err.message,
     });
   }
 }
@@ -80,11 +92,15 @@ async function getTechnicians(req, res) {
     const { page = 1, limit = 10, search = "", currentStatus, applicationStatus } = req.query;
     const query = {};
     
-    if (search) {
+    // Escape + length-cap the operator-supplied term: an unescaped "(" or "*"
+    // makes mongod reject the query, and "(a+)+$" would burn a mongod core.
+    const term = escapeRegex(String(search || "").trim().slice(0, 64));
+    if (term) {
+      const rx = new RegExp(term, "i");
       query.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } }
+        { firstName: rx },
+        { lastName: rx },
+        { email: rx }
       ];
     }
     
@@ -409,6 +425,11 @@ async function getRecentJobs(req, res) {
       
       return {
         id: job._id.toString().slice(-8).toUpperCase(),
+        // The Job ID the technician entered at completion is what every other
+        // admin surface labels a job with; _id rides along so the client can
+        // build the same "#" + last-6 fallback for jobs that never captured one.
+        _id: job._id.toString(),
+        job_reference: job.job_reference || "",
         date: job.dateTime || job.createdAt,
         status: displayStatus,
         location: job.location || 'Unknown',
@@ -454,37 +475,57 @@ async function getSettlements(req, res) {
 async function settleBalance(req, res) {
   try {
     const { id } = req.params;
-    const { amount, notes } = req.body;
-    
+    const { notes } = req.body;
+
+    // Reject negatives / NaN / objects before anything touches the ledger:
+    // `cash_balance < -5000` is false, so an unvalidated negative would pass the
+    // sufficiency check and then *raise* the balance.
+    const amount = num(req.body?.amount);
+    if (amount === null || amount <= 0) {
+      return res.status(400).json({ message: "amount must be a positive number" });
+    }
+
     // Get technician earnings
     const earnings = await TechnicianEarnings.findOne({ technician_id: id });
     if (!earnings) {
       return res.status(404).json({ message: "Earnings record not found" });
     }
-    
-    if (earnings.cash_balance < amount) {
+
+    // Check and debit in one conditional update so two concurrent settlements
+    // cannot both pass on the same stale balance (read-modify-write lost update).
+    const updated = await TechnicianEarnings.findOneAndUpdate(
+      { technician_id: id, cash_balance: { $gte: amount } },
+      { $inc: { cash_balance: -amount } },
+      { new: true }
+    );
+    if (!updated) {
       return res.status(400).json({ message: "Insufficient balance" });
     }
-    
+
     // Create receipt for settlement
-    const receipt = await Receipt.create({
-      technician_id: id,
-      customer_id: id, // Using technician as customer for settlements
-      job_id: null, // No job associated with settlements
-      total_amount: amount,
-      payment_status: 'confirmed',
-      notes: notes || 'Cash balance settlement',
-      issued_at: new Date()
-    });
-    
-    // Update cash balance
-    earnings.cash_balance -= amount;
-    await earnings.save();
-    
-    res.json({ 
+    let receipt;
+    try {
+      receipt = await Receipt.create({
+        technician_id: id,
+        job_id: null, // No job associated with settlements
+        total_amount: amount,
+        payment_status: 'confirmed',
+        notes: notes || 'Cash balance settlement',
+        issued_at: new Date()
+      });
+    } catch (receiptErr) {
+      // Put the money back rather than leaving a debit with no settlement record.
+      await TechnicianEarnings.updateOne(
+        { technician_id: id },
+        { $inc: { cash_balance: amount } }
+      );
+      throw receiptErr;
+    }
+
+    res.json({
       message: "Balance settled successfully",
       receipt,
-      newBalance: earnings.cash_balance
+      newBalance: updated.cash_balance
     });
   } catch (err) {
     res.status(500).json({ message: "Failed to settle balance", error: err.message });
@@ -503,14 +544,13 @@ async function assignVehicle(req, res) {
     }
 
     const Vehicle = require("../models/Vehicle");
-    
-    // Unassign current vehicle if technician has one
-    if (technician.assignedVehicle) {
-      await Vehicle.findByIdAndUpdate(technician.assignedVehicle, { assignedTechnician: null });
-    }
-    
+
     // Handle unassignment (null or empty vehicleId)
     if (!vehicleId || vehicleId === "null" || vehicleId === "") {
+      // Unassign current vehicle if technician has one
+      if (technician.assignedVehicle) {
+        await Vehicle.findByIdAndUpdate(technician.assignedVehicle, { assignedTechnician: null });
+      }
       await Technician.findByIdAndUpdate(
         id,
         { assignedVehicle: null },
@@ -519,28 +559,43 @@ async function assignVehicle(req, res) {
       const updatedTech = await Technician.findById(id).populate('assignedVehicle');
       return res.json({ technician: updatedTech });
     }
-    
+
+    // Every validation that can abort the request runs BEFORE either side of the
+    // link is touched — otherwise a 409 leaves the technician pointing at a
+    // vehicle whose assignedTechnician was already cleared.
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) {
+      return res.status(404).json({ message: "Vehicle not found" });
+    }
+
     // Check if vehicle is already assigned to another technician
-    const existingAssignment = await Technician.findOne({ 
+    const existingAssignment = await Technician.findOne({
       assignedVehicle: vehicleId,
       _id: { $ne: id }
     });
-    
+
     if (existingAssignment) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         message: "Vehicle is already assigned to another technician",
         assignedTo: `${existingAssignment.firstName} ${existingAssignment.lastName}`,
         technicianId: existingAssignment._id
       });
     }
-    
+
+    // Validations passed — now unassign the technician's current vehicle
+    if (
+      technician.assignedVehicle &&
+      technician.assignedVehicle.toString() !== String(vehicleId)
+    ) {
+      await Vehicle.findByIdAndUpdate(technician.assignedVehicle, { assignedTechnician: null });
+    }
+
     // Also check and clear vehicle's assignedTechnician if it exists
-    const vehicle = await Vehicle.findById(vehicleId);
-    if (vehicle && vehicle.assignedTechnician && vehicle.assignedTechnician.toString() !== id) {
+    if (vehicle.assignedTechnician && vehicle.assignedTechnician.toString() !== id) {
       // Clear the vehicle's previous technician assignment
       await Vehicle.findByIdAndUpdate(vehicleId, { assignedTechnician: null });
     }
-    
+
     // Assign new vehicle to technician
     await Technician.findByIdAndUpdate(
       id,

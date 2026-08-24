@@ -34,11 +34,13 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       });
 
       final response = await _repository.getPrivacyPolicy();
+      if (!mounted) return;
       setState(() {
         _policy = response.policy;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;

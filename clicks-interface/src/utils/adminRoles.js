@@ -18,6 +18,7 @@ export const FULL_ADMIN_ONLY_PREFIXES = [
   "/performance",
   "/sources",
   "/businesses",
+  "/finance-users",
   "/partners",
   "/vehicle-makes",
   "/vehicle-models",

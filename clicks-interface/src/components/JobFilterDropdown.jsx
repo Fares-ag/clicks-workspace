@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useGetTechniciansQuery } from "../store/technicianApi";
 import CustomSelect from "./CustomSelect";
+import { getJobStatusFilterOptions } from "../utils/jobStatusLabels";
 import "./FilterDropdown.css";
 
 function JobFilterDropdown({ open, onClose, onApply, anchorEl }) {
@@ -10,17 +11,7 @@ function JobFilterDropdown({ open, onClose, onApply, anchorEl }) {
   const { data: techniciansData } = useGetTechniciansQuery();
   const allTechnicians = techniciansData?.technicians || [];
 
-  const statusOptions = [
-    { value: "pending", label: "Pending" },
-    { value: "assigned", label: "Assigned" },
-    { value: "accepted", label: "Accepted" },
-    { value: "en_route", label: "En Route" },
-    { value: "arrived", label: "Arrived" },
-    { value: "in_progress", label: "In Progress" },
-    { value: "completed", label: "Completed" },
-    { value: "on_hold", label: "On Hold" },
-    { value: "cancelled", label: "Cancelled" }
-  ];
+  const statusOptions = getJobStatusFilterOptions();
 
   const technicianOptions = allTechnicians.map(tech => ({
     value: `${tech.firstName} ${tech.lastName}`,

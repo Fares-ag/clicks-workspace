@@ -150,7 +150,7 @@ async function preflightCleanup(techToken) {
       await json("POST", `${TECH_URL}/api/jobs/${id}/signature`, { token: techToken, form });
       await json("POST", `${TECH_URL}/api/jobs/${id}/complete`, {
         token: techToken,
-        body: { notes: "QA cleanup complete" },
+        body: { notes: "QA cleanup complete", job_reference: "QA-FULL-JOB" },
       });
       step("cleanup in_progress job", true, id);
     } else if (status === "completed" && job.payment_status !== "paid") {
@@ -282,7 +282,7 @@ async function main() {
 
   r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
     token: techToken,
-    body: { notes: "QA should fail — unpaid" },
+    body: { notes: "QA should fail — unpaid", job_reference: "QA-FULL-JOB" },
   });
   step("reject complete before payment", r.status === 400, `status=${r.status}`);
 
@@ -294,7 +294,7 @@ async function main() {
 
   r = await json("POST", `${TECH_URL}/api/jobs/${jobId}/complete`, {
     token: techToken,
-    body: { notes: "QA completion" },
+    body: { notes: "QA completion", job_reference: "QA-FULL-JOB" },
   });
   step("complete job", r.status === 200, `status=${r.status}`);
 

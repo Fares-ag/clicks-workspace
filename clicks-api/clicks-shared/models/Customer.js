@@ -7,7 +7,7 @@ const CustomerSchema = new mongoose.Schema(
     first_name: { type: String, required: true, minlength: 2, maxlength: 50 },
     last_name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true, minlength: 8 },
+    password: { type: String, required: true, minlength: 8, select: false },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
     fcm_token: { type: String },
     deletion_request: {
@@ -19,24 +19,61 @@ const CustomerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Atomic sequence for client_id. A sorted scan of existing ids cannot survive
+// concurrent signups (two readers pick the same next number) and breaks once
+// the sequence grows past 3 digits, so the number comes from a counter doc.
+const CLIENT_ID_COUNTER_ID = 'customer_client_id';
+
+const CounterSchema = new mongoose.Schema(
+  {
+    _id: { type: String },
+    seq: { type: Number, default: 0 }
+  },
+  { versionKey: false }
+);
+
+const Counter =
+  mongoose.models.Counter || mongoose.model('Counter', CounterSchema);
+
+// One-time seed: start the counter at the highest existing OC-<n> so already
+// issued ids are never re-used. No-op once the counter document exists.
+async function seedClientIdCounter(CustomerModel) {
+  const existing = await Counter.findById(CLIENT_ID_COUNTER_ID).lean();
+  if (existing) return;
+
+  const previous = await CustomerModel.find(
+    { client_id: { $regex: /^OC-\d+$/ } },
+    { client_id: 1 }
+  ).lean();
+
+  let highest = 0;
+  for (const row of previous) {
+    const n = parseInt(String(row.client_id).slice(3), 10);
+    if (Number.isFinite(n) && n > highest) highest = n;
+  }
+
+  try {
+    await Counter.create({ _id: CLIENT_ID_COUNTER_ID, seq: highest });
+  } catch (error) {
+    // Another process seeded it first — its value is equally valid.
+    if (error?.code !== 11000) throw error;
+  }
+}
+
 // Pre-save hook to generate client_id
 CustomerSchema.pre('save', async function(next) {
   if (!this.client_id && this.isNew) {
     try {
-      // Find the highest client_id number
-      const lastCustomer = await this.constructor.findOne(
-        { client_id: { $regex: /^OC-\d{3}$/ } },
-        { client_id: 1 }
-      ).sort({ client_id: -1 });
+      await seedClientIdCounter(this.constructor);
 
-      let nextNumber = 1;
-      if (lastCustomer && lastCustomer.client_id) {
-        const lastNumber = parseInt(lastCustomer.client_id.split('-')[1]);
-        nextNumber = lastNumber + 1;
-      }
+      const counter = await Counter.findByIdAndUpdate(
+        CLIENT_ID_COUNTER_ID,
+        { $inc: { seq: 1 } },
+        { upsert: true, new: true }
+      );
 
-      // Format as OC-XXX (pad with zeros to 3 digits)
-      this.client_id = `OC-${String(nextNumber).padStart(3, '0')}`;
+      // Format as OC-XXX (padded to at least 3 digits, unbounded above 999)
+      this.client_id = `OC-${String(counter.seq).padStart(3, '0')}`;
     } catch (error) {
       return next(error);
     }

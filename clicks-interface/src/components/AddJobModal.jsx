@@ -91,8 +91,8 @@ function AddJobModal({ open, onClose, onSuccess, sosData }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isValidLocalPhone(formData.clientMobileNumber)) {
-      alert("Phone number must be exactly 8 digits (without country code)");
+    if (!isValidLocalPhone(formData.clientMobileNumber, formData.countryCode)) {
+      alert("Enter a valid local phone number (without the country code)");
       return;
     }
     try {
@@ -230,13 +230,13 @@ function AddJobModal({ open, onClose, onSuccess, sosData }) {
               </div>
               <div className="add-job-modal-row">
                 <div className="add-job-modal-field">
-                  <label>Location* {!sosData && <span style={{color: '#667085', fontWeight: 400, fontSize: '12px'}}>(Address only - no GPS)</span>}</label>
+                  <label>Location*</label>
                   <input
                     type="text"
                     name="location"
                     value={formData.location}
                     onChange={handleInputChange}
-                    placeholder={sosData ? "GPS coordinates from SOS" : "Enter full address (e.g., Al Rayyan, Doha)"}
+                    placeholder={sosData ? "GPS coordinates from SOS" : "Address, lat/lng, or Google Maps / Waze link"}
                     required
                   />
                 </div>

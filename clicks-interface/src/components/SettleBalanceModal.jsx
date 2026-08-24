@@ -36,29 +36,27 @@ export default function SettleBalanceModal({
       return;
     }
 
-    if (parseFloat(amount) > currentBalance) {
+    const settlementAmount = parseFloat(amount);
+
+    if (!Number.isFinite(settlementAmount) || settlementAmount <= 0) {
+      setErrorMessage("Please enter a valid settlement amount");
+      return;
+    }
+
+    if (settlementAmount > currentBalance) {
       setErrorMessage("Settlement amount cannot exceed current balance");
       return;
     }
 
     try {
-      const formData = new FormData();
-      formData.append("amount", amount);
-      formData.append("notes", notes || "Cash balance settlement");
-      formData.append("receiptImage", uploadedFile);
+      // Go through RTK Query so the bearer token and the configured API host are
+      // attached (a raw fetch sent neither).
+      await settleBalance({
+        id: technicianId,
+        amount: settlementAmount,
+        notes: notes || "Cash balance settlement"
+      }).unwrap();
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/technicians/${technicianId}/settle-balance`, {
-        method: "POST",
-        body: formData
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to settle balance");
-      }
-
-      const data = await response.json();
-      
       // Close settle modal first
       onClose();
       
@@ -79,7 +77,7 @@ export default function SettleBalanceModal({
       onSuccess && onSuccess();
     } catch (error) {
       console.error("Settle balance error:", error);
-      setErrorMessage(error.message || "Failed to settle balance");
+      setErrorMessage(error?.data?.message || error?.message || "Failed to settle balance");
     }
   };
 

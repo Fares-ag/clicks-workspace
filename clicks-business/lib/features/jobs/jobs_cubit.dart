@@ -122,10 +122,10 @@ class JobsCubit extends Cubit<JobsState> {
       if (res.statusCode == 201 || res.statusCode == 200) {
         emit(JobsCreateSuccess());
       } else {
-        emit(JobsError(DioHelper.errorMessage(res) ?? 'Failed to create job'));
+        emit(JobsError(DioHelper.errorMessage(res) ?? 'Failed to submit request'));
       }
     } catch (e) {
-      emit(JobsError('Failed to create job: $e'));
+      emit(JobsError('Failed to submit request: $e'));
     }
   }
 

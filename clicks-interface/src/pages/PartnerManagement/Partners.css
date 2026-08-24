@@ -305,6 +305,15 @@
   padding: 10px 12px;
 }
 
+.partner-readonly-date {
+  display: block;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  color: #475467;
+}
+
 .partner-success {
   color: #027a48;
   font-size: 13px;

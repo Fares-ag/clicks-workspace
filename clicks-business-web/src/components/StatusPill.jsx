@@ -1,10 +1,10 @@
 import React from "react";
-import { statusClass, statusLabel } from "../utils/phone";
+import { getJobStatusLabel, getJobStatusThemeClass } from "../utils/jobStatusLabels";
 
 function StatusPill({ status }) {
   return (
-    <span className={`status-pill ${statusClass(status)}`}>
-      {statusLabel(status)}
+    <span className={`status-pill ${getJobStatusThemeClass(status)}`}>
+      {getJobStatusLabel(status)}
     </span>
   );
 }

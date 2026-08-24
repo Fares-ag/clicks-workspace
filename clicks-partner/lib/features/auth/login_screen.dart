@@ -54,13 +54,14 @@ class _LoginScreenState extends State<LoginScreen> {
         final token = res.data['token']?.toString();
         final partner = res.data['partner'];
         if (token != null && token.isNotEmpty) {
-          await CacheHelper.set('token', token);
+          await CacheHelper.secureWrite(CacheHelper.authTokenKey, token);
           if (partner is Map) {
             await CacheHelper.set(
               'partner_name',
               partner['name']?.toString() ?? '',
             );
           }
+          await PartnerNotificationService.instance.requestPermissions();
           await PartnerNotificationService.instance.registerTokenIfLoggedIn();
           if (!mounted) return;
           Navigator.of(context).pushReplacementNamed(Routes.home);

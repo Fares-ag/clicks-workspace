@@ -2,6 +2,7 @@ const Partner = require("../models/Partner");
 const PartnerEarning = require("../models/PartnerEarning");
 const PartnerWithdrawal = require("../models/PartnerWithdrawal");
 const { hashPassword, comparePassword, generateAccessToken } = require("../utils/authUtils");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const {
   ensureGoogleSourceWithSubSource,
   refreshPeriodStatus,
@@ -12,11 +13,24 @@ function publicPartner(partner) {
   return partner.toPublicJSON();
 }
 
-/** Snapshot amounts for a withdraw request type. */
+/**
+ * Snapshot amounts for a withdraw request type.
+ *
+ * Both figures are net of what has already been settled (withdrawnInvestment /
+ * withdrawnEarnings, incremented when a withdrawal is marked paid), otherwise
+ * the full lifetime principal + earnings would be payable again every period.
+ */
 function withdrawAmounts(partner, type) {
-  const investment = Math.max(0, Number(partner.investmentAmount || 0));
+  const principal = Math.max(0, Number(partner.investmentAmount || 0));
+  const investment = Math.max(
+    0,
+    principal - Math.max(0, Number(partner.withdrawnInvestment || 0))
+  );
   const accrued = Math.max(0, Number(partner.accruedTotal || 0));
-  const earnings = Math.max(0, accrued - investment);
+  const earnings = Math.max(
+    0,
+    accrued - principal - Math.max(0, Number(partner.withdrawnEarnings || 0))
+  );
   if (type === "investment") {
     return { investmentAmount: investment, earningsAmount: 0, totalAmount: investment };
   }
@@ -32,9 +46,10 @@ function withdrawAmounts(partner, type) {
 }
 
 function withdrawSummary(partner) {
-  const investment = Math.max(0, Number(partner.investmentAmount || 0));
-  const accrued = Math.max(0, Number(partner.accruedTotal || 0));
-  const earnings = Math.max(0, accrued - investment);
+  // Same source of truth as the request path so the app never offers an amount
+  // partnerCreateWithdrawal would refuse.
+  const { investmentAmount: investment, earningsAmount: earnings } =
+    withdrawAmounts(partner, "both");
   const available =
     partner.status === "frozen" || partner.status === "capped";
   return {
@@ -51,11 +66,15 @@ async function listPartners(req, res) {
   try {
     const { page = 1, limit = 50, search = "", status } = req.query;
     const match = {};
-    if (search) {
+    // Escape + length-cap the operator-supplied term: an unescaped "(" or "*"
+    // makes mongod reject the query, and "(a+)+$" would burn a mongod core.
+    const term = escapeRegex(String(search || "").trim().slice(0, 64));
+    if (term) {
+      const rx = new RegExp(term, "i");
       match.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
+        { name: rx },
+        { email: rx },
+        { phone: rx },
       ];
     }
     if (status) match.status = status;
@@ -172,6 +191,22 @@ async function updatePartner(req, res) {
     const partner = await Partner.findById(req.params.id);
     if (!partner) return res.status(404).json({ message: "Partner not found" });
 
+    const sameCalendarDay = (a, b) => {
+      const da = new Date(a);
+      const db = new Date(b);
+      if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return false;
+      return (
+        da.getFullYear() === db.getFullYear() &&
+        da.getMonth() === db.getMonth() &&
+        da.getDate() === db.getDate()
+      );
+    };
+    const hasLockedPeriodDates =
+      partner.periodStartedAt &&
+      partner.periodEndsAt &&
+      !Number.isNaN(new Date(partner.periodStartedAt).getTime()) &&
+      !Number.isNaN(new Date(partner.periodEndsAt).getTime());
+
     const fields = [
       "phone",
       "email",
@@ -205,20 +240,40 @@ async function updatePartner(req, res) {
     const periodEndTouched = req.body.periodEndsAt !== undefined;
     const periodMonthsTouched = req.body.periodMonths !== undefined;
 
-    if (periodStartTouched) {
+    if (hasLockedPeriodDates) {
+      if (periodStartTouched) {
+        const start = new Date(req.body.periodStartedAt);
+        if (Number.isNaN(start.getTime()) || !sameCalendarDay(start, partner.periodStartedAt)) {
+          return res.status(400).json({
+            message: "Period start and end dates cannot be changed once set",
+          });
+        }
+      }
+      if (periodEndTouched) {
+        const end = new Date(req.body.periodEndsAt);
+        if (Number.isNaN(end.getTime()) || !sameCalendarDay(end, partner.periodEndsAt)) {
+          return res.status(400).json({
+            message: "Period start and end dates cannot be changed once set",
+          });
+        }
+      }
+    }
+
+    if (periodStartTouched && !hasLockedPeriodDates) {
       const start = new Date(req.body.periodStartedAt);
       if (Number.isNaN(start.getTime())) {
         return res.status(400).json({ message: "periodStartedAt must be a valid date" });
       }
       partner.periodStartedAt = start;
     }
-    if (periodEndTouched) {
+    if (periodEndTouched && !hasLockedPeriodDates) {
       const end = new Date(req.body.periodEndsAt);
       if (Number.isNaN(end.getTime())) {
         return res.status(400).json({ message: "periodEndsAt must be a valid date" });
       }
       partner.periodEndsAt = end;
     } else if (
+      !hasLockedPeriodDates &&
       (periodMonthsTouched || periodStartTouched) &&
       req.body.recalculatePeriodEnd !== false
     ) {
@@ -366,9 +421,9 @@ async function partnerLogin(req, res) {
 
     let partner = null;
     if (email) {
-      partner = await Partner.findOne({ email: String(email).toLowerCase().trim() });
+      partner = await Partner.findOne({ email: String(email).toLowerCase().trim() }).select("+password");
     } else if (phone) {
-      partner = await Partner.findOne({ phone: String(phone).trim() });
+      partner = await Partner.findOne({ phone: String(phone).trim() }).select("+password");
     } else {
       return res.status(400).json({ message: "email or phone is required" });
     }
@@ -460,7 +515,10 @@ async function partnerDashboard(req, res) {
         },
         { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
       ]),
-      PartnerWithdrawal.findOne({ partner: partner._id, status: "pending" }).sort({
+      PartnerWithdrawal.findOne({
+        partner: partner._id,
+        status: { $in: ["pending", "approved"] },
+      }).sort({
         createdAt: -1,
       }),
     ]);
@@ -472,9 +530,7 @@ async function partnerDashboard(req, res) {
       recentEarnings: recent,
       stats: {
         accruedThisWeek: weekAgg[0]?.total || 0,
-        jobsThisWeek: weekAgg[0]?.count || 0,
         accruedThisMonth: monthAgg[0]?.total || 0,
-        jobsThisMonth: monthAgg[0]?.count || 0,
       },
       withdrawAvailable: summary.withdrawAvailable,
       withdrawAmounts: summary.amounts,
@@ -517,17 +573,27 @@ async function partnerUpdateProfile(req, res) {
 async function partnerChangePassword(req, res) {
   try {
     const { currentPassword, newPassword } = req.body || {};
-    if (!currentPassword || !newPassword) {
+    if (
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string" ||
+      !currentPassword ||
+      !newPassword
+    ) {
       return res.status(400).json({
         message: "currentPassword and newPassword are required",
       });
     }
-    if (String(newPassword).length < 6) {
+    if (newPassword.length < 6) {
       return res.status(400).json({ message: "password must be at least 6 characters" });
     }
 
-    const partner = await Partner.findById(req.user.id);
+    // password is select:false on the schema — without this the hash is
+    // undefined and bcrypt throws instead of comparing.
+    const partner = await Partner.findById(req.user.id).select("+password");
     if (!partner) return res.status(404).json({ message: "Partner not found" });
+    if (typeof partner.password !== "string" || !partner.password) {
+      return res.status(500).json({ message: "Failed to change password" });
+    }
     if (!comparePassword(currentPassword, partner.password)) {
       return res.status(401).json({ message: "Current password is incorrect" });
     }
@@ -612,13 +678,15 @@ async function partnerCreateWithdrawal(req, res) {
       });
     }
 
+    // Approved-but-unpaid counts as open too: its amounts have not been debited
+    // from the ledger yet, so a second request would claim the same money twice.
     const open = await PartnerWithdrawal.findOne({
       partner: partner._id,
-      status: "pending",
+      status: { $in: ["pending", "approved"] },
     });
     if (open) {
       return res.status(409).json({
-        message: "You already have a pending withdrawal request",
+        message: "You already have a withdrawal request in progress",
         withdrawal: open,
       });
     }
@@ -685,35 +753,80 @@ async function updatePartnerWithdrawal(req, res) {
       return res.status(404).json({ message: "Withdrawal not found" });
     }
 
+    const note =
+      adminNote === undefined
+        ? undefined
+        : String(adminNote || "").trim().slice(0, 2000);
+
     if (status === "approved" || status === "rejected") {
-      if (withdrawal.status !== "pending") {
+      // "rejected" is also allowed from "approved": an approved-but-unpaid
+      // request must have a way out, otherwise it blocks the partner from ever
+      // filing another one. Nothing was debited on approval, so there is no
+      // ledger movement to reverse here.
+      const allowedFrom =
+        status === "rejected" ? ["pending", "approved"] : ["pending"];
+      if (!allowedFrom.includes(withdrawal.status)) {
         return res.status(400).json({
           message: `Cannot mark ${status} when status is ${withdrawal.status}`,
         });
       }
-      withdrawal.status = status;
-      withdrawal.reviewedBy = req.user.id;
-      withdrawal.reviewedAt = new Date();
+      const review = { status, reviewedBy: req.user.id, reviewedAt: new Date() };
+      if (note !== undefined) review.adminNote = note;
+
+      // Compare-and-set on the status, same as the paid path below, so a
+      // concurrent PATCH that already settled this row cannot be reverted back
+      // to approved/rejected and re-opened for a second ledger debit.
+      const reviewed = await PartnerWithdrawal.findOneAndUpdate(
+        { _id: withdrawal._id, status: { $in: allowedFrom } },
+        { $set: review },
+        { new: true }
+      );
+      if (!reviewed) {
+        return res.status(409).json({
+          message: "Withdrawal was already updated by another request",
+        });
+      }
     } else if (status === "paid") {
       if (withdrawal.status !== "approved" && withdrawal.status !== "pending") {
         return res.status(400).json({
           message: `Cannot mark paid when status is ${withdrawal.status}`,
         });
       }
+      const settlement = { status: "paid", paidAt: new Date() };
       // Allow pending → paid directly for ops speed, or approved → paid
       if (withdrawal.status === "pending") {
-        withdrawal.reviewedBy = req.user.id;
-        withdrawal.reviewedAt = new Date();
+        settlement.reviewedBy = req.user.id;
+        settlement.reviewedAt = new Date();
       }
-      withdrawal.status = "paid";
-      withdrawal.paidAt = new Date();
+      if (note !== undefined) settlement.adminNote = note;
+
+      // Compare-and-set on the status: only the request that actually flips the
+      // row to "paid" is allowed to debit the partner ledger, so a repeated or
+      // concurrent PATCH can never double-debit.
+      const settled = await PartnerWithdrawal.findOneAndUpdate(
+        { _id: withdrawal._id, status: { $in: ["pending", "approved"] } },
+        { $set: settlement },
+        { new: true }
+      );
+      if (!settled) {
+        return res.status(409).json({
+          message: "Withdrawal was already settled by another request",
+        });
+      }
+
+      // Debit what was actually handed over so the same principal/earnings are
+      // not offered again next period.
+      await Partner.updateOne(
+        { _id: settled.partner },
+        {
+          $inc: {
+            withdrawnInvestment: Math.max(0, Number(settled.investmentAmount || 0)),
+            withdrawnEarnings: Math.max(0, Number(settled.earningsAmount || 0)),
+          },
+        }
+      );
     }
 
-    if (adminNote !== undefined) {
-      withdrawal.adminNote = String(adminNote || "").trim().slice(0, 2000);
-    }
-
-    await withdrawal.save();
     const populated = await PartnerWithdrawal.findById(withdrawal._id).populate(
       "reviewedBy",
       "firstName lastName email"

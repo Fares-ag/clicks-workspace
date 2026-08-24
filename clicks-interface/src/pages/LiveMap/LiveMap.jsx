@@ -32,13 +32,56 @@ const CAR_ICON = {
   anchor: { x: 60, y: 60 },
 };
 
+/**
+ * A technician is only mappable with two real, finite coordinates.
+ *
+ * The old guard was `lat === 0 && lng === 0`, which let a null or string
+ * coordinate through into google.maps and blanked the whole admin app (there is
+ * no error boundary), and treated a half-zero fix as valid — dropping a marker
+ * thousands of km out to sea. 0,0 itself is the documented "no fix" sentinel.
+ */
+function hasUsableLocation(tech) {
+  const lat = tech?.location?.latitude;
+  const lng = tech?.location?.longitude;
+  if (typeof lat !== "number" || typeof lng !== "number") return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat === 0 && lng === 0) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+// Marker icons are identity-compared by @react-google-maps/api. Allocating a
+// fresh Size/Point per render made every marker's props change on every socket
+// event and every 10s tick, forcing a setIcon on all N markers each time.
+const markerIconCache = new Map();
 function getMarkerIcon(tech) {
-  const onJob = tech.currentStatus === "On Job";
-  const size = onJob ? 110 : CAR_ICON.scaledSize.width;
+  const size = tech.currentStatus === "On Job" ? 110 : CAR_ICON.scaledSize.width;
+  let icon = markerIconCache.get(size);
+  if (!icon) {
+    icon = {
+      url: CAR_ICON.url,
+      scaledSize: new window.google.maps.Size(size, size),
+      anchor: new window.google.maps.Point(size / 2, size / 2),
+    };
+    markerIconCache.set(size, icon);
+  }
+  return icon;
+}
+
+/**
+ * State patch for a technician location socket payload.
+ *
+ * _socketPresenceAt is stamped from ARRIVAL, not from the payload's own
+ * timestamp: it drives the socket-only preservation window, and a payload
+ * reporting an old measurement would otherwise be born already expired.
+ */
+function buildLocationPatch(data) {
+  const _locationUpdatedAt = data.updatedAt || new Date().toISOString();
   return {
-    url: CAR_ICON.url,
-    scaledSize: new window.google.maps.Size(size, size),
-    anchor: new window.google.maps.Point(size / 2, size / 2),
+    location: { latitude: data.latitude, longitude: data.longitude },
+    _locationUpdatedAt,
+    lastLocationAt: data.lastLocationAt || _locationUpdatedAt,
+    locationStale: data.locationStale === true,
+    _socketPresenceAt: new Date().toISOString(),
   };
 }
 
@@ -120,18 +163,22 @@ function LiveMap() {
   const socketRef = useRef(null);
   const panelRef = useRef(null);
   const contextMenuRef = useRef(null);
+  /** Ids in the most recent successful REST snapshot (drives ghost pruning). */
+  const apiIdsRef = useRef(new Set());
+  const sawRestRef = useRef(false);
+  const authRetryTimerRef = useRef(null);
   const token = useSelector((state) => state.auth.token);
 
   // ==================== STATE ====================
   const [technicians, setTechnicians] = useState([]);
-  const [selectedTech, setSelectedTech] = useState(null);
+  const [selectedTechId, setSelectedTechId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState(null); // null | "technician" | "vehicle"
   const [selectedTechFilter, setSelectedTechFilter] = useState(null);
   const [selectedVehicleFilter, setSelectedVehicleFilter] = useState(null);
   const [contextMenuTechId, setContextMenuTechId] = useState(null);
   // Re-render every 10s so "last seen" ages in the UI.
-  const [, setLastSeenTick] = useState(0);
+  const [lastSeenTick, setLastSeenTick] = useState(0);
 
   // ==================== RTK QUERY ====================
   // 8s REST snapshot as fallback; real-time updates come via socket.
@@ -165,17 +212,43 @@ function LiveMap() {
       // Union: keep socket-only techs until REST catches up (≤2 poll windows).
       const socketOnly = prev.filter((t) => isSocketOnlyPreserved(t, apiIds));
 
+      apiIdsRef.current = apiIds;
+      sawRestRef.current = true;
+
       return [...mergedFromApi, ...socketOnly];
     });
   }, [liveMapData]);
 
   useEffect(() => {
-    const id = setInterval(() => setLastSeenTick((n) => n + 1), 10000);
+    const id = setInterval(() => {
+      setLastSeenTick((n) => n + 1);
+      // Prune expired socket-only entries here as well. The REST merge effect
+      // is skipped entirely whenever RTK Query hands back the same `data`
+      // reference — an idle fleet, or a REST outage — and it used to be the
+      // only place pruning ran, so a ghost could outlive its window forever.
+      if (!sawRestRef.current) return;
+      setTechnicians((prev) => {
+        const next = prev.filter(
+          (t) =>
+            apiIdsRef.current.has(String(t._id)) ||
+            isSocketOnlyPreserved(t, apiIdsRef.current)
+        );
+        return next.length === prev.length ? prev : next;
+      });
+    }, 10000);
     return () => clearInterval(id);
   }, []);
 
   // ==================== SOCKET CONNECTION ====================
   const [socketConnected, setSocketConnected] = useState(false);
+  // A namespace-auth rejection is terminal for socket.io-client: reconnection
+  // (even reconnectionAttempts: Infinity) does not apply to a middleware error,
+  // so one "Unauthorized" left the badge reading "Connecting…" forever with no
+  // recovery and nothing shown to the operator. The server also returns
+  // Unauthorized for a transient DB failure during the handshake, so this is
+  // worth retrying on a slow timer rather than giving up.
+  const [socketAuthFailed, setSocketAuthFailed] = useState(false);
+  const [authRetryNonce, setAuthRetryNonce] = useState(0);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -199,7 +272,11 @@ function LiveMap() {
     socket.on("connect", () => {
       console.log("✅ Admin socket connected for live map:", socket.id);
       setSocketConnected(true);
+      setSocketAuthFailed(false);
       socket.emit("register");
+      // Opt in to the technician location/presence feed. Admin sessions that
+      // never open this page no longer receive the fleet's coordinates.
+      socket.emit("joinLiveMap");
     });
 
     socket.on("disconnect", (reason) => {
@@ -210,69 +287,70 @@ function LiveMap() {
     socket.on("connect_error", (err) => {
       console.error("❌ Admin socket connect_error:", err.message);
       setSocketConnected(false);
+      if (/unauthorized/i.test(err?.message || "")) {
+        setSocketAuthFailed(true);
+        // Re-dial on a slow timer. Bounded by the effect teardown, so leaving
+        // the page stops it.
+        authRetryTimerRef.current = setTimeout(
+          () => setAuthRetryNonce((n) => n + 1),
+          30000
+        );
+      }
+    });
+
+    // Destructuring the payload in the parameter list threw inside socket.io's
+    // dispatcher when a malformed emit arrived with no payload at all.
+    socket.on("technicianLocationBatch", (payload) => {
+      const updates = payload?.updates;
+      if (!Array.isArray(updates)) return;
+      setTechnicians((prev) => {
+        const indexById = new Map(prev.map((t, i) => [String(t._id), i]));
+        let next = prev;
+        for (const data of updates) {
+          if (!data) continue;
+          const idx = indexById.get(String(data.technician_id));
+          // Unknown technician: a location event carries no name, phone or
+          // vehicle, so upserting one here painted a nameless "Technician"
+          // ghost that outlived the real record. Let the REST poll or
+          // technicianOnline introduce them properly instead.
+          if (idx === undefined) continue;
+          if (next === prev) next = [...prev];
+          next[idx] = { ...next[idx], ...buildLocationPatch(data) };
+        }
+        return next;
+      });
     });
 
     socket.on("technicianLocationUpdate", (data) => {
-      const { technician_id, latitude, longitude, updatedAt, lastLocationAt, locationStale } = data;
-      const id = String(technician_id);
-      const _locationUpdatedAt = updatedAt || new Date().toISOString();
-      const patch = {
-        location: { latitude, longitude },
-        _locationUpdatedAt,
-        lastLocationAt: lastLocationAt || _locationUpdatedAt,
-        locationStale: locationStale === true,
-        _socketPresenceAt: _locationUpdatedAt,
-      };
+      if (!data) return;
+      const id = String(data.technician_id);
       setTechnicians((prev) => {
-        const exists = prev.find((t) => String(t._id) === id);
-        if (exists) {
-          return prev.map((t) =>
-            String(t._id) === id ? { ...t, ...patch } : t
-          );
-        }
-        // Upsert until technicianOnline / REST poll fills profile fields.
-        return [
-          ...prev,
-          {
-            _id: id,
-            technician_id: id,
-            firstName: "Technician",
-            lastName: "",
-            currentStatus: "Online",
-            ...patch,
-          },
-        ];
+        if (!prev.some((t) => String(t._id) === id)) return prev;
+        const patch = buildLocationPatch(data);
+        return prev.map((t) => (String(t._id) === id ? { ...t, ...patch } : t));
       });
     });
 
     socket.on("technicianLocationStale", (data) => {
+      if (!data) return;
       const id = String(data.technician_id);
       const lastLocationAt = data.lastLocationAt || null;
-      const patch = {
-        locationStale: true,
-        lastLocationAt,
-        _socketPresenceAt: lastLocationAt || new Date().toISOString(),
-      };
       setTechnicians((prev) => {
-        const exists = prev.find((t) => String(t._id) === id);
-        if (exists) {
-          return prev.map((t) =>
-            String(t._id) === id
-              ? { ...t, ...patch, lastLocationAt: lastLocationAt || t.lastLocationAt }
-              : t
-          );
-        }
-        return [
-          ...prev,
-          {
-            _id: id,
-            technician_id: id,
-            firstName: "Technician",
-            lastName: "",
-            currentStatus: "On Job",
-            ...patch,
-          },
-        ];
+        // Same rule as location updates: never invent a technician from an
+        // event carrying no profile. This one used to fabricate a locationless
+        // row hardcoded to "On Job" that no marker ever drew, but the side
+        // panel listed and the stale badge counted.
+        if (!prev.some((t) => String(t._id) === id)) return prev;
+        return prev.map((t) =>
+          String(t._id) === id
+            ? {
+                ...t,
+                locationStale: true,
+                lastLocationAt: lastLocationAt || t.lastLocationAt,
+                _socketPresenceAt: new Date().toISOString(),
+              }
+            : t
+        );
       });
     });
 
@@ -316,14 +394,21 @@ function LiveMap() {
     socket.on("technicianOffline", (data) => {
       const id = String(data.technician_id);
       setTechnicians((prev) => prev.filter((t) => String(t._id) !== id));
-      setSelectedTech((prev) => (prev && String(prev._id) === id ? null : prev));
+      setSelectedTechId((prev) => (prev === id ? null : prev));
     });
 
     return () => {
-      socket.disconnect();
+      // Listeners off first: disconnect() synchronously fires the local
+      // "disconnect" handler, which then set state during teardown.
       socket.removeAllListeners();
+      socket.disconnect();
+      socketRef.current = null;
+      if (authRetryTimerRef.current) {
+        clearTimeout(authRetryTimerRef.current);
+        authRetryTimerRef.current = null;
+      }
     };
-  }, [token]);
+  }, [token, authRetryNonce]);
 
   // ==================== CLOSE PANEL ON OUTSIDE CLICK ====================
   useEffect(() => {
@@ -343,10 +428,16 @@ function LiveMap() {
   }, []);
 
   // ==================== DERIVED DATA ====================
+  // Live Map shows Online / On Job only — never Offline.
+  const visibleTechnicians = useMemo(
+    () => technicians.filter((t) => ["Online", "On Job"].includes(t.currentStatus)),
+    [technicians]
+  );
+
   const vehiclesList = useMemo(() => {
     const vehicles = [];
     const seen = new Set();
-    technicians.forEach((t) => {
+    visibleTechnicians.forEach((t) => {
       if (t.vehicle && t.vehicle._id && !seen.has(t.vehicle._id)) {
         seen.add(t.vehicle._id);
         vehicles.push({
@@ -357,40 +448,81 @@ function LiveMap() {
       }
     });
     return vehicles;
-  }, [technicians]);
+  }, [visibleTechnicians]);
+
+  // Search applies to the panels too. It used to filter only the markers, so
+  // typing emptied the map while the side list showed the whole fleet.
+  const searchedTechnicians = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return visibleTechnicians;
+    return visibleTechnicians.filter(
+      (t) =>
+        `${t.firstName || ""} ${t.lastName || ""}`.toLowerCase().includes(q) ||
+        (t.phone && String(t.phone).toLowerCase().includes(q))
+    );
+  }, [visibleTechnicians, searchQuery]);
 
   const filteredTechnicians = useMemo(() => {
-    // Live Map: Online / On Job only — never show Offline
-    let result = technicians.filter((t) =>
-      ["Online", "On Job"].includes(t.currentStatus)
-    );
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (t) =>
-          `${t.firstName} ${t.lastName}`.toLowerCase().includes(q) ||
-          (t.phone && t.phone.includes(q))
-      );
-    }
+    let result = searchedTechnicians;
     if (selectedTechFilter) result = result.filter((t) => t._id === selectedTechFilter);
     if (selectedVehicleFilter)
       result = result.filter((t) => t.vehicle && t.vehicle._id === selectedVehicleFilter);
     return result;
-  }, [technicians, searchQuery, selectedTechFilter, selectedVehicleFilter]);
+  }, [searchedTechnicians, selectedTechFilter, selectedVehicleFilter]);
 
+  // lastSeenTick is a real dependency: countVisibleStaleTechnicians reads the
+  // clock internally, so without it the badge froze at whatever it was when
+  // `technicians` last changed while the markers kept fading independently.
   const staleCount = useMemo(
     () => countVisibleStaleTechnicians(technicians),
-    [technicians]
+    [technicians, lastSeenTick]
+  );
+
+  // A filter pinned to a technician who has since gone Offline (or a vehicle
+  // whose technician has) left the map blank with no affordance explaining why
+  // and no way to un-toggle it.
+  useEffect(() => {
+    if (
+      selectedTechFilter &&
+      !visibleTechnicians.some((t) => t._id === selectedTechFilter)
+    ) {
+      setSelectedTechFilter(null);
+    }
+  }, [visibleTechnicians, selectedTechFilter]);
+
+  useEffect(() => {
+    if (
+      selectedVehicleFilter &&
+      !vehiclesList.some((v) => v._id === selectedVehicleFilter)
+    ) {
+      setSelectedVehicleFilter(null);
+    }
+  }, [vehiclesList, selectedVehicleFilter]);
+
+  // Derive the popup's technician from live state — holding the object captured
+  // at click time froze its position and its "last seen" timestamp.
+  // Derived from the FILTERED list: an InfoWindow used to stay open — or
+  // spontaneously reopen — over a technician no marker was drawing.
+  const selectedTech = useMemo(
+    () =>
+      selectedTechId
+        ? filteredTechnicians.find((t) => String(t._id) === selectedTechId) ?? null
+        : null,
+    [filteredTechnicians, selectedTechId]
   );
 
   // ==================== MAP HELPERS ====================
   const onMapLoad = useCallback((map) => { mapRef.current = map; }, []);
 
   const centerOnTechnician = useCallback((tech) => {
-    if (mapRef.current && tech.location) {
-      mapRef.current.panTo({ lat: tech.location.latitude, lng: tech.location.longitude });
-      mapRef.current.setZoom(15);
-    }
+    // Without the guard, clicking a technician who has never reported a fix
+    // panned the map to 0,0 in the Gulf of Guinea at zoom 15.
+    if (!mapRef.current || !hasUsableLocation(tech)) return;
+    mapRef.current.panTo({
+      lat: tech.location.latitude,
+      lng: tech.location.longitude,
+    });
+    mapRef.current.setZoom(15);
   }, []);
 
   const getInitials = (f, l) => `${(f || "")[0] || ""}${(l || "")[0] || ""}`.toUpperCase();
@@ -460,6 +592,22 @@ function LiveMap() {
         </div>
       </div>
 
+      {socketAuthFailed && (
+        <div className="live-map-error-banner">
+          <span>
+            Real-time updates were refused (session may have expired). Positions
+            below fall back to the {Math.round(REST_POLL_MS / 1000)}s refresh.
+          </span>
+          <button
+            type="button"
+            className="live-map-error-retry"
+            onClick={() => setAuthRetryNonce((n) => n + 1)}
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
+
       {isError && (
         <div className="live-map-error-banner">
           <span>Could not load technicians. Real-time updates may still work.</span>
@@ -474,6 +622,15 @@ function LiveMap() {
         <div className="live-map-filter-tabs">
           <div
             className={`live-map-filter-tab${activeTab === "technician" ? " active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-pressed={activeTab === "technician"}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              toggleTab("technician");
+              setSelectedVehicleFilter(null);
+            }}
             onClick={() => {
               toggleTab("technician");
               setSelectedVehicleFilter(null);
@@ -484,6 +641,15 @@ function LiveMap() {
           </div>
           <div
             className={`live-map-filter-tab${activeTab === "vehicle" ? " active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-pressed={activeTab === "vehicle"}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              toggleTab("vehicle");
+              setSelectedTechFilter(null);
+            }}
             onClick={() => {
               toggleTab("vehicle");
               setSelectedTechFilter(null);
@@ -516,13 +682,12 @@ function LiveMap() {
           zoom={MAP_ZOOM}
           options={mapOptions}
           onLoad={onMapLoad}
-          onClick={() => setSelectedTech(null)}
+          onClick={() => setSelectedTechId(null)}
         >
           {/* TODO(fleet-scale): wrap markers in MarkerClustererF when concurrent fleet
               routinely exceeds ~50 (see @react-google-maps/api MarkerClustererF). */}
           {filteredTechnicians.map((tech) => {
-            if (!tech.location || (tech.location.latitude === 0 && tech.location.longitude === 0))
-              return null;
+            if (!hasUsableLocation(tech)) return null;
 
             const stale = isTechLocationStale(tech);
             const onJob = tech.currentStatus === "On Job";
@@ -534,17 +699,17 @@ function LiveMap() {
                 opacity={stale ? 0.45 : 1}
                 icon={getMarkerIcon(tech)}
                 label={getMarkerLabel(tech)}
-                onClick={() => setSelectedTech(tech)}
+                onClick={() => setSelectedTechId(String(tech._id))}
                 title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${stale ? " (stale location)" : ""}`}
               />
             );
           })}
 
           {/* ===== MINIMAL TOOLTIP POPUP (Figma) ===== */}
-          {selectedTech && selectedTech.location && selectedTech.location.latitude !== 0 && (
+          {selectedTech && hasUsableLocation(selectedTech) && (
             <InfoWindow
               position={{ lat: selectedTech.location.latitude, lng: selectedTech.location.longitude }}
-              onCloseClick={() => setSelectedTech(null)}
+              onCloseClick={() => setSelectedTechId(null)}
               options={{ pixelOffset: new window.google.maps.Size(0, -26), maxWidth: 260 }}
             >
               <div className="tech-popup">
@@ -577,12 +742,14 @@ function LiveMap() {
           <div className="live-map-dropdown-panel tech-panel" ref={panelRef}>
             <div className="live-map-dropdown-panel-header">Name</div>
             <div className="live-map-dropdown-panel-list">
-              {technicians.length === 0 && (
+              {searchedTechnicians.length === 0 && (
                 <div style={{ padding: 24, textAlign: "center", color: "#667085", fontSize: 13 }}>
-                  No technicians online
+                  {visibleTechnicians.length === 0
+                    ? "No technicians online"
+                    : "No technicians match your search"}
                 </div>
               )}
-              {technicians.map((t) => (
+              {searchedTechnicians.map((t) => (
                 <div
                   key={t._id}
                   className={`lm-tech-item${selectedTechFilter === t._id ? " selected" : ""}`}

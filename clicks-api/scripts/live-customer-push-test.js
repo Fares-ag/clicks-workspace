@@ -49,7 +49,7 @@ async function main() {
   }
   process.env.FIREBASE_CUSTOMER_SERVICE_ACCOUNT_JSON = fs.readFileSync(jsonPath, "utf8");
 
-  const mongoose = require("../clicks-shared/node_modules/mongoose");
+  const mongoose = require("mongoose");
   const { Customer } = require("../clicks-shared/models");
   await mongoose.connect(process.env.MONGODB_URI);
 

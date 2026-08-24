@@ -59,6 +59,17 @@
   margin: 0;
 }
 
+.job-details-header-jobid {
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-primary);
+  background: var(--color-bg-selection);
+  border-radius: var(--border-radius-sm);
+  padding: 2px 8px;
+}
+
 /* Content Layout */
 .job-details-content {
   display: flex;
@@ -175,6 +186,19 @@
   color: var(--color-text-primary);
 }
 
+.job-source-locked {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--border-radius-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
 .job-details-value-dark {
   font-family: var(--font-main);
   font-size: 14px;
@@ -244,18 +268,20 @@
   color: var(--color-bg-white);
 }
 
+.job-details-status-badge.in_progress,
 .job-details-status-badge.inprogress {
   background: #FB6514;
   color: var(--color-bg-white);
 }
 
-.job-details-status-badge.assigned {
-  background: var(--color-text-primary);
+.job-details-status-badge.en_route,
+.job-details-status-badge.enroute {
+  background: #2563EB;
   color: var(--color-bg-white);
 }
 
-.job-details-status-badge.enroute {
-  background: #2563EB;
+.job-details-status-badge.assigned {
+  background: var(--color-text-primary);
   color: var(--color-bg-white);
 }
 
@@ -1025,7 +1051,7 @@
   color: var(--color-text-secondary);
 }
 
-/* On Hold status badge */
+.job-details-status-badge.on_hold,
 .job-details-status-badge.onhold {
   background-color: #F59E0B;
   color: var(--color-bg-white);
@@ -1149,6 +1175,44 @@
 .admin-note-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.job-details-completion-notes-empty {
+  margin: 0;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.job-details-internal-notes-hint {
+  margin: -4px 0 12px;
+  font-family: var(--font-main);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.job-details-internal-notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.job-details-internal-notes-head .job-details-section-title {
+  margin: 0;
+}
+
+.job-details-lead-link {
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary, #b42318);
+  text-decoration: none;
+}
+
+.job-details-lead-link:hover {
+  text-decoration: underline;
 }
 
 /* Cancellation Reason Card */

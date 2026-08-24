@@ -37,8 +37,8 @@ function BusinessLayout() {
   }, [data, dispatch, token]);
 
   useEffect(() => {
-    if (isError && error?.status === 401) {
-      dispatch(logout());
+    if (isError && (error?.status === 401 || error?.status === 403)) {
+      dispatch(logout({ sessionExpired: true }));
       navigate("/login", { replace: true });
     }
   }, [isError, error, dispatch, navigate]);

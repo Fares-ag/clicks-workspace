@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/constants/map_style.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
@@ -435,12 +436,20 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   }
 
   void _callTechnician() async {
-    final phone = widget.args.techInfo['phone'] ?? '';
-    if (phone.isNotEmpty) {
-      final uri = Uri.parse('tel:$phone');
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      }
+    // Read the refreshed technician first: the navigation args are frozen at
+    // push time and are empty whenever the assignment event was missed.
+    final live = _techInfo['phone']?.toString().trim() ?? '';
+    final fromArgs = widget.args.techInfo['phone']?.toString().trim() ?? '';
+    final phone = live.isNotEmpty ? live : fromArgs;
+    if (phone.isEmpty) {
+      AppSnackBars.errorSnackBar('tracking.technician_phone_unavailable'.tr());
+      return;
+    }
+    final uri = Uri.parse('tel:$phone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      AppSnackBars.errorSnackBar('tracking.call_failed'.tr());
     }
   }
 
@@ -458,18 +467,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
     }
   }
 
-  String get _statusLabel {
-    switch (_phase) {
-      case 'en_route':
-        return 'tracking.en_route'.tr();
-      case 'arrived':
-        return 'tracking.arrived'.tr();
-      case 'in_progress':
-        return 'tracking.in_progress'.tr();
-      default:
-        return '';
-    }
-  }
+  String get _statusLabel => JobStatusLabels.labelFor(_phase);
 
   /// Calculate ETA in minutes based on straight-line distance at ~40 km/h.
   int get _etaMinutes {
@@ -601,7 +599,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                 jobId: widget.args.jobId,
                 dateText: dateText,
                 estimatedTime: estimateText,
-                statusPillText: 'tracking.in_progress'.tr(),
+                statusPillText: JobStatusLabels.labelFor('in_progress'),
                 technicianName: widget.args.techInfo['name'] ?? '',
                 technicianPhone: widget.args.techInfo['phone'] ?? '',
                 technicianAvatarUrl: widget.args.techInfo['photo'] ?? '',
@@ -791,31 +789,6 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                       ),
 
                       const SizedBox(height: 16),
-
-                      // Cancel SOS (only during en_route)
-                      if (_phase == 'en_route')
-                        SizedBox(
-                          height: 48,
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              side: const BorderSide(color: Color(0xFFE5E7EB)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            onPressed: () {
-                              context.read<SosCubit>().cancelSOS();
-                            },
-                            child: Text(
-                              'home.cancel_sos'.tr(),
-                              style: TextStyle(
-                                color: Color(0xFF8B1A1B),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
 
                       const SizedBox(height: 24),
                     ],

@@ -10,14 +10,16 @@ import "./Technicians.css";
 import AddTechnicianModal from "../../components/AddTechnicianModal.jsx";
 import EditTechnicianModal from "../../components/EditTechnicianModal.jsx";
 
-function TechnicianVehicleDropdown({ assignedVehicle, onAssign }) {
+function TechnicianVehicleDropdown({ technicianId, assignedVehicle, onAssign }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   
   const { data: vehiclesData } = useGetVehiclesQuery({ page: 1, limit: 100, search: "" });
-  const { data: techsData } = useGetTechniciansQuery();
+  // Whole roster: the assignment map must cover every technician, not just
+  // the first page (the query defaults to limit=10).
+  const { data: techsData } = useGetTechniciansQuery({ page: 1, limit: 500 });
   const allVehicles = vehiclesData?.vehicles || [];
   const allTechs = techsData?.technicians || [];
   
@@ -123,7 +125,9 @@ function TechnicianVehicleDropdown({ assignedVehicle, onAssign }) {
               ) : (
                 filteredVehicles.map(v => {
                   const assignedTech = vehicleAssignments[v._id];
-                  const isAssigned = assignedTech && assignedTech.id !== assignedVehicle?._id;
+                  // Held by *another* technician — compare technician to technician.
+                  const isAssigned =
+                    assignedTech && String(assignedTech.id) !== String(technicianId);
                   
                   return (
                     <div
@@ -420,6 +424,7 @@ function Technicians() {
       width: "250px",
       render: (row) => (
         <TechnicianVehicleDropdown
+          technicianId={row._id}
           assignedVehicle={assignedVehicles[row._id]}
           onAssign={(vehicle) => handleAssignVehicle(row._id, vehicle)}
         />

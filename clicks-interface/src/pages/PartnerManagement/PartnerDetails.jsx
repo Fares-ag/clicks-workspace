@@ -78,6 +78,8 @@ function PartnerDetails() {
   const canStartNext =
     partner.status === "capped" || partner.status === "frozen";
 
+  const periodDatesLocked = Boolean(partner.periodStartedAt && partner.periodEndsAt);
+
   const suggestedNextCap =
     Number(partner.periodCap || 0) + Number(partner.profitPerPeriod || 0);
 
@@ -137,8 +139,10 @@ function PartnerDetails() {
     const value = e.target.value;
     setTerms((prev) => {
       const next = { ...prev, [field]: value };
-      // Recalc end date locally when start or length changes (admin can still override end)
-      if (field === "periodMonths" || field === "periodStartedAt") {
+      if (
+        !periodDatesLocked &&
+        (field === "periodMonths" || field === "periodStartedAt")
+      ) {
         const start = new Date(
           field === "periodStartedAt" ? value : next.periodStartedAt
         );
@@ -180,14 +184,16 @@ function PartnerDetails() {
       currentPeriodCap: Number(terms.currentPeriodCap),
       periodMonths: Number(terms.periodMonths),
       currentPeriod: Number(terms.currentPeriod),
-      periodStartedAt: terms.periodStartedAt
-        ? new Date(`${terms.periodStartedAt}T00:00:00`).toISOString()
-        : undefined,
-      periodEndsAt: terms.periodEndsAt
-        ? new Date(`${terms.periodEndsAt}T23:59:59`).toISOString()
-        : undefined,
-      recalculatePeriodEnd: false,
     };
+    if (!periodDatesLocked) {
+      payload.periodStartedAt = terms.periodStartedAt
+        ? new Date(`${terms.periodStartedAt}T00:00:00`).toISOString()
+        : undefined;
+      payload.periodEndsAt = terms.periodEndsAt
+        ? new Date(`${terms.periodEndsAt}T23:59:59`).toISOString()
+        : undefined;
+      payload.recalculatePeriodEnd = false;
+    }
     const numericFields = [
       payload.investmentAmount,
       payload.profitPerPeriod,
@@ -283,9 +289,10 @@ function PartnerDetails() {
 
       <h2 className="partner-section-title">Cap &amp; period terms (admin)</h2>
       <p className="partner-muted" style={{ marginBottom: 12 }}>
-        Each partner can have different cap, length, and dates. Changing start
-        or length updates the end date preview; you can override the end date
-        before saving.
+        Each partner can have different cap and period length.
+        {periodDatesLocked
+          ? " Period start and end dates are fixed once set — use Start next period to begin a new period with new dates."
+          : " Changing start or length updates the end date preview; you can override the end date before saving."}
       </p>
       <form className="partner-terms-form" onSubmit={handleSaveTerms}>
         <label>
@@ -340,19 +347,35 @@ function PartnerDetails() {
         </label>
         <label>
           Period start
-          <input
-            type="date"
-            value={terms.periodStartedAt}
-            onChange={onTermsChange("periodStartedAt")}
-          />
+          {periodDatesLocked ? (
+            <span className="partner-readonly-date">
+              {partner.periodStartedAt
+                ? new Date(partner.periodStartedAt).toLocaleDateString()
+                : "—"}
+            </span>
+          ) : (
+            <input
+              type="date"
+              value={terms.periodStartedAt}
+              onChange={onTermsChange("periodStartedAt")}
+            />
+          )}
         </label>
         <label>
           Period end
-          <input
-            type="date"
-            value={terms.periodEndsAt}
-            onChange={onTermsChange("periodEndsAt")}
-          />
+          {periodDatesLocked ? (
+            <span className="partner-readonly-date">
+              {partner.periodEndsAt
+                ? new Date(partner.periodEndsAt).toLocaleDateString()
+                : "—"}
+            </span>
+          ) : (
+            <input
+              type="date"
+              value={terms.periodEndsAt}
+              onChange={onTermsChange("periodEndsAt")}
+            />
+          )}
         </label>
         <div className="partner-form-actions" style={{ gridColumn: "1 / -1" }}>
           <button type="button" onClick={applyFormulaCap}>
@@ -447,14 +470,25 @@ function PartnerDetails() {
                         </>
                       )}
                       {w.status === "approved" && (
-                        <button
-                          type="button"
-                          className="partner-add-btn"
-                          disabled={updatingWithdrawal}
-                          onClick={() => handleWithdrawalStatus(w._id, "paid")}
-                        >
-                          Mark paid
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="partner-add-btn"
+                            disabled={updatingWithdrawal}
+                            onClick={() => handleWithdrawalStatus(w._id, "paid")}
+                          >
+                            Mark paid
+                          </button>
+                          <button
+                            type="button"
+                            disabled={updatingWithdrawal}
+                            onClick={() =>
+                              handleWithdrawalStatus(w._id, "rejected")
+                            }
+                          >
+                            Reject
+                          </button>
+                        </>
                       )}
                       {w.status !== "pending" && w.status !== "approved" && (
                         <span>—</span>

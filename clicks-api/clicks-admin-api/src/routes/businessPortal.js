@@ -1,11 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const authenticateBusiness = require("../middleware/authenticateBusiness");
+const { authLimiter } = require("../middleware/rateLimiter");
 const businessPortalController = require("../controllers/businessPortalController");
 const businessDashboardController = require("../controllers/businessDashboardController");
 
 // Public
-router.post("/auth/login", businessPortalController.login);
+router.post("/auth/login", authLimiter, businessPortalController.login);
 
 // Authenticated business portal
 router.get("/me", authenticateBusiness, businessPortalController.me);
@@ -47,7 +48,8 @@ router.get(
   businessPortalController.listVehicleModelsByMake
 );
 router.get("/jobs", authenticateBusiness, businessPortalController.listJobs);
-router.post("/jobs", authenticateBusiness, businessPortalController.createJob);
+router.post("/jobs", authenticateBusiness, businessPortalController.createLead);
+router.post("/leads", authenticateBusiness, businessPortalController.createLead);
 router.get("/jobs/:id", authenticateBusiness, businessPortalController.getJobById);
 
 module.exports = router;

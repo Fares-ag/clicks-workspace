@@ -50,8 +50,13 @@ jobs:
             echo "--- Installing dependencies for customer-tech API ---"
             cd ../clicks-customer-tech-api && npm install --only=production
 
-            echo "--- Installing dependencies for shared models ---"
-            cd ../clicks-shared && npm install --only=production
+            # No install for clicks-shared: it declares mongoose as a peerDependency
+            # and has no dependencies of its own. Installing there materialises
+            # clicks-shared/node_modules/mongoose, which shadows the service's copy
+            # and registers every shared model on a second, never-connected instance.
+            # git clean -fd leaves gitignored dirs behind, so drop any stale copy.
+            echo "--- Removing stale clicks-shared/node_modules ---"
+            rm -rf "$APP_ROOT/clicks-shared/node_modules"
 
             cd "$APP_ROOT"
             export CLICKS_API_ROOT="$APP_ROOT"

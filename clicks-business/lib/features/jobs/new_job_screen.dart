@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/job_types.dart';
+import '../../core/components/vehicle_make_model_fields.dart';
 import '../../core/helper/phone_utils.dart';
 import '../../core/theme/app_colors.dart';
 import 'jobs_cubit.dart';
@@ -29,17 +31,14 @@ class _NewJobScreenState extends State<NewJobScreen> {
   final _priceCtrl = TextEditingController();
   final _makeCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
-  final _otherModelCtrl = TextEditingController();
+  final _vehicleKey = GlobalKey<VehicleMakeModelFieldsState>();
 
   final String _countryCode = defaultCountryCode;
-  String? _vehicleMake;
-  String? _vehicleModel;
-  String? _jobType;
+  bool _useCatalog = true;
+  String? _jobType = kJobTypes.first.value;
   DateTime? _dateTime;
   String? _phoneError;
   bool _locating = false;
-
-  static const _types = ['Tires', 'Engines', 'Gearbox'];
 
   @override
   void dispose() {
@@ -54,7 +53,6 @@ class _NewJobScreenState extends State<NewJobScreen> {
     _priceCtrl.dispose();
     _makeCtrl.dispose();
     _modelCtrl.dispose();
-    _otherModelCtrl.dispose();
     super.dispose();
   }
 
@@ -134,34 +132,17 @@ class _NewJobScreenState extends State<NewJobScreen> {
     });
   }
 
-  Future<void> _onMakeChanged(JobsCubit cubit, String? makeName) async {
-    setState(() {
-      _vehicleMake = makeName;
-      _vehicleModel = null;
-    });
-    String makeId = '';
-    if (makeName != null) {
-      for (final m in cubit.makes) {
-        if (m['makeName']?.toString() == makeName) {
-          makeId = m['_id']?.toString() ?? '';
-          break;
-        }
-      }
-    }
-    await cubit.loadModelsForMake(makeId);
-  }
-
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => JobsCubit()..loadMakes(),
+      create: (_) => JobsCubit(),
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: AppBar(
           backgroundColor: AppColors.surface,
           elevation: 0,
           title: Text(
-            'Add New Job',
+            'New Request',
             style: GoogleFonts.dmSans(
               fontWeight: FontWeight.w700,
               color: AppColors.text,
@@ -175,7 +156,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(
-                    'Job created — admin will assign a technician',
+                    'Request submitted — Clicks will review and assign a technician',
                   ),
                 ),
               );
@@ -188,18 +169,6 @@ class _NewJobScreenState extends State<NewJobScreen> {
           },
           builder: (context, state) {
             final loading = state is JobsSubmitting;
-            final cubit = context.watch<JobsCubit>();
-            final makeNames = cubit.makes
-                .map((m) => m['makeName']?.toString() ?? '')
-                .where((n) => n.isNotEmpty)
-                .toList();
-            final useCatalog = makeNames.isNotEmpty;
-            final modelNames = [
-              ...cubit.models
-                  .map((m) => m['modelName']?.toString() ?? '')
-                  .where((n) => n.isNotEmpty),
-              if (useCatalog) 'Other',
-            ];
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -219,41 +188,16 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       keyboard: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 12),
-                    if (useCatalog) ...[
-                      _dropdown<String>(
-                        label: 'Vehicle Make*',
-                        value: _vehicleMake,
-                        hint: 'Select vehicle make',
-                        items: makeNames,
-                        onChanged: (v) => _onMakeChanged(cubit, v),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Required' : null,
-                      ),
+                    VehicleMakeModelFields(
+                      key: _vehicleKey,
+                      onCatalogReady: (ok) => setState(() => _useCatalog = ok),
+                    ),
+                    if (!_useCatalog) ...[
                       const SizedBox(height: 12),
-                      _dropdown<String>(
-                        label: 'Vehicle Model*',
-                        value: _vehicleModel,
-                        hint: _vehicleMake == null
-                            ? 'Select Make First'
-                            : 'Select vehicle model',
-                        items: modelNames,
-                        enabled: _vehicleMake != null,
-                        onChanged: (v) => setState(() => _vehicleModel = v),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Required' : null,
+                      VehicleMakeModelTextFields(
+                        makeController: _makeCtrl,
+                        modelController: _modelCtrl,
                       ),
-                      if (_vehicleModel == 'Other') ...[
-                        const SizedBox(height: 12),
-                        _field(
-                          _otherModelCtrl,
-                          'Specify model*',
-                          validator: _req,
-                        ),
-                      ],
-                    ] else ...[
-                      _field(_makeCtrl, 'Vehicle Make*', validator: _req),
-                      const SizedBox(height: 12),
-                      _field(_modelCtrl, 'Vehicle Model*', validator: _req),
                     ],
                     const SizedBox(height: 12),
                     _field(
@@ -275,6 +219,8 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       'Location*',
                       maxLines: 2,
                       validator: _req,
+                      helperText:
+                          'Address, lat/lng, or Google Maps / Waze link',
                     ),
                     const SizedBox(height: 8),
                     Align(
@@ -298,10 +244,6 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       onTap: _pickDateTime,
                       child: InputDecorator(
                         decoration: _dec('Date & Time*').copyWith(
-                          errorText: _dateTime == null &&
-                                  (_formKey.currentState?.validate() == false)
-                              ? null
-                              : null,
                           suffixIcon: const Icon(Icons.calendar_today_outlined),
                         ),
                         child: Text(
@@ -322,7 +264,13 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       label: 'Type of Job*',
                       value: _jobType,
                       hint: 'Select Job Type',
-                      items: _types,
+                      items: kJobTypes.map((t) => t.value).toList(),
+                      itemLabel: (value) {
+                        for (final t in kJobTypes) {
+                          if (t.value == value) return t.label;
+                        }
+                        return value;
+                      },
                       onChanged: (v) => setState(() => _jobType = v),
                       validator: (v) =>
                           (v == null || v.isEmpty) ? 'Required' : null,
@@ -332,10 +280,14 @@ class _NewJobScreenState extends State<NewJobScreen> {
                       _priceCtrl,
                       'Price*',
                       keyboard: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
-                        if (double.tryParse(v.trim()) == null) {
-                          return 'Invalid';
+                        final p = double.tryParse(v.trim());
+                        if (p == null || !p.isFinite || p <= 0) {
+                          return 'Enter a price greater than 0';
                         }
                         return null;
                       },
@@ -349,7 +301,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Technician is assigned by admin after review.',
+                      'Clicks reviews each request and assigns a technician.',
                       style: GoogleFonts.dmSans(
                         fontSize: 12,
                         color: AppColors.muted,
@@ -387,14 +339,22 @@ class _NewJobScreenState extends State<NewJobScreen> {
                               }
                               if (!_formKey.currentState!.validate()) return;
                               final yearRaw = _yearCtrl.text.trim();
-                              final make = useCatalog
-                                  ? (_vehicleMake ?? '')
+                              final vs = _vehicleKey.currentState;
+                              final make = _useCatalog && vs != null
+                                  ? vs.make
                                   : _makeCtrl.text.trim();
-                              var model = useCatalog
-                                  ? (_vehicleModel ?? '')
+                              final model = _useCatalog && vs != null
+                                  ? vs.model
                                   : _modelCtrl.text.trim();
-                              if (useCatalog && model == 'Other') {
-                                model = _otherModelCtrl.text.trim();
+                              if (make.isEmpty || model.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Vehicle make and model are required',
+                                    ),
+                                  ),
+                                );
+                                return;
                               }
                               context.read<JobsCubit>().createJob(
                                     clientName: _nameCtrl.text,
@@ -427,7 +387,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
                               ),
                             )
                           : Text(
-                              'Add Job',
+                              'Submit request',
                               style: GoogleFonts.dmSans(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -540,6 +500,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
     int maxLines = 1,
     String? Function(String?)? validator,
     List<TextInputFormatter>? inputFormatters,
+    String? helperText,
   }) {
     return TextFormField(
       controller: ctrl,
@@ -547,13 +508,15 @@ class _NewJobScreenState extends State<NewJobScreen> {
       maxLines: maxLines,
       validator: validator,
       inputFormatters: inputFormatters,
-      decoration: _dec(hint),
+      decoration: _dec(hint, helperText: helperText),
     );
   }
 
-  InputDecoration _dec(String hint) {
+  InputDecoration _dec(String hint, {String? helperText}) {
     return InputDecoration(
       labelText: hint,
+      helperText: helperText,
+      helperMaxLines: 2,
       filled: true,
       fillColor: AppColors.field,
       border: OutlineInputBorder(

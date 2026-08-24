@@ -58,12 +58,14 @@ class PartnerMetricCard extends StatelessWidget {
     super.key,
     required this.label,
     required this.value,
+    this.subtitle,
     this.icon,
     this.accent,
   });
 
   final String label;
   final String value;
+  final String? subtitle;
   final IconData? icon;
   final Color? accent;
 
@@ -97,6 +99,17 @@ class PartnerMetricCard extends StatelessWidget {
               color: accent ?? AppColors.textPrimary,
             ),
           ),
+          if (subtitle != null && subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle!,
+              style: GoogleFonts.dmSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: accent ?? AppColors.primary,
+              ),
+            ),
+          ],
           const SizedBox(height: 4),
           Text(
             label,

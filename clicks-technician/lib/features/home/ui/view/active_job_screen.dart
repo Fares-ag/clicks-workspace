@@ -1,3 +1,4 @@
+import 'package:clicks_technician/core/constants/job_status_labels.dart';
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/components/vehicle_make_model_fields.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
@@ -100,7 +101,7 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
           ? 'Job In Progress'
           : 'Collect Payment',
       'completed' => 'Job Completed',
-      'en_route' => 'En Route',
+      'en_route' => JobStatusLabels.labelFor('en_route'),
       _ => 'Active Job',
     };
     final media = MediaQuery.of(context);
@@ -234,6 +235,8 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
                         style: TextStyles.font12RegularGrey,
                       ),
                     ],
+                    SizedBox(height: 16.h),
+                    _PriceHeader(cubit: cubit),
                     SizedBox(height: 14.h),
                     _Actions(cubit: cubit),
                     if (compactEnRoute) ...[
@@ -260,22 +263,6 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
                     _VehicleBlock(cubit: cubit),
                     SizedBox(height: 10.h),
                     _LocationBlock(cubit: cubit),
-                    if (cubit.jobPrice != null) ...[
-                      SizedBox(height: 10.h),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Price', style: TextStyles.font14RegularGrey),
-                          Text(
-                            'QAR ${cubit.jobPrice!.toStringAsFixed(0)}',
-                            style: TextStyles.font16RegularBlack.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: ColorsManager.mainColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
               );
@@ -283,6 +270,171 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PriceHeader extends StatefulWidget {
+  const _PriceHeader({required this.cubit});
+
+  final HomeCubit cubit;
+
+  @override
+  State<_PriceHeader> createState() => _PriceHeaderState();
+}
+
+class _PriceHeaderState extends State<_PriceHeader> {
+  late TextEditingController _priceCtrl;
+  bool _saving = false;
+
+  bool get _canEdit {
+    final status = widget.cubit.jobStatus;
+    final paid =
+        widget.cubit.activeJob?['payment_status']?.toString() == 'paid';
+    return (status == 'arrived' || status == 'in_progress') && !paid;
+  }
+
+  String _priceText(double? value) {
+    if (value == null) return '';
+    return value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(2);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _priceCtrl = TextEditingController(text: _priceText(widget.cubit.jobPrice));
+  }
+
+  @override
+  void didUpdateWidget(covariant _PriceHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = _priceText(widget.cubit.jobPrice);
+    if (!_saving && next != _priceCtrl.text) {
+      _priceCtrl.text = next;
+    }
+  }
+
+  @override
+  void dispose() {
+    _priceCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _savePrice() async {
+    if (!_canEdit || _saving) return;
+    final parsed = double.tryParse(_priceCtrl.text.trim());
+    if (parsed == null || parsed < 0) {
+      AppSnackBars.errorSnackBar('Enter a valid price');
+      return;
+    }
+    setState(() => _saving = true);
+    final ok = await widget.cubit.updateJobDetails({'price': parsed});
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!ok) {
+      AppSnackBars.errorSnackBar('Could not update price');
+      return;
+    }
+    AppSnackBars.successSnackBar('Price updated');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final price = widget.cubit.jobPrice;
+    if (price == null && !_canEdit) return const SizedBox.shrink();
+
+    final priceStyle = TextStyles.font16RegularBlack.copyWith(
+      fontSize: 32.sp,
+      fontWeight: FontWeight.w800,
+      color: ColorsManager.mainColor,
+      height: 1.1,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Price',
+          style: TextStyles.font12RegularGrey.copyWith(
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF667085),
+          ),
+        ),
+        SizedBox(height: 6.h),
+        if (_canEdit)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _priceCtrl,
+                  enabled: !_saving,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _savePrice(),
+                  style: priceStyle.copyWith(color: const Color(0xFF101828)),
+                  decoration: InputDecoration(
+                    prefixText: 'QAR ',
+                    prefixStyle: priceStyle.copyWith(
+                      color: ColorsManager.mainColor,
+                    ),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                      borderSide: const BorderSide(color: Color(0xFFD0D5DD)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                      borderSide: const BorderSide(color: Color(0xFFD0D5DD)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.r),
+                      borderSide: BorderSide(color: ColorsManager.mainColor),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 8.w),
+              TextButton(
+                onPressed: _saving ? null : _savePrice,
+                child: _saving
+                    ? SizedBox(
+                        width: 18.w,
+                        height: 18.w,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: ColorsManager.mainColor,
+                        ),
+                      )
+                    : Text(
+                        'Save',
+                        style: TextStyles.font14RegularGrey.copyWith(
+                          color: ColorsManager.mainColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+              ),
+            ],
+          )
+        else if (price != null)
+          Text('QAR ${_priceText(price)}', style: priceStyle),
+        if (_canEdit) ...[
+          SizedBox(height: 4.h),
+          Text(
+            'Adjust before collecting payment',
+            style: TextStyles.font12RegularGrey.copyWith(
+              color: const Color(0xFF98A2B3),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -628,7 +780,12 @@ class _LocationBlock extends StatelessWidget {
       title: 'Location',
       trailing: TextButton.icon(
         onPressed: () async {
-          final ok = await openJobLocationInMaps(cubit.jobLocation);
+          final coords = cubit.jobLatLng();
+          final ok = await openJobLocationInMaps(
+            cubit.jobLocation,
+            lat: coords?.lat,
+            lng: coords?.lng,
+          );
           if (!ok) AppSnackBars.errorSnackBar('Could not open maps');
         },
         icon: Icon(Icons.navigation_outlined,
@@ -832,7 +989,10 @@ class _Actions extends StatelessWidget {
   }
 
   void _showPayment(BuildContext context) {
-    final price = cubit.jobPrice;
+    // job.price alone drops the distance / night / repairs fees, but the receipt
+    // the server issues on confirmPayment uses the computed total — collect that
+    // same number. fetchJobTotal falls back to job.price if the call fails.
+    final totalFuture = cubit.fetchJobTotal();
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -852,28 +1012,63 @@ class _Actions extends StatelessWidget {
                   style: TextStyles.font16RegularBlack
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
-                if (price != null) ...[
-                  SizedBox(height: 8.h),
-                  Text(
-                    'Amount: ${price.toStringAsFixed(0)} QAR',
-                    style: TextStyles.font14RegularGrey
-                        .copyWith(fontWeight: FontWeight.w600),
-                  ),
-                ],
-                SizedBox(height: 12.h),
-                ...[
-                  ('cash', 'Cash'),
-                  ('card', 'Card'),
-                  ('wallet', 'Wallet'),
-                  ('fawran', 'Fawran'),
-                ].map(
-                  (method) => ListTile(
-                    title: Text(method.$2),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      cubit.confirmPayment(paymentMethod: method.$1);
-                    },
-                  ),
+                FutureBuilder<double?>(
+                  future: totalFuture,
+                  builder: (_, snap) {
+                    if (snap.connectionState != ConnectionState.done) {
+                      return Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20.h),
+                        child: const Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
+                    final total = snap.data;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (total != null) ...[
+                          SizedBox(height: 12.h),
+                          Text(
+                            'Amount',
+                            style: TextStyles.font12RegularGrey.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF667085),
+                            ),
+                          ),
+                          SizedBox(height: 4.h),
+                          Text(
+                            '${total.toStringAsFixed(0)} QAR',
+                            style: TextStyles.font16RegularBlack.copyWith(
+                              fontSize: 28.sp,
+                              fontWeight: FontWeight.w800,
+                              color: ColorsManager.mainColor,
+                            ),
+                          ),
+                        ],
+                        SizedBox(height: 12.h),
+                        ...[
+                          ('cash', 'Cash'),
+                          ('card', 'Card'),
+                          ('wallet', 'Wallet'),
+                          ('fawran', 'Fawran'),
+                        ].map(
+                          (method) => ListTile(
+                            title: Text(method.$2),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              cubit.confirmPayment(paymentMethod: method.$1);
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),

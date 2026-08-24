@@ -26,7 +26,13 @@ class _PartnerShellState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    PartnerNotificationService.instance.registerTokenIfLoggedIn();
+    _setupNotifications();
+  }
+
+  Future<void> _setupNotifications() async {
+    await PartnerNotificationService.instance.requestPermissions();
+    await PartnerNotificationService.instance.registerTokenIfLoggedIn();
+    await PartnerNotificationService.instance.handlePendingLaunchNotification();
   }
 
   @override
@@ -126,6 +132,7 @@ class _PartnerDashboardTabState extends State<PartnerDashboardTab> {
     });
     try {
       final res = await DioHelper.getData(url: EndPoints.dashboard);
+      if (!mounted) return;
       if (res.statusCode == 200 && res.data is Map) {
         final open = res.data['openWithdrawal'];
         setState(() {
@@ -148,6 +155,7 @@ class _PartnerDashboardTabState extends State<PartnerDashboardTab> {
         _loading = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _error = 'failed_to_load'.tr();
         _loading = false;

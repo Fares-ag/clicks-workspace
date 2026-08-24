@@ -13,19 +13,22 @@ JobStatus jobStatusFromApi(String v) {
 
 class JobsHistoryResponse {
   final List<JobDto> jobs;
-  JobsHistoryResponse({required this.jobs});
+  final bool hasMore;
+  JobsHistoryResponse({required this.jobs, this.hasMore = false});
 
   factory JobsHistoryResponse.fromJson(Map<String, dynamic> json) {
     final list = (json['jobs'] as List? ?? []);
     return JobsHistoryResponse(
       jobs:
           list.map((e) => JobDto.fromJson(e as Map<String, dynamic>)).toList(),
+      hasMore: json['has_more'] == true,
     );
   }
 }
 
 class JobDto {
   final String id;
+  final String? jobReference;
   final DateTime dateTime;
   final String jobType;
   final String issue;
@@ -61,6 +64,7 @@ class JobDto {
 
   const JobDto({
     required this.id,
+    this.jobReference,
     required this.dateTime,
     required this.jobType,
     required this.issue,
@@ -153,6 +157,7 @@ class JobDto {
 
     return JobDto(
       id: json['_id'] ?? '',
+      jobReference: json['job_reference']?.toString(),
       dateTime: DateTime.tryParse(json['dateTime'] ?? '') ?? DateTime.now(),
       jobType: json['jobType'] ?? '',
       issue: json['issue'] ?? '',

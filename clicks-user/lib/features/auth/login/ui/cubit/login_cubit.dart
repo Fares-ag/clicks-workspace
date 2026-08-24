@@ -45,7 +45,10 @@ class LoginCubit extends Cubit<LoginState> {
       );
 
       if (response.statusCode == 200) {
-        await CacheHelper.save("token", response.data["token"]);
+        await CacheHelper.secureWrite(
+          CacheHelper.authTokenKey,
+          response.data["token"].toString(),
+        );
         
         // Register FCM token for push notifications
         await _registerFcmToken();

@@ -9,9 +9,13 @@ import 'package:intl/intl.dart';
 
 /// Read-only invoice for a completed / paid job.
 class InvoiceScreen extends StatefulWidget {
-  const InvoiceScreen({super.key, required this.jobId});
+  const InvoiceScreen({super.key, required this.jobId, this.jobReference = ''});
 
   final String jobId;
+
+  /// Technician-entered Job ID, so the invoice shows the same value as the
+  /// activity card / details header. Empty for legacy jobs without one.
+  final String jobReference;
 
   @override
   State<InvoiceScreen> createState() => _InvoiceScreenState();
@@ -145,7 +149,11 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     final receipt = _receipt!;
     final items = receipt['items'];
     final jobRef = receipt['job_id']?.toString() ?? widget.jobId;
-    final fakeJob = {'_id': jobRef};
+    final fakeJob = <String, dynamic>{
+      '_id': jobRef,
+      'job_reference':
+          receipt['job_reference']?.toString() ?? widget.jobReference,
+    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

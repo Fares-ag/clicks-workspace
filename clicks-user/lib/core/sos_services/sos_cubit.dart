@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../features/welcome/logic/services/welcome_service.dart';
+import '../monitoring/sentry_config.dart';
 import 'customer_socket_service.dart';
 
 void _log(String msg) {
@@ -76,7 +77,7 @@ class JobCompleted extends SosState {
   final String jobId;
   final double totalAmount;
   final Map<String, dynamic>? receipt;
-  final Map<String, dynamic> technician;
+  final Map<String, dynamic>? technician;
   JobCompleted(this.jobId, this.totalAmount, this.receipt, this.technician);
 }
 
@@ -118,26 +119,33 @@ class SosCubit extends Cubit<SosState> {
     return DateTime.tryParse(raw.toString());
   }
 
+  Map<String, dynamic>? _asMap(dynamic raw) =>
+      raw is Map ? Map<String, dynamic>.from(raw) : null;
+
   void _setupSocketListeners() {
     socketService.onSosCreated = (data) {
       _log('📱 SOS Created: ${data['sos_id']}');
       sosId = data['sos_id']?.toString();
       expiresAt = _parseExpiresAt(data['expires_at']);
+      if (isClosed) return;
       emit(SosCreated(sosId!, expiresAt: expiresAt));
     };
 
     socketService.onSosInCall = (data) {
       _log('📞 SOS In Call');
+      if (isClosed) return;
       emit(SosInCall(data['sos_id']));
     };
 
     socketService.onTechnicianAssigned = (data) {
       _log('🔧 Technician Assigned');
+      if (isClosed) return;
       emit(TechnicianAssigned(data['technician'], data['job_id']));
     };
 
     socketService.onTechnicianAccepted = (data) {
       _log('✅ Technician Accepted');
+      if (isClosed) return;
       emit(
         TechnicianAccepted(
           data['technician'],
@@ -149,6 +157,7 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onTechnicianEnRoute = (data) {
       _log('🚗 Technician En Route');
+      if (isClosed) return;
       emit(TechnicianEnRoute(
         data['job_id'],
         data['en_route_at'],
@@ -168,6 +177,7 @@ class SosCubit extends Cubit<SosState> {
         return;
       }
 
+      if (isClosed) return;
       emit(
         LocationUpdated(
           lat,
@@ -180,11 +190,13 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onTechnicianArrived = (data) {
       _log('🎉 Technician Arrived');
+      if (isClosed) return;
       emit(TechnicianArrived(data['job_id'], data['arrived_at']));
     };
 
     socketService.onJobStarted = (data) {
       _log('🔧 Job Started');
+      if (isClosed) return;
       emit(JobStarted(
         data['job_id'],
         data['started_at'],
@@ -196,12 +208,17 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onJobCompleted = (data) {
       _log('💰 Job Completed');
+      if (isClosed) return;
+      // Server sends only { job_id, job_status, payment_status }. Amount,
+      // receipt and technician are optional — parsing them strictly used to
+      // throw here and the customer never reached the rating flow.
+      final map = data is Map ? data : const <dynamic, dynamic>{};
       emit(
         JobCompleted(
-          data['job_id'],
-          double.parse(data['total_amount'].toString()),
-          data['receipt'],
-          data['technician'],
+          map['job_id']?.toString() ?? '',
+          double.tryParse('${map['total_amount'] ?? ''}') ?? 0,
+          _asMap(map['receipt']),
+          _asMap(map['technician']),
         ),
       );
     };
@@ -214,6 +231,7 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onSosCancelled = (data) {
       _log('❌ SOS Cancelled');
+      if (isClosed) return;
       emit(SosCancelled());
     };
 
@@ -223,6 +241,7 @@ class SosCubit extends Cubit<SosState> {
           ? Map<String, dynamic>.from(data)
           : null;
       final code = map?['code']?.toString();
+      if (isClosed) return;
       if (code == 'LAUNCH_PUBLIC_SOS_OFF') {
         emit(SosError(
           map?['message']?.toString() ??
@@ -235,6 +254,7 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onJobCancelled = (data) {
       _log('❌ Job Cancelled');
+      if (isClosed) return;
       emit(JobCancelled(data['job_id']));
     };
   }
@@ -260,6 +280,7 @@ class SosCubit extends Cubit<SosState> {
 
       if (!socketService.isConnected) {
         _log('❌ Socket reconnect failed');
+        if (isClosed) return;
         emit(SosError('Connection failed. Please check your internet and try again.'));
         return;
       }
@@ -271,10 +292,16 @@ class SosCubit extends Cubit<SosState> {
         position = await WelcomeService.determinePosition().timeout(
           const Duration(seconds: 12),
         );
-      } catch (_) {
+      } catch (e, st) {
+        SentryConfig.captureException(
+          StateError('SOS GPS read failed'),
+          stackTrace: st,
+          tags: const {'component': 'sos_cubit'},
+        );
         if (lastKnownPosition != null) {
           position = lastKnownPosition!;
         } else {
+          if (isClosed) return;
           emit(SosError(
             'Failed to get location. Allow location access and try again.',
           ));
@@ -289,8 +316,14 @@ class SosCubit extends Cubit<SosState> {
         serviceType: serviceType,
         skipVehicle: skipVehicle,
       );
-    } catch (e) {
+    } catch (e, st) {
       _log('❌ createSOS error: $e');
+      SentryConfig.captureException(
+        e,
+        stackTrace: st,
+        tags: const {'component': 'sos_cubit'},
+      );
+      if (isClosed) return;
       emit(SosError('Failed to get location. Please enable GPS and try again.'));
     }
   }
@@ -300,8 +333,35 @@ class SosCubit extends Cubit<SosState> {
     
   }
 
-  void cancelSOS({String? reason}) {
-    socketService.cancelSOS(sosId, reason: reason);
+  /// Requests cancellation of the active SOS.
+  ///
+  /// Returns false when the request could not be sent at all (socket down or
+  /// no known SOS id) — callers must then keep the user on the SOS screen
+  /// instead of pretending the cancel succeeded. A true result only means the
+  /// request left the device; the SOS is cancelled once the server replies
+  /// with [SosCancelled].
+  Future<bool> cancelSOS({String? reason}) async {
+    // The app can be launched straight into the SOS flow from a push tap, in
+    // which case sosId was never set locally — recover it from the server.
+    if (sosId == null || sosId!.isEmpty) {
+      final data = await SessionService.getCustomerActiveSos();
+      final sos = data?['active_sos'];
+      if (sos is Map) {
+        sosId = sos['_id']?.toString();
+      }
+    }
+
+    if (!socketService.isConnected) {
+      _log('⚠️ Socket disconnected on cancel, attempting reconnect...');
+      socketService.reconnect();
+      int attempts = 0;
+      while (!socketService.isConnected && attempts < 6) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        attempts++;
+      }
+    }
+
+    return socketService.cancelSOS(sosId, reason: reason);
   }
 
 }
