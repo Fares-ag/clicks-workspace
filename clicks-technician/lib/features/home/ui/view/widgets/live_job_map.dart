@@ -551,7 +551,7 @@ class _LiveJobMapState extends State<LiveJobMap> {
                 icon: Icons.alt_route_rounded,
                 onTap: () {
                   final dest = _destination;
-                  return openJobLocationInMaps(
+                  openJobLocationInMaps(
                     widget.locationLabel,
                     lat: dest?.latitude,
                     lng: dest?.longitude,
