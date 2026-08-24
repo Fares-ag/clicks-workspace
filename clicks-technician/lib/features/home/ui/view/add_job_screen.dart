@@ -1,5 +1,6 @@
 import 'package:clicks_technician/core/api/dio_helper.dart';
 import 'package:clicks_technician/core/api/end_points/end_points.dart';
+import 'package:clicks_technician/core/constants/job_types.dart';
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/components/vehicle_make_model_fields.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
@@ -32,7 +33,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
   final _price = TextEditingController();
   final _vehicleKey = GlobalKey<VehicleMakeModelFieldsState>();
 
-  String _jobType = 'Flat tire';
+  String _jobType = kJobTypes.first.value;
   bool _saving = false;
   bool _useCatalog = true;
   bool _fetchingLocation = false;
@@ -285,34 +286,16 @@ class _AddJobScreenState extends State<AddJobScreen> {
             dropdownColor: const Color(0xFF5C1515),
             style: const TextStyle(color: Colors.white),
             decoration: _inputDeco('Job type'),
-            items: const [
-              DropdownMenuItem(value: 'Towing', child: Text('Towing')),
-              DropdownMenuItem(
-                value: 'Jump start',
-                child: Text('Jump start / Battery boost'),
-              ),
-              DropdownMenuItem(
-                value: 'Flat tire',
-                child: Text('Flat tire / Tire change'),
-              ),
-              DropdownMenuItem(
-                value: 'Lockout',
-                child: Text('Lockout / Key locked in car'),
-              ),
-              DropdownMenuItem(
-                value: 'Fuel delivery',
-                child: Text('Fuel delivery'),
-              ),
-              DropdownMenuItem(
-                value: 'Battery replacement',
-                child: Text('Battery replacement'),
-              ),
-              DropdownMenuItem(
-                value: 'Accident assistance',
-                child: Text('Accident assistance'),
-              ),
-            ],
-            onChanged: (v) => setState(() => _jobType = v ?? 'Flat tire'),
+            items: kJobTypes
+                .map(
+                  (t) => DropdownMenuItem(
+                    value: t.value,
+                    child: Text(t.label),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) =>
+                setState(() => _jobType = v ?? kJobTypes.first.value),
           ),
           SizedBox(height: 20.h),
           AppButton(

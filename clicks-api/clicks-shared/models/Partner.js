@@ -1,9 +1,10 @@
 const mongoose = require("mongoose");
 
-// Accrual-eligible job types: the current catalog values plus the legacy
-// strings they replaced, so historical jobs keep accruing too.
-// (constants/jobTypes.js: keyless_car_opening → Lockout, tire_change → Flat tire)
+// Accrual-eligible job types: lockout / tire catalog values plus legacy strings.
 const ELIGIBLE_JOB_TYPES = [
+  "Lock Out",
+  "Flat Tire",
+  "Tire Change",
   "Lockout",
   "Flat tire",
   "keyless_car_opening",

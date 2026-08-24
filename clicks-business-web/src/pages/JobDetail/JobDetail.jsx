@@ -4,6 +4,7 @@ import { useGetJobQuery } from "../../store/portalApi";
 import StatusPill from "../../components/StatusPill";
 import { formatDateTime, statusLabel } from "../../utils/phone";
 import { getJobStatusLabel } from "../../utils/jobStatusLabels";
+import { jobTypeLabel } from "../../constants/jobTypes";
 import "../../styles/add-new-job.css";
 import "./JobDetail.css";
 
@@ -94,7 +95,7 @@ function JobDetail() {
           {job.payment_status ? (
             <DetailRow label="Payment">{statusLabel(job.payment_status)}</DetailRow>
           ) : null}
-          <DetailRow label="Type">{job.jobType}</DetailRow>
+          <DetailRow label="Type">{jobTypeLabel(job.jobType)}</DetailRow>
           <DetailRow label="Issue">{job.issue}</DetailRow>
           <DetailRow label="Location">{job.location}</DetailRow>
           <DetailRow label="Price">{`${job.price ?? ""} QAR`}</DetailRow>

@@ -11,6 +11,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const { JOB_TYPES } = require("../clicks-shared/constants/jobTypes");
+
 const TECH_URL = (process.env.TECH_URL || "https://clicks-tech-api-production.up.railway.app").replace(/\/$/, "");
 const ADMIN_URL = (process.env.ADMIN_URL || "https://clicks-admin-api-production.up.railway.app").replace(/\/$/, "");
 const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:8081").replace(/\/$/, "");
@@ -26,16 +28,6 @@ const TECH_LAT = 25.3271655;
 const TECH_LNG = 51.4889506;
 const FAR_LAT = 25.4;
 const FAR_LNG = 51.6;
-
-const JOB_TYPES = [
-  "Towing",
-  "Jump start",
-  "Flat tire",
-  "Lockout",
-  "Fuel delivery",
-  "Battery replacement",
-  "Accident assistance",
-];
 
 const PAYMENT_METHODS = ["cash", "card", "wallet", "fawran"];
 

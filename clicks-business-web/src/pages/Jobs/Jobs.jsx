@@ -4,6 +4,7 @@ import { useListJobsQuery } from "../../store/portalApi";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import StatusPill from "../../components/StatusPill";
 import "../../styles/jobs-page.css";
+import { jobTypeLabel } from "../../constants/jobTypes";
 import "./Jobs.css";
 
 function ClientInfoCell({ job }) {
@@ -103,7 +104,7 @@ function Jobs() {
         key: "jobType",
         dataIndex: "jobType",
         width: "14%",
-        render: (row) => row.jobType || "—",
+        render: (row) => jobTypeLabel(row.jobType) || "—",
       },
       {
         title: "Date & Time",

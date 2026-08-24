@@ -7,7 +7,7 @@ import {
 import { useGetTechniciansQuery } from "../../store/technicianApi";
 import CustomSelect from "../../components/CustomSelect.jsx";
 import DateTimePicker from "../../components/DateTimePicker.jsx";
-import { JOB_TYPE_MAPPING, JOB_TYPE_OPTIONS } from "../../constants/jobTypes";
+import { JOB_TYPE_OPTIONS, matchesJobTypeExpertise } from "../../constants/jobTypes";
 import "../JobManagement/AddNewJob.css";
 
 function ConvertLead() {
@@ -31,7 +31,6 @@ function ConvertLead() {
   const dateTimeInputRef = useRef(null);
 
   const allTechnicians = techniciansData?.technicians || [];
-  const jobTypeMapping = JOB_TYPE_MAPPING;
 
   const availableTechnicians = useMemo(() => {
     return allTechnicians.filter((tech) => {
@@ -39,15 +38,14 @@ function ConvertLead() {
       const isAvailable =
         tech.currentStatus === "Online" || tech.currentStatus === "On Job";
       if (!formData.jobType) return isApproved && isAvailable;
-      const requiredExpertise = jobTypeMapping[formData.jobType];
       const techExpertise = tech.expertise || [];
       return (
         isApproved &&
         isAvailable &&
-        techExpertise.includes(requiredExpertise)
+        matchesJobTypeExpertise(formData.jobType, techExpertise)
       );
     });
-  }, [allTechnicians, formData.jobType, jobTypeMapping]);
+  }, [allTechnicians, formData.jobType]);
 
   useEffect(() => {
     if (!lead) return;

@@ -6,7 +6,7 @@ import { useGetTechniciansQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import io from "socket.io-client";
 import "./JobDetails.css";
-import { JOB_TYPE_MAPPING, jobTypeLabel } from "../../constants/jobTypes";
+import { jobTypeLabel, matchesJobTypeExpertise } from "../../constants/jobTypes";
 import { isSourceLockedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
 import { getJobStatusCssClass, getJobStatusLabel } from "../../utils/jobStatusLabels";
 import { getJobDisplayId } from "../../utils/jobLabel.js";
@@ -60,7 +60,6 @@ function JobDetails() {
   const repairs =
     (repairsFromQuery?.length ? repairsFromQuery : repairsFromDetail) || [];
   const technicians = techniciansData?.technicians || [];
-  const jobTypeMapping = JOB_TYPE_MAPPING;
   const vehicleInfo = getJobVehicleInfo(job);
   const jobDuration = data?.jobDuration || null;
   const estimateTimes = data?.estimateTimes || { adminEstimateTime: null, technicianEstimateTime: null };
@@ -164,11 +163,10 @@ function JobDetails() {
     const isAvailable = tech.currentStatus === 'Online' || tech.currentStatus === 'On Job';
     
     // Map job type to required expertise
-    const requiredExpertise = job?.jobType ? jobTypeMapping[job.jobType] : null;
     const techExpertise = tech.expertise || [];
-    const matchesExpertise = requiredExpertise ? 
-      techExpertise.includes(requiredExpertise) : 
-      true; // If no job type or mapping, show all
+    const matchesExpertise = job?.jobType
+      ? matchesJobTypeExpertise(job.jobType, techExpertise)
+      : true;
     
     return matchesSearch && isApproved && isAvailable && matchesExpertise;
   });

@@ -10,17 +10,10 @@ import {
   isValidLocalPhone,
   toLocalDigits,
 } from "../../utils/phone";
+import { JOB_TYPE_OPTIONS } from "../../constants/jobTypes";
 import "../../styles/add-new-job.css";
 
-const JOB_TYPES = [
-  { value: "Towing", label: "Towing" },
-  { value: "Jump start", label: "Jump start / Battery boost" },
-  { value: "Flat tire", label: "Flat tire / Tire change" },
-  { value: "Lockout", label: "Lockout / Key locked in car" },
-  { value: "Fuel delivery", label: "Fuel delivery" },
-  { value: "Battery replacement", label: "Battery replacement" },
-  { value: "Accident assistance", label: "Accident assistance" },
-];
+const JOB_TYPES = JOB_TYPE_OPTIONS;
 
 function NewJob() {
   const navigate = useNavigate();

@@ -15,7 +15,11 @@ import {
   toLocalDigits,
 } from "../../utils/phone";
 import "./AddNewJob.css";
-import { JOB_TYPE_MAPPING, JOB_TYPE_OPTIONS, jobTypeLabel } from "../../constants/jobTypes";
+import {
+  JOB_TYPE_OPTIONS,
+  jobTypeLabel,
+  matchesJobTypeExpertise,
+} from "../../constants/jobTypes";
 
 function AddNewJob() {
   const navigate = useNavigate();
@@ -62,7 +66,6 @@ function AddNewJob() {
   
   const allTechnicians = techniciansData?.technicians || [];
   const sources = sourcesData?.sources || [];
-  const jobTypeMapping = JOB_TYPE_MAPPING;
   const vehicleMakes = vehicleMakesData?.makes || [];
   const vehicleModels = vehicleModelsData?.models || [];
 
@@ -95,15 +98,17 @@ function AddNewJob() {
         return isApproved && isAvailable;
       }
       
-      const requiredExpertise = jobTypeMapping[formData.jobType];
       const techExpertise = tech.expertise || [];
-      const matchesExpertise = techExpertise.includes(requiredExpertise);
+      const matchesExpertise = matchesJobTypeExpertise(
+        formData.jobType,
+        techExpertise
+      );
       
       return isApproved && isAvailable && matchesExpertise;
     });
     
     return filtered;
-  }, [allTechnicians, formData.jobType, jobTypeMapping]);
+  }, [allTechnicians, formData.jobType]);
 
   // Populate form with SOS data if available
   useEffect(() => {
