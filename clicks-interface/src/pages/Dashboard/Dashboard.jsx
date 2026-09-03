@@ -4,12 +4,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Sector,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import { useGetJobsQuery } from "../../store/jobApi";
 import { getJobStatusLabel } from "../../utils/jobStatusLabels";
-import { useGetTechniciansQuery } from "../../store/technicianApi";
-import { useGetVehiclesQuery } from "../../store/vehicleApi";
-import { useGetCustomersQuery } from "../../store/customerApi";
-import { useGetVehicleInsurancesQuery } from "../../store/vehicleInsuranceApi";
 import { 
   useGetDashboardSummaryQuery,
   useGetEarningsDataQuery, 
@@ -17,9 +12,6 @@ import {
   useGetAllTechniciansPerformanceQuery,
   useGetEarningsByDateQuery
 } from "../../store/dashboardApi";
-import { useGetSOSRequestsQuery } from "../../store/sosApi";
-import { useGetSourcesQuery } from "../../store/sourceApi";
-import { getJobSourceSubLabel, getSourceName } from "../../utils/jobOrigin";
 import { isHiddenSourceName } from "../../utils/systemSources";
 import DatePicker from "../../components/DatePicker";
 import { useAdminRole } from "../../utils/adminRoles";
@@ -88,25 +80,14 @@ function Dashboard() {
     toLocalDateString(new Date())
   );
 
-  // Server summary (preferred). Falls back to client aggregation if API not deployed yet.
   const {
     data: summary,
     isSuccess: summaryOk,
+    isLoading: summaryLoading,
   } = useGetDashboardSummaryQuery(undefined, {
     pollingInterval: 30000,
     refetchOnFocus: true,
   });
-  
-  const { data: jobsData } = useGetJobsQuery({ limit: 1000 });
-  const { data: techsData } = useGetTechniciansQuery({ limit: 1000 });
-  const { data: vehiclesData } = useGetVehiclesQuery({ limit: 1000 });
-  const { data: customersData } = useGetCustomersQuery({ limit: 1000 });
-  const { data: insuranceData } = useGetVehicleInsurancesQuery({ limit: 1000 });
-  const { data: sourcesData } = useGetSourcesQuery(undefined, { skip: summaryOk });
-  const { data: sosListData } = useGetSOSRequestsQuery(
-    { status: undefined, limit: 20 },
-    { pollingInterval: 30000, skip: summaryOk }
-  );
   
   // Dashboard analytics queries
   const { data: earningsData } = useGetEarningsDataQuery(earningsTimeframe, {
@@ -127,53 +108,20 @@ function Dashboard() {
     // Effect hook for dependency tracking
   }, [selectedEarningsDate]);
 
-  const jobs = jobsData?.jobs || [];
-  const technicians = techsData?.technicians || [];
-  const vehicles = vehiclesData?.vehicles || [];
-  const customers = customersData?.customers || [];
-
-  // Prefer server summary; keep legacy client calc as fallback.
-  const submittedJobs = summaryOk ? summary.jobs.total : jobs.length;
-  const completedJobs = summaryOk
-    ? summary.jobs.completed
-    : jobs.filter(j => j.job_status === "completed" || j.job_status === "paid" || j.job_status === "confirmed").length;
-  const ongoingJobs = summaryOk
-    ? summary.jobs.ongoing
-    : jobs.filter(j => ["assigned", "accepted", "en_route", "arrived", "in_progress"].includes(j.job_status)).length;
-  const pendingJobs = summaryOk
-    ? summary.jobs.pending
-    : jobs.filter(j => j.job_status === "pending").length;
-  const activeTechs = summaryOk
-    ? summary.technicians.active
-    : technicians.filter(t => t.isActive).length;
-  const totalVehicles = summaryOk ? summary.fleet.vehicles : vehicles.length;
-  const totalClients = summaryOk ? summary.fleet.clients : customers.length;
-  const insuredVehicles = summaryOk
-    ? summary.fleet.insuredVehicles
-    : (insuranceData?.total || 0);
-
-  const techsOnline = summaryOk
-    ? summary.technicians.online
-    : technicians.filter((t) => t.isActive && t.currentStatus === "Online").length;
-  const techsOnJob = summaryOk
-    ? summary.technicians.onJob
-    : technicians.filter((t) => t.isActive && t.currentStatus === "On Job").length;
-  const jobsEnRoute = summaryOk
-    ? summary.jobs.enRoute
-    : jobs.filter((j) => j.job_status === "en_route").length;
-
-  const sosOpen = summaryOk
-    ? summary.sos.open
-    : (sosListData?.requests || []).filter((s) =>
-        ["pending", "in_call"].includes(s.status)
-      ).length;
-
-  // Calculate earnings - Total is all-time, Overall is based on selected date
-  const totalEarnings = summaryOk
-    ? summary.earnings.totalAllTime
-    : jobs
-        .filter(j => j.job_status === "completed" || j.job_status === "paid" || j.job_status === "confirmed")
-        .reduce((sum, j) => sum + (parseFloat(j.price) || 0), 0);
+  const submittedJobs = summary?.jobs?.total ?? 0;
+  const completedJobs = summary?.jobs?.completed ?? 0;
+  const ongoingJobs = summary?.jobs?.ongoing ?? 0;
+  const onHoldJobs = summary?.jobs?.onHold ?? 0;
+  const pendingJobs = summary?.jobs?.pending ?? 0;
+  const activeTechs = summary?.technicians?.active ?? 0;
+  const totalVehicles = summary?.fleet?.vehicles ?? 0;
+  const totalClients = summary?.fleet?.clients ?? 0;
+  const insuredVehicles = summary?.fleet?.insuredVehicles ?? 0;
+  const techsOnline = summary?.technicians?.online ?? 0;
+  const techsOnJob = summary?.technicians?.onJob ?? 0;
+  const jobsEnRoute = summary?.jobs?.enRoute ?? 0;
+  const sosOpen = summary?.sos?.open ?? 0;
+  const totalEarnings = summary?.earnings?.totalAllTime ?? 0;
 
   let overallEarnings = totalEarnings; // Default to total
   
@@ -182,119 +130,40 @@ function Dashboard() {
     overallEarnings = earningsByDateData.totalEarnings;
   }
 
-  const completedTrendPct = summaryOk ? summary.trends.completedJobsPct : null;
-  const earningsTrendPct = summaryOk ? summary.trends.earningsPct : null;
-  const statsComputedAt = summaryOk ? summary.stats_computed_at : null;
+  const completedTrendPct = summary?.trends?.completedJobsPct ?? null;
+  const earningsTrendPct = summary?.trends?.earningsPct ?? null;
+  const statsComputedAt = summary?.stats_computed_at ?? null;
 
-  const configuredSources = sourcesData?.sources || [];
-  const sourceNameById = configuredSources.reduce((acc, source) => {
-    acc[String(source._id)] = source.mainSourceName;
-    return acc;
-  }, {});
+  const jobSources = (summary?.sources?.top || []).filter(
+    (row) => !isHiddenSourceName(row.name)
+  );
 
-  const jobSources = (summaryOk
-    ? (summary.sources?.top || [])
-    : Object.values(
-        jobs.reduce((acc, job) => {
-          const sourceId = job.source?._id || job.source;
-          const key = sourceId ? String(sourceId) : "unknown";
-          const name =
-            job.source?.mainSourceName ||
-            sourceNameById[key] ||
-            (key === "unknown" ? "Unknown" : "Source");
-          if (isHiddenSourceName(name)) return acc;
-          if (!acc[key]) {
-            acc[key] = { name, count: 0 };
-          }
-          acc[key].count += 1;
-          return acc;
-        }, {})
-      )
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
-        .map((row) => ({
-          ...row,
-          percentage:
-            submittedJobs > 0 ? Math.round((row.count / submittedJobs) * 100) : 0,
-        }))
-  ).filter((row) => !isHiddenSourceName(row.name));
+  const jobSubSources = (summary?.sources?.subSources || []).filter(
+    (row) => !isHiddenSourceName(row.sourceName)
+  );
 
-  const jobSubSources = (summaryOk
-    ? (summary.sources?.subSources || [])
-    : Object.values(
-        jobs.reduce((acc, job) => {
-          const sub = getJobSourceSubLabel(job);
-          if (!sub) return acc;
-          const main = getSourceName(job) || sourceNameById[String(job.source?._id || job.source)] || "Unknown";
-          if (isHiddenSourceName(main)) return acc;
-          const key = `${main}::${sub}`;
-          if (!acc[key]) {
-            acc[key] = {
-              name: sub,
-              subSource: sub,
-              sourceName: main,
-              count: 0,
-            };
-          }
-          acc[key].count += 1;
-          return acc;
-        }, {})
-      )
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5)
-        .map((row) => ({
-          ...row,
-          percentage:
-            submittedJobs > 0 ? Math.round((row.count / submittedJobs) * 100) : 0,
-        }))
-  ).filter((row) => !isHiddenSourceName(row.sourceName));
-
-  // Job status distribution
-  const cancelledJobs = summaryOk
-    ? summary.jobs.cancelled
-    : jobs.filter(j => j.job_status === "cancelled").length;
+  const cancelledJobs = summary?.jobs?.cancelled ?? 0;
   const jobStatusData = [
     { label: "Completed", value: completedJobs, percentage: Math.round((completedJobs / submittedJobs) * 100) || 0, color: "#039855" },
     { label: "Pending", value: pendingJobs, percentage: Math.round((pendingJobs / submittedJobs) * 100) || 0, color: "#F79009" },
     { label: "InProgress", value: ongoingJobs, percentage: Math.round((ongoingJobs / submittedJobs) * 100) || 0, color: "#1570EF" },
+    { label: "On hold", value: onHoldJobs, percentage: Math.round((onHoldJobs / submittedJobs) * 100) || 0, color: "#F59E0B" },
     { label: "Cancelled", value: cancelledJobs, percentage: Math.round((cancelledJobs / submittedJobs) * 100) || 0, color: "#DC6803" }
   ];
 
-  // Get pending jobs sorted by date
-  const pendingJobsList = summaryOk
-    ? (summary.jobs.pendingList || [])
-    : jobs
-        .filter(j => j.job_status === "pending")
-        .sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime))
-        .slice(0, 5);
+  const pendingJobsList = summary?.jobs?.pendingList || [];
+  const sosWaitingList = summary?.sos?.waitingList || [];
 
-  const sosWaitingList = summaryOk
-    ? (summary.sos.waitingList || [])
-    : (sosListData?.requests || [])
-        .filter((s) => ["pending", "in_call"].includes(s.status))
-        .slice(0, 5)
-        .map((s) => ({
-          _id: s._id,
-          status: s.status,
-          createdAt: s.createdAt,
-          customerName: s.customer?.name || "Customer",
-          customerPhone: s.customer?.phone || "",
-        }));
-
-  // Top technicians by job acceptance rate
-  const topTechnicians = technicians
-    .map(tech => {
-      const techJobs = jobs.filter(j => j.assignedTechnician?._id === tech._id || j.assignedTechnician === tech._id);
-      const acceptedJobs = techJobs.filter(j => j.job_status !== "cancelled").length;
-      const acceptanceRate = techJobs.length > 0 ? Math.round((acceptedJobs / techJobs.length) * 100) : 0;
-      
-      return {
-        ...tech,
-        acceptanceRate
-      };
-    })
-    .sort((a, b) => b.acceptanceRate - a.acceptanceRate)
-    .slice(0, 5);
+  const topTechnicians = (techPerformanceData?.data || []).slice(0, 5).map((row) => ({
+    _id: row.technicianId,
+    firstName: row.name,
+    lastName: "",
+    profilePicture: null,
+    acceptanceRate:
+      row.total > 0
+        ? Math.round(((row.completed + row.inProgress) / row.total) * 100)
+        : 0,
+  }));
 
   // Technician performance data from API
   const performanceChartData = techPerformanceData?.data || [];
@@ -335,6 +204,11 @@ function Dashboard() {
 
   return (
     <div className="dashboard-container">
+      {summaryLoading && !summaryOk ? (
+        <p className="dashboard-subtitle" style={{ marginBottom: 16 }}>
+          Loading dashboard…
+        </p>
+      ) : null}
       <div className="dashboard-page-header">
         <h1 className="dashboard-title">Dashboard</h1>
         <p className="dashboard-subtitle">
@@ -419,6 +293,14 @@ function Dashboard() {
               </div>
               <span className="dashboard-metric-label">On Going Jobs</span>
               <span className="dashboard-metric-value">{ongoingJobs}</span>
+            </div>
+
+            <div className="dashboard-metric-card">
+              <div className="dashboard-metric-icon">
+                <img src="/icons/info.svg" alt="" />
+              </div>
+              <span className="dashboard-metric-label">On Hold Jobs</span>
+              <span className="dashboard-metric-value">{onHoldJobs}</span>
             </div>
 
             <div className="dashboard-metric-card dashboard-metric-card-warning">

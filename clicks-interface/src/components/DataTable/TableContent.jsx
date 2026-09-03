@@ -5,6 +5,7 @@ const TableContent = ({
   columns = [],
   data = [],
   loading = false,
+  fetching = false,
   onEdit,
   onDelete,
   actionIcons = [
@@ -14,6 +15,7 @@ const TableContent = ({
 }) => {
   return (
     <div className="table-content">
+      {fetching ? <div className="table-fetching-bar" aria-hidden="true" /> : null}
       <div className="table-row table-header-row">
         {columns.map((col) => (
           <div

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clicks_business/core/helper/job_location_display.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -154,7 +155,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 _row('Plate', job['licensePlate'].toString()),
               if ((job['vinNumber']?.toString() ?? '').isNotEmpty)
                 _row('VIN', job['vinNumber'].toString()),
-              _row('Location', job['location']?.toString() ?? ''),
+              _row('Location', formatJobLocationDisplay(job)),
               _row('Price', '${job['price'] ?? ''} QAR'),
               if (job['businessCutPercent'] != null)
                 _row(

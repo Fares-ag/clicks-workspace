@@ -1,7 +1,10 @@
 const Job = require("../models/Job");
 const SOSRequest = require("../models/SOSRequest");
 const ServiceRequest = require("../models/ServiceRequest");
-const { resolveJobLocationToGeoPoint } = require("../utils/resolveJobLocation");
+const {
+  resolveJobLocationToGeoPointRequired,
+} = require("../utils/resolveJobLocation");
+const { formatGeoPointAsLocationString } = require("../utils/parseJobLocation");
 
 /**
  * Validate and persist a Job from an admin-style payload.
@@ -65,7 +68,7 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     licensePlate: licensePlate || "",
     vinNumber: vinNumber || "",
     issue: String(issue).trim(),
-    location,
+    location: String(location).trim(),
     dateTime,
     jobType,
     assignedTechnician: assignedTechnician || null,
@@ -86,8 +89,12 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     created_by_business_user: body.created_by_business_user || null,
   };
 
-  const geo = await resolveJobLocationToGeoPoint(location);
-  if (geo) jobData.locationCoordinates = geo;
+  jobData.locationCoordinates = await resolveJobLocationToGeoPointRequired(
+    jobData.location
+  );
+  jobData.location =
+    formatGeoPointAsLocationString(jobData.locationCoordinates) ||
+    jobData.location;
 
   const job = await Job.create(jobData);
 

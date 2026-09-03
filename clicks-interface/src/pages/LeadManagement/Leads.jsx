@@ -32,7 +32,7 @@ function Leads() {
   const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [statusFilter, setStatusFilter] = useState("");
 
-  const { data, isLoading, refetch } = useGetLeadsQuery({
+  const { data, isLoading, isFetching, refetch } = useGetLeadsQuery({
     page,
     limit: 15,
     search: debouncedSearch,
@@ -153,7 +153,8 @@ function Leads() {
       <DataTable
         columns={columns}
         data={leads}
-        loading={isLoading}
+        loading={isLoading && !data}
+        fetching={isFetching && !!data}
         searchPlaceholder="Search…"
         hideFilterIcon={true}
         pagination={{

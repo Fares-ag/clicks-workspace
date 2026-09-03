@@ -19,7 +19,8 @@ const AdminSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     profilePicture: { type: String },
     password: { type: String, required: true, select: false },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    fcm_token: { type: String, default: null },
   },
   { timestamps: true }
 );

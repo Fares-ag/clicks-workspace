@@ -11,6 +11,7 @@ import SettleBalanceModal from "../../components/SettleBalanceModal.jsx";
 import ApproveApplicationModal from "../../components/ApproveApplicationModal.jsx";
 import { useAdminRole } from "../../utils/adminRoles";
 import { getJobDisplayId } from "../../utils/jobLabel.js";
+import { formatJobLocationDisplay } from "../../utils/formatJobLocationDisplay.js";
 import "./TechnicianDetails.css";
 
 function StatusPill({ status }) {
@@ -489,7 +490,7 @@ export default function TechnicianDetails() {
                   <td>{getJobDisplayId(job)}</td>
                   <td>{new Date(job.date).toLocaleString()}</td>
                   <td><JobStatusPill status={job.status} /></td>
-                  <td>{job.location}</td>
+                  <td>{formatJobLocationDisplay(job)}</td>
                   <td>{job.price}</td>
                   <td>{job.cost}</td>
                   <td><ProfitPill profit={job.profit} /></td>

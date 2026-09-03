@@ -1,0 +1,30 @@
+name: Load test (staging, manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: k6 scenario file name (without path)
+        required: true
+        default: admin-browse.js
+      vus:
+        description: Optional VU override (leave empty for scenario default)
+        required: false
+
+jobs:
+  k6-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run k6 scenario
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: clicks-api/loadtest/scenarios/${{ github.event.inputs.scenario }}
+        env:
+          STAGING_ADMIN_BASE: ${{ secrets.STAGING_ADMIN_BASE }}
+          STAGING_TECH_BASE: ${{ secrets.STAGING_TECH_BASE }}
+          STAGING_ADMIN_TOKEN: ${{ secrets.STAGING_ADMIN_TOKEN }}
+          STAGING_TECH_TOKEN: ${{ secrets.STAGING_TECH_TOKEN }}
+          STAGING_CUSTOMER_TOKEN: ${{ secrets.STAGING_CUSTOMER_TOKEN }}
+          STAGING_BUSINESS_TOKEN: ${{ secrets.STAGING_BUSINESS_TOKEN }}
+          STAGING_FINANCE_TOKEN: ${{ secrets.STAGING_FINANCE_TOKEN }}

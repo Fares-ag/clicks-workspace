@@ -14,7 +14,8 @@ class ProductRules {
   static const bool subscriptionsArePrimarySalesProduct = true;
 
   /// Incoming job popup is accept-only; no reject CTA.
-  /// Active job also has no Cancel/Reject bail-out — admin cancels if needed.
+  /// Active job has no Cancel/Reject bail-out — admin cancels if needed.
+  /// Deferral path is admin Put on hold; technician sees read-only on_hold status.
   static const bool allowRejectOnIncomingJob = false;
 
   /// Canonical socket event for a newly assigned job (tech-api emits this).

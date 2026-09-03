@@ -278,10 +278,66 @@ async function refreshToken(req, res) {
 }
 
 
+// GET /api/auth/me — current admin profile (mobile session validation)
+async function me(req, res) {
+  try {
+    const admin = await Admin.findById(req.user.id).select(
+      "-password"
+    );
+    if (!admin) {
+      return res.status(401).json({ message: "Account no longer exists" });
+    }
+    if (admin.isActive === false) {
+      return res.status(403).json({ message: "Account is deactivated" });
+    }
+    res.json({
+      user: {
+        id: admin._id,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        role: admin.role,
+        email: admin.email,
+        phone: admin.phone,
+        profilePicture: admin.profilePicture,
+      },
+    });
+  } catch (err) {
+    console.error("me failed:", err.message);
+    return res.status(503).json({ message: "Auth temporarily unavailable" });
+  }
+}
+
+async function saveFcmToken(req, res) {
+  try {
+    const { fcm_token } = req.body || {};
+    if (!fcm_token || typeof fcm_token !== "string") {
+      return res.status(400).json({ message: "fcm_token is required" });
+    }
+    await Admin.findByIdAndUpdate(req.user.id, {
+      fcm_token: fcm_token.trim(),
+    });
+    res.json({ message: "FCM token saved" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to save FCM token", error: err.message });
+  }
+}
+
+async function clearFcmToken(req, res) {
+  try {
+    await Admin.findByIdAndUpdate(req.user.id, { fcm_token: null });
+    res.json({ message: "FCM token cleared" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to clear FCM token", error: err.message });
+  }
+}
+
 module.exports = {
   login,
   logout,
   forgotPassword,
   resetPassword,
-  refreshToken
+  refreshToken,
+  me,
+  saveFcmToken,
+  clearFcmToken,
 };

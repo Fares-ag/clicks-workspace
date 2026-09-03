@@ -2,6 +2,13 @@ import { apiSlice } from "./apiSlice";
 
 export const dashboardApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getNavBadges: builder.query({
+      query: () => ({
+        url: "/dashboard/nav-badges",
+        method: "GET",
+      }),
+      providesTags: ["NavBadges"],
+    }),
     getDashboardSummary: builder.query({
       query: () => ({
         url: "/dashboard/summary",
@@ -60,6 +67,7 @@ export const dashboardApi = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetNavBadgesQuery,
   useGetDashboardSummaryQuery,
   useGetEarningsDataQuery,
   useGetJobCompletionDataQuery,

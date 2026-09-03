@@ -1,27 +1,48 @@
 const Customer = require("../models/Customer");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
+const { buildPrefixSearchFilter } = require("../../../clicks-shared/utils/searchFields");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 
 // GET /api/customers
 async function getCustomers(req, res) {
   try {
     const { page = 1, limit = 10, search = "" } = req.query;
-    const query = search
-      ? {
+    const limitNum = capAdminLimit(limit, 10, 100);
+    const term = String(search || "").trim().slice(0, 64);
+    let query = {};
+
+    if (term) {
+      const prefixFilter = buildPrefixSearchFilter(term, {
+        phoneField: "search_phone",
+        nameField: "search_name",
+      });
+      if (prefixFilter) {
+        query = prefixFilter;
+      } else {
+        const rx = new RegExp(escapeRegex(term), "i");
+        query = {
           $or: [
-            { first_name: { $regex: search, $options: "i" } },
-            { last_name: { $regex: search, $options: "i" } },
-            { email: { $regex: search, $options: "i" } },
-            { phone_number: { $regex: search, $options: "i" } }
-          ]
-        }
-      : {};
+            { first_name: rx },
+            { last_name: rx },
+            { email: rx },
+            { phone_number: rx },
+          ],
+        };
+      }
+    }
     
     const customers = await Customer.find(query)
       .select("-password")
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
+      .skip((page - 1) * limitNum)
+      .limit(limitNum)
+      .sort({ createdAt: -1 })
+      .lean();
     
-    const total = await Customer.countDocuments(query);
+    const total = await cachedCount(Customer, query, {
+      ttlMs: 15000,
+      key: `customers:${term}`,
+    });
     res.json({ customers, total });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch customers", error: err.message });

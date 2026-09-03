@@ -1,3 +1,4 @@
+import 'package:clicks_technician/core/config/job_fulfill_status.dart';
 import 'package:clicks_technician/core/constants/job_status_labels.dart';
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/components/vehicle_make_model_fields.dart';
@@ -863,6 +864,10 @@ class _Actions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _primaryAction(context);
+  }
+
+  Widget _primaryAction(BuildContext context) {
     switch (cubit.jobStatus) {
       case 'accepted':
         return AppButton(

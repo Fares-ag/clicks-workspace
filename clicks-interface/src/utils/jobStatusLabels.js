@@ -3,8 +3,8 @@
  * CI enforces parity via scripts/check-status-labels.mjs (line endings normalized).
  *
  * Single source of truth for job_status display labels and CSS class tokens.
- * Backend enum: pending, assigned, accepted, en_route, arrived, in_progress, completed, cancelled.
- * Legacy keys (paid, confirmed, on_hold) remain for historical admin rows.
+ * Backend enum: pending, assigned, accepted, en_route, arrived, in_progress, on_hold, completed, cancelled.
+ * Legacy keys (paid, confirmed) remain for historical admin rows.
  */
 
 /** @type {Record<string, { label: string, cssClass: string }>} */
@@ -30,12 +30,13 @@ export const CANONICAL_JOB_STATUS_KEYS = [
   "en_route",
   "arrived",
   "in_progress",
+  "on_hold",
   "completed",
   "cancelled",
 ];
 
-/** Filter dropdown includes on_hold (admin legacy). */
-export const JOB_STATUS_FILTER_KEYS = [...CANONICAL_JOB_STATUS_KEYS, "on_hold"];
+/** Filter dropdown — canonical keys (on_hold is live, not legacy-only). */
+export const JOB_STATUS_FILTER_KEYS = [...CANONICAL_JOB_STATUS_KEYS];
 
 function normalizeStatusKey(status) {
   return String(status || "").trim().toLowerCase();

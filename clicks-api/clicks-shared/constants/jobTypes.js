@@ -79,12 +79,7 @@ const LEGACY_JOB_TYPE_LABELS = {
 const ALL_JOB_TYPES = [...JOB_TYPES, ...LEGACY_JOB_TYPES];
 
 /** Expertise values: new catalog + legacy for existing techs and imports. */
-const TECHNICIAN_EXPERTISE = [
-  ...JOB_TYPES,
-  "Tires",
-  "Engines",
-  "Gearbox",
-];
+const TECHNICIAN_EXPERTISE = [...new Set([...JOB_TYPES, ...LEGACY_JOB_TYPES])];
 
 function jobTypeLabel(jobType) {
   return (

@@ -24,6 +24,10 @@ const {
 } = require("../../../clicks-shared/utils/technicianLocationWrite");
 const { captureException } = require("../../../clicks-shared/middleware/sentry");
 const { durationEnv } = require("../../../clicks-shared/utils/durationEnv");
+const { sendAdminDispatchPush } = require("./fcmService");
+const {
+  TECH_BUSY_JOB_STATUSES,
+} = require("../../../clicks-shared/constants/jobStatuses");
 
 const isDev = process.env.NODE_ENV === "development";
 function devLog(...args) {
@@ -712,9 +716,7 @@ function initializeSOSSocket(io) {
           const stillBusy = await Job.exists({
             assignedTechnician: techId,
             _id: { $ne: job._id },
-            job_status: {
-              $in: ["accepted", "en_route", "arrived", "in_progress"],
-            },
+            job_status: { $in: TECH_BUSY_JOB_STATUSES },
           });
           const nextStatus = stillBusy ? "On Job" : "Online";
           await setTechnicianStatus(techId, nextStatus);
@@ -961,6 +963,12 @@ function initializeSOSSocket(io) {
 
         devLog(`Broadcasting SOS ${sos._id} to admin namespace`);
         adminNamespace.emit('newSOSRequest', sosData);
+        sendAdminDispatchPush("admin_sos", {
+          sos_id: String(sos._id),
+          customer_id: String(customer_id),
+        }).catch((err) => {
+          console.error("[fcm] admin SOS push failed:", err.message);
+        });
 
       } catch (err) {
         console.error("Error creating SOS:", err);
@@ -1810,6 +1818,14 @@ function initializeSOSSocket(io) {
         `Broadcasting service request ${payload?.id || payload?._id} to admin namespace`
       );
       adminNamespace.emit("newServiceRequest", payload);
+      sendAdminDispatchPush("admin_service_request", {
+        service_request_id: String(
+          payload?.service_request_id || payload?.id || payload?._id || ""
+        ),
+        customer_id: String(payload?.customer_id || ""),
+      }).catch((err) => {
+        console.error("[fcm] admin service-request push failed:", err.message);
+      });
       return true;
     } catch (error) {
       console.error("Error emitting newServiceRequest to admin:", error);

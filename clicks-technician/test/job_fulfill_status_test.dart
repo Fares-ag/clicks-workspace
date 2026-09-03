@@ -25,10 +25,11 @@ void main() {
       );
     });
 
-    test('does not block idle or incoming-only states', () {
+    test('does not block idle, incoming, or on_hold', () {
       expect(JobFulfillStatus.isBlocking(''), isFalse);
       expect(JobFulfillStatus.isBlocking('assigned'), isFalse);
       expect(JobFulfillStatus.isBlocking('cancelled'), isFalse);
+      expect(JobFulfillStatus.isBlocking('on_hold'), isFalse);
     });
   });
 }

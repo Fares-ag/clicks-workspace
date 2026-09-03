@@ -103,6 +103,8 @@ class JobDisplay {
       case 'assigned':
       case 'accepted':
         return const Color(0xFF36BFFA);
+      case 'on_hold':
+        return const Color(0xFFF79009);
       default:
         return const Color(0xFF667085);
     }

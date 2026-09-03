@@ -68,6 +68,7 @@ const SOSRequestSchema = new mongoose.Schema(
 SOSRequestSchema.index({ location: "2dsphere" });
 SOSRequestSchema.index({ status: 1, broadcast_expires_at: 1 });
 SOSRequestSchema.index({ status: 1, in_call_at: 1 });
+SOSRequestSchema.index({ status: 1, createdAt: -1 }); // admin list sort — provenance: getSOSRequests
 
 SOSRequestSchema.pre("save", function (next) {
   if (this.isNew && !this.broadcast_expires_at) {

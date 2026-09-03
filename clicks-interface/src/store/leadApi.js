@@ -12,6 +12,7 @@ export const leadApi = apiSlice.injectEndpoints({
         return { url, method: "GET" };
       },
       providesTags: ["Lead"],
+      keepUnusedDataFor: 180,
     }),
     getLeadById: builder.query({
       query: (id) => ({ url: `/leads/${id}`, method: "GET" }),

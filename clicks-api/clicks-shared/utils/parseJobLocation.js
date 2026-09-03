@@ -175,6 +175,38 @@ function parseJobLocationToGeoPoint(raw) {
 }
 
 /**
+ * Format GeoJSON Point as "lat, lng" for display and storage.
+ * @param {{ coordinates?: [number, number] } | null | undefined} geo
+ * @returns {string | null}
+ */
+function formatGeoPointAsLocationString(geo) {
+  const coords = geo?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lng = Number(coords[0]);
+  const lat = Number(coords[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat}, ${lng}`;
+}
+
+/**
+ * Prefer stored coordinates; fall back to parseable location text.
+ * @param {{ location?: unknown, locationCoordinates?: { coordinates?: number[] } } | null | undefined} job
+ * @returns {string}
+ */
+function formatJobLocationDisplay(job) {
+  const fromGeo = formatGeoPointAsLocationString(job?.locationCoordinates);
+  if (fromGeo) return fromGeo;
+
+  const raw = normalizeLocationString(job?.location);
+  if (!raw) return "";
+
+  const parsed = parseJobLocation(raw);
+  if (parsed) return `${parsed.lat}, ${parsed.lng}`;
+
+  return raw;
+}
+
+/**
  * Normalize location for display: LatLng → "lat, lng", else trimmed string.
  * @param {unknown} raw
  * @returns {string}
@@ -196,6 +228,8 @@ module.exports = {
   toGeoPoint,
   parseJobLocationToGeoPoint,
   normalizeLocationString,
+  formatGeoPointAsLocationString,
+  formatJobLocationDisplay,
   isExpandableMapsUrl,
   extractGeocodeQuery,
   SHORT_MAPS_HOSTS,

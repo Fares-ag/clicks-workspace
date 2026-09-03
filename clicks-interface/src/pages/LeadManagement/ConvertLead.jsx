@@ -4,7 +4,7 @@ import {
   useGetLeadByIdQuery,
   useConvertLeadMutation,
 } from "../../store/leadApi";
-import { useGetTechniciansQuery } from "../../store/technicianApi";
+import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import CustomSelect from "../../components/CustomSelect.jsx";
 import DateTimePicker from "../../components/DateTimePicker.jsx";
 import { JOB_TYPE_OPTIONS, matchesJobTypeExpertise } from "../../constants/jobTypes";
@@ -16,7 +16,7 @@ function ConvertLead() {
   const { data, isLoading: leadLoading } = useGetLeadByIdQuery(id);
   const [convertLead, { isLoading }] = useConvertLeadMutation();
   const { data: techniciansData, refetch: refetchTechnicians } =
-    useGetTechniciansQuery({ limit: 100 });
+    useGetAssignmentRosterQuery();
 
   const lead = data?.lead;
   const [formData, setFormData] = useState({

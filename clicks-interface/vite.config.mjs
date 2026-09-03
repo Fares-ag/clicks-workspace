@@ -26,6 +26,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            recharts: ["recharts"],
+            googlemaps: ["@react-google-maps/api"],
+            xlsx: ["xlsx"],
+            antd: ["antd"],
+          },
+        },
+      },
+    },
     server: {
       host: "0.0.0.0",
       port: 3000,

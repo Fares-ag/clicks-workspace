@@ -4,6 +4,7 @@ const Customer = require("../models/Customer");
 const CustomerVehicle = require("../../../clicks-shared/models/CustomerVehicle");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { objectId } = require("../../../clicks-shared/utils/coerce");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
 
 // Cap on how many customer/vehicle ids a single search may expand into, so a
 // very broad term cannot build an unbounded $in list.
@@ -149,7 +150,8 @@ const getServiceRequests = async (req, res) => {
           : { createdAt: -1 }
       )
       .skip((page - 1) * limit)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     const docs = await query;
     const srIds = docs.map((d) => d._id);
@@ -160,7 +162,10 @@ const getServiceRequests = async (req, res) => {
       leads.map((l) => [l.service_request_id.toString(), l._id.toString()])
     );
 
-    const total = await ServiceRequest.countDocuments(filter);
+    const total = await cachedCount(ServiceRequest, filter, {
+      ttlMs: 15000,
+      key: `sr:${status || "default"}:${search}`,
+    });
 
     res.json({
       requests: docs.map((d) => mapServiceRequest(d, leadBySrId)),

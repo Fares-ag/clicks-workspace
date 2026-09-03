@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetBusinessesQuery } from "../../store/businessApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import "./Businesses.css";
 
 function formatCut(business) {
@@ -20,15 +21,16 @@ function formatDate(value) {
 
 function Businesses() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [activeFilter, setActiveFilter] = useState("all");
 
   const queryArgs = useMemo(() => {
-    const args = { page: 1, limit: 100, search: search.trim() };
+    const args = { page: 1, limit: 100, search: debouncedSearch.trim() };
     if (activeFilter === "active") args.isActive = true;
     if (activeFilter === "inactive") args.isActive = false;
     return args;
-  }, [search, activeFilter]);
+  }, [debouncedSearch, activeFilter]);
 
   const { data, isLoading, isFetching, error } = useGetBusinessesQuery(queryArgs);
   const businesses = data?.businesses || [];
@@ -43,8 +45,8 @@ function Businesses() {
             <input
               type="text"
               placeholder="Search businesses"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="biz-filter">

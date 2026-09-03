@@ -5,8 +5,10 @@ const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
 // earnings figure honours businessCutType identically.
 const { cutAmountExpr, cutAmountFor } = require("../../../clicks-shared/utils/businessCut");
 
+const { ONGOING_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
+
 const COMPLETED = ["completed"];
-const ONGOING = ["assigned", "accepted", "en_route", "arrived", "in_progress"];
+const ONGOING = ONGOING_JOB_STATUSES;
 
 function pctChange(current, previous) {
   const cur = Number(current) || 0;

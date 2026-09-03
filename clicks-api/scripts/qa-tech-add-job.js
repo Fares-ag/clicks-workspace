@@ -4,6 +4,7 @@
  *
  * Usage:
  *   node scripts/qa-tech-add-job.js
+ *   node scripts/qa-tech-multi-job-hold.js   # M1–M10 + H1–H7 matrix
  *
  * Env:
  *   TECH_URL, ADMIN_URL, TECH_PHONE, TECH_PASSWORD, ADMIN_EMAIL, ADMIN_PASSWORD
@@ -79,7 +80,15 @@ function checkUiWiring() {
   const cubit = fs.readFileSync(files[3], "utf8");
 
   step("home_screen navigates to AddJobScreen", home.includes("AddJobScreen"));
-  step("activity_tab navigates to AddJobScreen", activity.includes("AddJobScreen"));
+  step(
+    "Add job gated by blocking fulfill / incoming dispatch",
+    home.includes("canShowAddJob") && home.includes("JobFulfillStatus.isBlocking")
+  );
+  step(
+    "add job only on idle Home (not Activity tab)",
+    !activity.includes("AddJobScreen"),
+    "Activity tab has no create entry"
+  );
   step("add_job_screen calls createJobCard", addJob.includes("createJobCard"));
   step("createJobCard surfaces API errors", cubit.includes("lastActionError"));
   step("add_job uses vehicle catalog", addJob.includes("VehicleMakeModelFields"));

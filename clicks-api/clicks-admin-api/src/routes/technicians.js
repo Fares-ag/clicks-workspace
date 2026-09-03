@@ -16,6 +16,14 @@ const technicianFileFields = [
 // GET /api/technicians
 router.get("/", authenticateToken, requireOps, technicianController.getTechnicians);
 
+// GET /api/technicians/assignment-roster — MUST be before /:id
+router.get(
+  "/assignment-roster",
+  authenticateToken,
+  requireOps,
+  technicianController.getAssignmentRoster
+);
+
 // GET /api/technicians/live-map — MUST be before /:id
 router.get(
   "/live-map",

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { normalizeSearchName, digitsOnly } = require("../utils/searchFields");
 
 const CustomerSchema = new mongoose.Schema(
   {
@@ -7,6 +8,8 @@ const CustomerSchema = new mongoose.Schema(
     first_name: { type: String, required: true, minlength: 2, maxlength: 50 },
     last_name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
+    search_name: { type: String, index: true }, // admin list prefix search — provenance: getCustomers
+    search_phone: { type: String, index: true }, // admin list prefix search — provenance: getCustomers
     password: { type: String, required: true, minlength: 8, select: false },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
     fcm_token: { type: String },
@@ -62,6 +65,8 @@ async function seedClientIdCounter(CustomerModel) {
 
 // Pre-save hook to generate client_id
 CustomerSchema.pre('save', async function(next) {
+  this.search_name = normalizeSearchName(`${this.first_name || ''} ${this.last_name || ''}`);
+  this.search_phone = digitsOnly(this.phone_number);
   if (!this.client_id && this.isNew) {
     try {
       await seedClientIdCounter(this.constructor);

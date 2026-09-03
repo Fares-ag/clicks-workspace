@@ -10,6 +10,7 @@ export const sosApi = apiSlice.injectEndpoints({
         return { url, method: "GET" };
       },
       providesTags: ["SOS"],
+      keepUnusedDataFor: 180,
     }),
     getSOSById: builder.query({
       query: (id) => ({ url: `/sos/${id}`, method: "GET" }),

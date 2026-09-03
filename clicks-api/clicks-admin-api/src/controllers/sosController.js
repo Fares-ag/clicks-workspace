@@ -5,6 +5,7 @@ const Customer = require("../models/Customer");
 const CustomerVehicle = require("../../../clicks-shared/models/CustomerVehicle");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { objectId } = require("../../../clicks-shared/utils/coerce");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
 const { computeChanges, recordAudit } = require("../utils/auditLog");
 
 // Cap on how many customer/vehicle ids a single search may expand into, so a
@@ -158,11 +159,12 @@ const getSOSRequests = async (req, res) => {
       .populate("job_id", "job_status")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     const [rows, total] = await Promise.all([
       query.exec(),
-      SOSRequest.countDocuments(filter),
+      cachedCount(SOSRequest, filter, { ttlMs: 15000, key: `sos:${status || "all"}:${search}` }),
     ]);
 
     const requests = rows.map(mapSos);

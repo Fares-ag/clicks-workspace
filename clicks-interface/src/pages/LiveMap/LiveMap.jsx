@@ -5,10 +5,9 @@ import {
   Marker,
   InfoWindow,
 } from "@react-google-maps/api";
-import { io } from "socket.io-client";
 import { useGetLiveMapTechniciansQuery } from "../../store/technicianApi";
 import { Link, useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import {
   REST_POLL_MS,
   countVisibleStaleTechnicians,
@@ -23,7 +22,7 @@ import {
 } from "../../config/googleMapsLoader";
 import "./LiveMap.css";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
+const SOCKET_DOWN_POLL_MS = 10000;
 
 // Same van marker as technician app (`assets/images/map_icon.png`).
 const CAR_ICON = {
@@ -160,14 +159,13 @@ const mapOptions = {
 function LiveMap() {
   const navigate = useNavigate();
   const mapRef = useRef(null);
-  const socketRef = useRef(null);
   const panelRef = useRef(null);
   const contextMenuRef = useRef(null);
   /** Ids in the most recent successful REST snapshot (drives ghost pruning). */
   const apiIdsRef = useRef(new Set());
   const sawRestRef = useRef(false);
-  const authRetryTimerRef = useRef(null);
-  const token = useSelector((state) => state.auth.token);
+  const { socket, connected: socketConnected } = useAdminSocket() || {};
+  const [socketDownSince, setSocketDownSince] = useState(null);
 
   // ==================== STATE ====================
   const [technicians, setTechnicians] = useState([]);
@@ -180,8 +178,20 @@ function LiveMap() {
   // Re-render every 10s so "last seen" ages in the UI.
   const [lastSeenTick, setLastSeenTick] = useState(0);
 
-  // ==================== RTK QUERY ====================
-  // 8s REST snapshot as fallback; real-time updates come via socket.
+  useEffect(() => {
+    if (socketConnected) {
+      setSocketDownSince(null);
+    } else if (socketDownSince === null) {
+      setSocketDownSince(Date.now());
+    }
+  }, [socketConnected, socketDownSince]);
+
+  const restPollFallback =
+    !socketConnected &&
+    socketDownSince != null &&
+    Date.now() - socketDownSince >= SOCKET_DOWN_POLL_MS;
+
+  // REST snapshot on mount; poll only when the shared admin socket has been down 10s+.
   const {
     data: liveMapData,
     isLoading,
@@ -189,7 +199,7 @@ function LiveMap() {
     isFetching,
     refetch,
   } = useGetLiveMapTechniciansQuery(undefined, {
-    pollingInterval: REST_POLL_MS,
+    pollingInterval: restPollFallback ? REST_POLL_MS : 0,
   });
 
   // ==================== GOOGLE MAPS LOADER ====================
@@ -239,68 +249,13 @@ function LiveMap() {
     return () => clearInterval(id);
   }, []);
 
-  // ==================== SOCKET CONNECTION ====================
-  const [socketConnected, setSocketConnected] = useState(false);
-  // A namespace-auth rejection is terminal for socket.io-client: reconnection
-  // (even reconnectionAttempts: Infinity) does not apply to a middleware error,
-  // so one "Unauthorized" left the badge reading "Connecting…" forever with no
-  // recovery and nothing shown to the operator. The server also returns
-  // Unauthorized for a transient DB failure during the handshake, so this is
-  // worth retrying on a slow timer rather than giving up.
-  const [socketAuthFailed, setSocketAuthFailed] = useState(false);
-  const [authRetryNonce, setAuthRetryNonce] = useState(0);
-
+  // ==================== SHARED SOCKET (AdminLayout) ====================
   useEffect(() => {
-    if (!token) return undefined;
+    if (!socket) return undefined;
 
-    // forceNew: true is CRITICAL — without it, socket.io-client reuses the same
-    // Manager as AdminLayout.jsx (same host + namespace). When LiveMap unmounts
-    // and calls socket.disconnect(), it would kill AdminLayout's socket too, and
-    // on the next mount the returned socket is already manually-disconnected and
-    // will NOT auto-reconnect. forceNew gives LiveMap its own Manager so the
-    // lifecycles are fully independent.
-    const socket = io(`${SOCKET_URL}/admin`, {
-      forceNew: true,
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      auth: { token },
-    });
-    socketRef.current = socket;
+    socket.emit("joinLiveMap");
 
-    socket.on("connect", () => {
-      console.log("✅ Admin socket connected for live map:", socket.id);
-      setSocketConnected(true);
-      setSocketAuthFailed(false);
-      socket.emit("register");
-      // Opt in to the technician location/presence feed. Admin sessions that
-      // never open this page no longer receive the fleet's coordinates.
-      socket.emit("joinLiveMap");
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.warn("⚠️ Admin socket disconnected:", reason);
-      setSocketConnected(false);
-    });
-
-    socket.on("connect_error", (err) => {
-      console.error("❌ Admin socket connect_error:", err.message);
-      setSocketConnected(false);
-      if (/unauthorized/i.test(err?.message || "")) {
-        setSocketAuthFailed(true);
-        // Re-dial on a slow timer. Bounded by the effect teardown, so leaving
-        // the page stops it.
-        authRetryTimerRef.current = setTimeout(
-          () => setAuthRetryNonce((n) => n + 1),
-          30000
-        );
-      }
-    });
-
-    // Destructuring the payload in the parameter list threw inside socket.io's
-    // dispatcher when a malformed emit arrived with no payload at all.
-    socket.on("technicianLocationBatch", (payload) => {
+    const onLocationBatch = (payload) => {
       const updates = payload?.updates;
       if (!Array.isArray(updates)) return;
       setTechnicians((prev) => {
@@ -319,9 +274,9 @@ function LiveMap() {
         }
         return next;
       });
-    });
+    };
 
-    socket.on("technicianLocationUpdate", (data) => {
+    const onLocationUpdate = (data) => {
       if (!data) return;
       const id = String(data.technician_id);
       setTechnicians((prev) => {
@@ -329,9 +284,9 @@ function LiveMap() {
         const patch = buildLocationPatch(data);
         return prev.map((t) => (String(t._id) === id ? { ...t, ...patch } : t));
       });
-    });
+    };
 
-    socket.on("technicianLocationStale", (data) => {
+    const onLocationStale = (data) => {
       if (!data) return;
       const id = String(data.technician_id);
       const lastLocationAt = data.lastLocationAt || null;
@@ -352,9 +307,9 @@ function LiveMap() {
             : t
         );
       });
-    });
+    };
 
-    socket.on("technicianOnline", (data) => {
+    const onTechnicianOnline = (data) => {
       const id = String(data.technician_id);
       const status = data.currentStatus || "Online";
       // Ignore Offline presence events here — handled by technicianOffline
@@ -389,26 +344,28 @@ function LiveMap() {
           },
         ];
       });
-    });
+    };
 
-    socket.on("technicianOffline", (data) => {
+    const onTechnicianOffline = (data) => {
       const id = String(data.technician_id);
       setTechnicians((prev) => prev.filter((t) => String(t._id) !== id));
       setSelectedTechId((prev) => (prev === id ? null : prev));
-    });
+    };
+
+    socket.on("technicianLocationBatch", onLocationBatch);
+    socket.on("technicianLocationUpdate", onLocationUpdate);
+    socket.on("technicianLocationStale", onLocationStale);
+    socket.on("technicianOnline", onTechnicianOnline);
+    socket.on("technicianOffline", onTechnicianOffline);
 
     return () => {
-      // Listeners off first: disconnect() synchronously fires the local
-      // "disconnect" handler, which then set state during teardown.
-      socket.removeAllListeners();
-      socket.disconnect();
-      socketRef.current = null;
-      if (authRetryTimerRef.current) {
-        clearTimeout(authRetryTimerRef.current);
-        authRetryTimerRef.current = null;
-      }
+      socket.off("technicianLocationBatch", onLocationBatch);
+      socket.off("technicianLocationUpdate", onLocationUpdate);
+      socket.off("technicianLocationStale", onLocationStale);
+      socket.off("technicianOnline", onTechnicianOnline);
+      socket.off("technicianOffline", onTechnicianOffline);
     };
-  }, [token, authRetryNonce]);
+  }, [socket]);
 
   // ==================== CLOSE PANEL ON OUTSIDE CLICK ====================
   useEffect(() => {
@@ -592,19 +549,12 @@ function LiveMap() {
         </div>
       </div>
 
-      {socketAuthFailed && (
+      {!socketConnected && restPollFallback && (
         <div className="live-map-error-banner">
           <span>
-            Real-time updates were refused (session may have expired). Positions
-            below fall back to the {Math.round(REST_POLL_MS / 1000)}s refresh.
+            Real-time updates unavailable. Positions refresh every{" "}
+            {Math.round(REST_POLL_MS / 1000)}s until the socket reconnects.
           </span>
-          <button
-            type="button"
-            className="live-map-error-retry"
-            onClick={() => setAuthRetryNonce((n) => n + 1)}
-          >
-            Reconnect
-          </button>
         </div>
       )}
 

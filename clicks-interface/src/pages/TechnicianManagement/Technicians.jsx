@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import DataTable from "../../components/DataTable/DataTable.jsx";
-import { useGetTechniciansQuery, useGetTechnicianByIdQuery, useAssignVehicleMutation, useToggleTechnicianActiveMutation } from "../../store/technicianApi";
+import { useGetTechniciansQuery, useGetAssignmentRosterQuery, useGetTechnicianByIdQuery, useAssignVehicleMutation, useToggleTechnicianActiveMutation } from "../../store/technicianApi";
 import { useGetVehiclesQuery } from "../../store/vehicleApi";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import ConfirmationModal from "../../components/ConfirmationModal.jsx";
@@ -17,11 +17,9 @@ function TechnicianVehicleDropdown({ technicianId, assignedVehicle, onAssign }) 
   const buttonRef = useRef(null);
   
   const { data: vehiclesData } = useGetVehiclesQuery({ page: 1, limit: 100, search: "" });
-  // Whole roster: the assignment map must cover every technician, not just
-  // the first page (the query defaults to limit=10).
-  const { data: techsData } = useGetTechniciansQuery({ page: 1, limit: 500 });
+  const { data: rosterData } = useGetAssignmentRosterQuery();
   const allVehicles = vehiclesData?.vehicles || [];
-  const allTechs = techsData?.technicians || [];
+  const allTechs = rosterData?.technicians || [];
   
   // Create a map of vehicle IDs to assigned technician info
   const vehicleAssignments = {};

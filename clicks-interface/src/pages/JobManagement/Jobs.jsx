@@ -9,6 +9,10 @@ import EditJobModal from "../../components/EditJobModal.jsx";
 import JobStatusPill from "../../components/JobStatusPill.jsx";
 import { isBusinessPortalJob, isTechnicianCreatedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
 import { getJobDisplayId } from "../../utils/jobLabel.js";
+import {
+  formatJobLocationDisplay,
+  buildJobMapsLink,
+} from "../../utils/formatJobLocationDisplay.js";
 import "./Jobs.css";
 
 function PaymentStatusPill({ status }) {
@@ -49,6 +53,11 @@ function ClientInfoCell({ job }) {
         <TechnicianJobTag job={job} />
       </div>
       <div className="job-client-mobile">{job.clientMobileNumber}</div>
+      {job.job_status === "on_hold" && job.hold_reason ? (
+        <div className="job-hold-reason" title={job.hold_reason}>
+          On hold: {job.hold_reason.length > 60 ? `${job.hold_reason.slice(0, 60)}…` : job.hold_reason}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -101,18 +110,6 @@ function JobActions({ onView }) {
   );
 }
 
-function buildMapsLink(location) {
-  const raw = String(location || "").trim();
-  if (!raw) return "";
-  const coord = raw.match(
-    /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/
-  );
-  if (coord) {
-    return `https://www.google.com/maps?q=${coord[1]},${coord[2]}`;
-  }
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(raw)}`;
-}
-
 function getJobVehicleLabel(job) {
   const v = job?.customer_vehicle_id;
   const make =
@@ -129,7 +126,8 @@ function getJobVehicleLabel(job) {
 }
 
 function buildWhatsAppJobMessage(job) {
-  const locationLink = buildMapsLink(job.location);
+  const locationLink = buildJobMapsLink(job);
+  const locationText = formatJobLocationDisplay(job);
   const price = job.price != null ? `QR ${job.price}` : "N/A";
   const lines = [
     "*Clicks Job Details*",
@@ -137,7 +135,7 @@ function buildWhatsAppJobMessage(job) {
     `*Job ID:* ${getJobDisplayId(job)}`,
     `*Customer:* ${job.clientName || "N/A"}`,
     `*Mobile:* ${job.clientMobileNumber || "N/A"}`,
-    `*Location:* ${locationLink || job.location || "N/A"}`,
+    `*Location:* ${locationLink || locationText || "N/A"}`,
     `*Vehicle:* ${getJobVehicleLabel(job)}`,
     `*Issue:* ${job.issue || "N/A"}`,
     `*Job type:* ${job.jobType || "N/A"}`,
@@ -186,7 +184,7 @@ function Jobs() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState(null);
 
-  const { data, isLoading, refetch } = useGetJobsQuery({
+  const { data, isLoading, isFetching, refetch } = useGetJobsQuery({
     page,
     limit: 40,
     search: debouncedSearch,
@@ -266,7 +264,7 @@ function Jobs() {
       width: "13%",
       render: (row) => (
         <span className="job-location-cell">
-          {row.location}
+          {formatJobLocationDisplay(row)}
         </span>
       )
     },
@@ -358,7 +356,8 @@ function Jobs() {
       <DataTable
         columns={columns}
         data={jobs}
-        loading={isLoading}
+        loading={isLoading && !data}
+        fetching={isFetching && !!data}
         onSearch={handleSearch}
         onFilter={() => setFilterOpen(!filterOpen)}
         filterButtonRef={filterButtonRef}

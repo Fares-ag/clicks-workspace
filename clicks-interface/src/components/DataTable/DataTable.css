@@ -211,6 +211,29 @@
   font-size: var(--font-size-body);
 }
 
+.table-fetching-bar {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-primary, #dc6803),
+    transparent
+  );
+  animation: table-fetch-pulse 1s ease-in-out infinite;
+}
+
+@keyframes table-fetch-pulse {
+  0% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
 .table-empty-state {
   display: flex;
   flex-direction: column;

@@ -5,6 +5,9 @@ const TechnicianEarnings = require("../models/TechnicianEarnings");
 const Receipt = require("../models/Receipt");
 const Vehicle = require("../../../clicks-shared/models/Vehicle");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
+const { buildPrefixSearchFilter } = require("../../../clicks-shared/utils/searchFields");
 const { num } = require("../../../clicks-shared/utils/coerce");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
 const { addSASToTechnician, addSASToTechnicians } = require("../utils/sasHelper");
@@ -87,21 +90,55 @@ async function getLiveMapTechnicians(req, res) {
   }
 }
 
+// GET /api/technicians/assignment-roster — slim list for job/vehicle assignment UIs
+async function getAssignmentRoster(req, res) {
+  try {
+    const technicians = await Technician.find({ isActive: true })
+      .select("firstName lastName assignedVehicle currentStatus")
+      .populate({
+        path: "assignedVehicle",
+        select: "plateNumber make model",
+        populate: [
+          { path: "make", select: "makeName" },
+          { path: "model", select: "modelName" },
+        ],
+      })
+      .sort({ firstName: 1, lastName: 1 })
+      .lean();
+
+    res.json({
+      technicians: technicians.map((t) => ({
+        _id: t._id,
+        firstName: t.firstName,
+        lastName: t.lastName,
+        currentStatus: t.currentStatus,
+        assignedVehicle: t.assignedVehicle || null,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch assignment roster", error: err.message });
+  }
+}
+
 async function getTechnicians(req, res) {
   try {
     const { page = 1, limit = 10, search = "", currentStatus, applicationStatus } = req.query;
+    const limitNum = capAdminLimit(limit, 10, 100);
     const query = {};
     
-    // Escape + length-cap the operator-supplied term: an unescaped "(" or "*"
-    // makes mongod reject the query, and "(a+)+$" would burn a mongod core.
-    const term = escapeRegex(String(search || "").trim().slice(0, 64));
-    if (term) {
-      const rx = new RegExp(term, "i");
-      query.$or = [
-        { firstName: rx },
-        { lastName: rx },
-        { email: rx }
-      ];
+    const rawTerm = String(search || "").trim().slice(0, 64);
+    if (rawTerm) {
+      const searchFilter = buildPrefixSearchFilter(rawTerm, {
+        phoneField: "search_phone",
+        nameField: "search_name",
+      });
+      if (searchFilter) {
+        Object.assign(query, searchFilter);
+      } else {
+        const term = escapeRegex(rawTerm);
+        const rx = new RegExp(term, "i");
+        query.$or = [{ firstName: rx }, { lastName: rx }, { email: rx }];
+      }
     }
     
     if (currentStatus) {
@@ -121,9 +158,13 @@ async function getTechnicians(req, res) {
           { path: 'model', select: 'modelName' }
         ]
       })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
-    const total = await Technician.countDocuments(query);
+      .skip((page - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
+    const total = await cachedCount(Technician, query, {
+      ttlMs: 15000,
+      key: `techs:${JSON.stringify(query)}`,
+    });
     
     // Add SAS tokens to sensitive documents
     const techniciansWithSAS = addSASToTechnicians(technicians);
@@ -374,13 +415,12 @@ async function getTechnicianStats(req, res) {
     // Get assigned vehicle count
     const assignedVehicles = await Vehicle.countDocuments({ assignedTechnician: id });
     
-    // Calculate total earnings from completed jobs
-    const completedJobsData = await Job.find({ 
-      assignedTechnician: id, 
-      job_status: "completed"
-    }).select("price");
-    
-    const totalPrice = completedJobsData.reduce((sum, job) => sum + (job.price || 0), 0);
+    // Calculate total earnings from completed jobs via aggregation
+    const priceAgg = await Job.aggregate([
+      { $match: { assignedTechnician: id, job_status: "completed" } },
+      { $group: { _id: null, total: { $sum: { $ifNull: ["$price", 0] } } } },
+    ]);
+    const totalPrice = priceAgg[0]?.total || 0;
     
     // Job model has no cost field yet — profit equals gross earnings
     const totalCost = 0;
@@ -616,6 +656,7 @@ async function assignVehicle(req, res) {
 module.exports = {
   getTechnicians,
   getLiveMapTechnicians,
+  getAssignmentRoster,
   createTechnician,
   getTechnicianById,
   updateTechnician,

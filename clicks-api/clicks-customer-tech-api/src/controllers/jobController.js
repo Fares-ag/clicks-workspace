@@ -10,13 +10,20 @@ const {
   parseJobLocation,
 } = require("../../../clicks-shared/utils/parseJobLocation");
 const {
-  resolveJobLocationToGeoPoint,
+  resolveJobLocationToGeoPointRequired,
 } = require("../../../clicks-shared/utils/resolveJobLocation");
+const { formatGeoPointAsLocationString } = require("../../../clicks-shared/utils/parseJobLocation");
 const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
 const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
 const { captureException } = require("../../../clicks-shared/middleware/sentry");
 const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
 const { num } = require("../../../clicks-shared/utils/coerce");
+const {
+  TECH_SESSION_ACTIVE_STATUSES,
+  TECH_BUSY_JOB_STATUSES,
+  JOB_STATUS_PRIORITY,
+} = require("../../../clicks-shared/constants/jobStatuses");
+const { resolveTechnicianStatusAfterJob } = require("../../../clicks-shared/services/jobHold");
 const {
   MOBILE_JOB_LIST_SELECT,
   MOBILE_JOB_LIST_POPULATE,
@@ -27,15 +34,6 @@ const {
   isCompletionCasMiss,
   isReplicaSetTransactionError,
 } = require("../../../clicks-shared/utils/mongoTransactions");
-
-const JOB_STATUS_PRIORITY = {
-  in_progress: 0,
-  arrived: 1,
-  en_route: 2,
-  accepted: 3,
-  assigned: 4,
-  completed: 5,
-};
 
 const jobPopulateForTech = [
   { path: "customer_id", select: "first_name last_name phone_number email" },
@@ -112,31 +110,6 @@ function sortActiveJobs(jobs) {
     const tb = new Date(b.createdAt || 0).getTime();
     return tb - ta;
   });
-}
-
-// Statuses that still occupy a technician (multi-job workflow).
-// "assigned" is deliberately excluded: a dispatched-but-unaccepted job never sets
-// the technician to "On Job" (only acceptJob does) and nothing expires it, so
-// counting it here would hide a technician from dispatch permanently.
-const TECH_BUSY_JOB_STATUSES = [
-  "accepted",
-  "en_route",
-  "arrived",
-  "in_progress",
-];
-
-/**
- * A technician may hold several live jobs at once, so finishing/cancelling one
- * must not blanket-reset them to "Online". Returns the status they should end
- * up in once `excludeJobId` is no longer active.
- */
-async function resolveTechnicianStatusAfterJob(technicianId, excludeJobId) {
-  const stillBusy = await Job.exists({
-    assignedTechnician: technicianId,
-    _id: { $ne: excludeJobId },
-    job_status: { $in: TECH_BUSY_JOB_STATUSES },
-  });
-  return stillBusy ? "On Job" : "Online";
 }
 
 // NOTE: the customer-facing `POST /api/jobs` handler (createJob) was removed.
@@ -1077,7 +1050,7 @@ const getCustomerSession = async (req, res) => {
     const activeJob = await Job.findOne({
       customer_id,
       $or: [
-        { job_status: { $in: ['assigned', 'accepted', 'en_route', 'arrived', 'in_progress'] } },
+        { job_status: { $in: TECH_SESSION_ACTIVE_STATUSES } },
         { job_status: 'completed', payment_status: { $ne: 'paid' } }
       ]
     })
@@ -1124,7 +1097,7 @@ const getTechnicianActiveJob = async (req, res) => {
     // Find job that is assigned to this technician and is active
     const activeJob = await Job.findOne({
       assignedTechnician: technician_id,
-      job_status: { $in: ['assigned', 'accepted', 'en_route', 'arrived', 'in_progress'] }
+      job_status: { $in: TECH_SESSION_ACTIVE_STATUSES },
     })
     .populate('customer_id', 'first_name last_name phone_number email')
     .populate({
@@ -1161,7 +1134,7 @@ const getTechnicianSession = async (req, res) => {
       $or: [
         {
           job_status: {
-            $in: ["assigned", "accepted", "en_route", "arrived", "in_progress"],
+            $in: TECH_SESSION_ACTIVE_STATUSES,
           },
         },
         { job_status: "completed", payment_status: { $ne: "paid" } },
@@ -1288,14 +1261,10 @@ const updateJobDetails = async (req, res) => {
     if (vinNumber != null) job.vinNumber = String(vinNumber).trim();
     if (issue != null) job.issue = String(issue).trim();
     if (location != null) {
-      job.location = String(location).trim();
-      const geo = await resolveJobLocationToGeoPoint(job.location);
-      if (geo) {
-        job.locationCoordinates = geo;
-      } else if (job.locationCoordinates) {
-        await Job.updateOne({ _id: job._id }, { $unset: { locationCoordinates: 1 } });
-        job.locationCoordinates = undefined;
-      }
+      const locationInput = String(location).trim();
+      const geo = await resolveJobLocationToGeoPointRequired(locationInput);
+      job.location = formatGeoPointAsLocationString(geo) || locationInput;
+      job.locationCoordinates = geo;
     }
 
     let signatureCleared = false;
@@ -1321,7 +1290,11 @@ const updateJobDetails = async (req, res) => {
       signatureCleared,
     });
   } catch (err) {
-    res.status(500).json({ error: "Update job details failed", details: err.message });
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Update job details failed",
+      details: err.message,
+    });
   }
 };
 
@@ -1360,6 +1333,19 @@ const uploadCustomerSignature = async (req, res) => {
     res.status(500).json({ error: "Upload signature failed", details: err.message });
   }
 };
+
+async function applyTechnicianPresence(req, technicianId, excludeJobId, forceOnJob = false) {
+  if (!technicianId) return;
+  const nextStatus = forceOnJob
+    ? "On Job"
+    : await resolveTechnicianStatusAfterJob(technicianId, excludeJobId);
+  await setTechnicianStatus(technicianId, nextStatus);
+  const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+  if (typeof notifyPresence === "function") {
+    await notifyPresence(technicianId, nextStatus);
+  }
+  return nextStatus;
+}
 
 module.exports = {
   getJobs,

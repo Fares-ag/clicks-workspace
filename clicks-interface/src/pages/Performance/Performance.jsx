@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetPerformanceQuery, useLazyExportPerformanceCSVQuery } from "../../store/performanceApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import "./Performance.css";
@@ -23,10 +24,11 @@ function PerformanceNameCell({ technician, navigate }) {
 function Performance() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const { data, isLoading } = useGetPerformanceQuery({ page, limit: 5, search });
+  const { data, isLoading } = useGetPerformanceQuery({ page, limit: 5, search: debouncedSearch });
   const [exportCSV, { isLoading: isExporting }] = useLazyExportPerformanceCSVQuery();
 
   const performanceData = data?.performance || [];
@@ -154,7 +156,7 @@ function Performance() {
         columns={columns}
         data={performanceData}
         loading={isLoading}
-        onSearch={(value) => setSearch(value)}
+        onSearch={(value) => setSearchInput(value)}
         onFilter={handleExportCSV}
         filterDropdown={null}
         pagination={{

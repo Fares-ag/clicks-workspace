@@ -11,13 +11,18 @@ const {
   setTechnicianStatus,
 } = require("../../../clicks-shared/services/technicianOnlineHours");
 const {
-  resolveJobLocationToGeoPoint,
+  resolveJobLocationToGeoPointRequired,
 } = require("../../../clicks-shared/utils/resolveJobLocation");
+const { formatGeoPointAsLocationString } = require("../../../clicks-shared/utils/parseJobLocation");
 const {
   applyTechnicianLocationWrite,
   parseCoordinatePair,
 } = require("../../../clicks-shared/utils/technicianLocationWrite");
 const { JOB_TYPES } = require("../../../clicks-shared/constants/jobTypes");
+const {
+  TECH_BUSY_JOB_STATUSES,
+  OFFLINE_BLOCKING_STATUSES,
+} = require("../../../clicks-shared/constants/jobStatuses");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -411,7 +416,7 @@ const toggleStatus = async (req, res) => {
         $or: [
           {
             job_status: {
-              $in: ["assigned", "accepted", "en_route", "arrived", "in_progress"],
+              $in: OFFLINE_BLOCKING_STATUSES,
             },
           },
           { job_status: "completed", payment_status: { $ne: "paid" } },
@@ -1207,6 +1212,17 @@ const createTechnicianJob = async (req, res) => {
       return res.status(404).json({ error: "Technician not found" });
     }
 
+    const blocking = await Job.findOne({
+      assignedTechnician: techId,
+      job_status: { $in: TECH_BUSY_JOB_STATUSES },
+    }).select("_id job_status");
+    if (blocking) {
+      return res.status(400).json({
+        error: "Ask dispatch to put your current job on hold before creating another",
+        blocking_job_id: blocking._id,
+      });
+    }
+
     const {
       clientName,
       clientMobileNumber,
@@ -1261,7 +1277,11 @@ const createTechnicianJob = async (req, res) => {
     const acceptedAt = new Date();
 
     const locationStr = String(location).trim();
-    const locationCoordinates = await resolveJobLocationToGeoPoint(locationStr);
+    const locationCoordinates = await resolveJobLocationToGeoPointRequired(
+      locationStr
+    );
+    const locationDisplay =
+      formatGeoPointAsLocationString(locationCoordinates) || locationStr;
 
     const job = await Job.create({
       clientName: String(clientName).trim(),
@@ -1274,8 +1294,8 @@ const createTechnicianJob = async (req, res) => {
       licensePlate: licensePlate ? String(licensePlate).trim() : "",
       vinNumber: vinNumber ? String(vinNumber).trim() : "",
       issue: String(issue).trim(),
-      location: locationStr,
-      ...(locationCoordinates ? { locationCoordinates } : {}),
+      location: locationDisplay,
+      locationCoordinates,
       dateTime: new Date(dateTime),
       jobType,
       price: jobPrice,
@@ -1335,7 +1355,11 @@ const createTechnicianJob = async (req, res) => {
 
     res.status(201).json({ message: "Job created and assigned to you", job: populated });
   } catch (err) {
-    res.status(500).json({ error: "Failed to create job", details: err.message });
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Failed to create job",
+      details: err.message,
+    });
   }
 };
 

@@ -3,7 +3,7 @@
 /// CI enforces web parity via scripts/check-status-labels.mjs.
 ///
 /// Backend enum: pending, assigned, accepted, en_route, arrived, in_progress,
-/// completed, cancelled. Legacy: paid, confirmed, on_hold.
+/// on_hold, completed, cancelled. Legacy: paid, confirmed.
 class JobStatusLabels {
   JobStatusLabels._();
 

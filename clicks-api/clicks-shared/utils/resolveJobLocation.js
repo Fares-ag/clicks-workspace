@@ -10,6 +10,16 @@ const EXPAND_TIMEOUT_MS = 8000;
 const GEOCODE_TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 5;
 
+const LOCATION_RESOLVE_ERROR =
+  "Could not resolve location. Paste a Google Maps / Waze link, lat/lng (e.g. 25.27, 51.51), or a full address.";
+
+function locationResolveError(message = LOCATION_RESOLVE_ERROR) {
+  const err = new Error(message);
+  err.status = 400;
+  err.code = "LOCATION_UNRESOLVABLE";
+  return err;
+}
+
 function getMapsKey() {
   return (process.env.GOOGLE_MAPS_API_KEY || "").trim();
 }
@@ -40,6 +50,13 @@ async function expandShortUrl(url) {
         continue;
       }
       break;
+    } catch (err) {
+      console.warn(
+        "[resolveJobLocation] expandShortUrl failed:",
+        current,
+        err?.message || err
+      );
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -111,8 +128,13 @@ async function resolveJobLocationToGeoPoint(raw) {
       expanded = await expandShortUrl(s);
       coords = parseJobLocation(expanded);
       if (coords) return toGeoPoint(coords);
-    } catch {
-      // fall through to geocode
+    } catch (err) {
+      console.warn(
+        "[resolveJobLocation] short link expand/parse failed:",
+        s,
+        err?.message || err
+      );
+      // fall through to geocode place name from expanded URL when possible
     }
   }
 
@@ -129,8 +151,29 @@ async function resolveJobLocationToGeoPoint(raw) {
   return null;
 }
 
+/**
+ * Resolve location or throw 400 — used on job create/update so dispatch never
+ * saves a job that technicians cannot navigate to.
+ * @param {unknown} raw
+ * @returns {Promise<{ type: 'Point', coordinates: [number, number] }>}
+ */
+async function resolveJobLocationToGeoPointRequired(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) {
+    const err = new Error("Location is required");
+    err.status = 400;
+    throw err;
+  }
+  const geo = await resolveJobLocationToGeoPoint(s);
+  if (!geo) throw locationResolveError();
+  return geo;
+}
+
 module.exports = {
+  LOCATION_RESOLVE_ERROR,
+  locationResolveError,
   expandShortUrl,
   geocodeQuery,
   resolveJobLocationToGeoPoint,
+  resolveJobLocationToGeoPointRequired,
 };

@@ -7,6 +7,7 @@ Frozen for production launch. New scope requires explicit approval.
 - Customer SOS + scheduled roadside services
 - Admin dispatch + Live Map (realtime technician locations)
 - Technician fulfill: online status, accept job, GPS, en_route → arrived → start → complete → payment confirm
+- Job on-hold / resume (admin only; required hold reason; technician read-only status)
 - Customer rating after complete
 - Cash/card/wallet payment_status confirmation (no in-app gateway required)
 - Auth: customer + technician + admin JWT
@@ -17,7 +18,7 @@ Frozen for production launch. New scope requires explicit approval.
 
 - In-app chat
 - Digital wallets / Stripe-style gateway UI
-- Full insurance check UI + job on-hold/notes domains (hide in admin until built)
+- Full insurance check UI + notes domains (hide in admin until built)
 - Multi-region HA / Redis Socket.IO adapter (keep `instances: 1` until then)
 - Perfect notification center (FCM token save OK; rich inbox later)
 - Full admin permission matrix beyond minimal RBAC

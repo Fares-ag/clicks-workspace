@@ -1,78 +1,105 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useSelector } from "react-redux";
 
-// Auth
+// Auth — keep eager for fast login
 import Login from "./pages/Login.jsx";
 
 // Layout & Protection
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import AdminLayout from "./components/AdminLayout.jsx";
 
-// Dashboard
-import Dashboard from "./pages/Dashboard";
+const PageFallback = () => (
+  <div className="admin-page-loading" style={{ padding: 24 }}>
+    Loading…
+  </div>
+);
 
-// Admin Management
-import { AdminManagement, AdminDetails } from "./pages/AdminManagement";
+function lazyPage(factory) {
+  const Lazy = lazy(factory);
+  return function LazyPage(props) {
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <Lazy {...props} />
+      </Suspense>
+    );
+  };
+}
 
-// Technician Management
-import { Technicians, TechnicianDetails } from "./pages/TechnicianManagement";
-
-// Vehicle Management
-import { Vehicles, VehicleDetails, VehicleMakes, VehicleModels } from "./pages/VehicleManagement";
-
-// Job Management
-import Jobs from "./pages/JobManagement";
-import AddNewJob from "./pages/JobManagement/AddNewJob.jsx";
-import JobDetails from "./pages/JobDetails/JobDetails.jsx";
-
-// Client Management
-import ClientManagement, { ClientDetails } from "./pages/ClientManagement";
-
-// Performance
-import Performance from "./pages/Performance";
-
-// Calls
-import Calls from "./pages/Calls";
-
-// Live Map
-import LiveMap from "./pages/LiveMap";
-
-// Heat Map
-import HeatMap from "./pages/HeatMap";
-
-// Source Configurator
-import Sources from "./pages/SourceConfigurator";
-
-// Business Management
-import {
-  Businesses,
-  AddBusiness,
-  BusinessDetails,
-} from "./pages/BusinessManagement";
-
-// Finance (read-only admin overview)
-import Finance from "./pages/Finance";
-
-import FinanceUsers from "./pages/FinanceUsers";
-
-// Partner Management
-import { Partners, PartnerDetails } from "./pages/PartnerManagement";
-
-// Support Tickets
-import { SupportTickets, TicketDetails } from "./pages/SupportTickets";
-
-// SOS Inbox
-import SOSInbox from "./pages/SOSInbox";
-import ServiceRequestsInbox from "./pages/ServiceRequests";
-
-// Lead Management
-import {
-  Leads,
-  AddNewLead,
-  LeadDetails,
-  ConvertLead,
-} from "./pages/LeadManagement";
+const Dashboard = lazyPage(() => import("./pages/Dashboard"));
+const AdminManagement = lazyPage(() =>
+  import("./pages/AdminManagement").then((m) => ({ default: m.AdminManagement }))
+);
+const AdminDetails = lazyPage(() =>
+  import("./pages/AdminManagement").then((m) => ({ default: m.AdminDetails }))
+);
+const Technicians = lazyPage(() =>
+  import("./pages/TechnicianManagement").then((m) => ({ default: m.Technicians }))
+);
+const TechnicianDetails = lazyPage(() =>
+  import("./pages/TechnicianManagement").then((m) => ({ default: m.TechnicianDetails }))
+);
+const Vehicles = lazyPage(() =>
+  import("./pages/VehicleManagement").then((m) => ({ default: m.Vehicles }))
+);
+const VehicleDetails = lazyPage(() =>
+  import("./pages/VehicleManagement").then((m) => ({ default: m.VehicleDetails }))
+);
+const VehicleMakes = lazyPage(() =>
+  import("./pages/VehicleManagement").then((m) => ({ default: m.VehicleMakes }))
+);
+const VehicleModels = lazyPage(() =>
+  import("./pages/VehicleManagement").then((m) => ({ default: m.VehicleModels }))
+);
+const Jobs = lazyPage(() => import("./pages/JobManagement"));
+const AddNewJob = lazyPage(() => import("./pages/JobManagement/AddNewJob.jsx"));
+const JobDetails = lazyPage(() => import("./pages/JobDetails/JobDetails.jsx"));
+const ClientManagement = lazyPage(() => import("./pages/ClientManagement"));
+const ClientDetails = lazyPage(() =>
+  import("./pages/ClientManagement").then((m) => ({ default: m.ClientDetails }))
+);
+const Performance = lazyPage(() => import("./pages/Performance"));
+const Calls = lazyPage(() => import("./pages/Calls"));
+const LiveMap = lazyPage(() => import("./pages/LiveMap"));
+const HeatMap = lazyPage(() => import("./pages/HeatMap"));
+const Sources = lazyPage(() => import("./pages/SourceConfigurator"));
+const Businesses = lazyPage(() =>
+  import("./pages/BusinessManagement").then((m) => ({ default: m.Businesses }))
+);
+const AddBusiness = lazyPage(() =>
+  import("./pages/BusinessManagement").then((m) => ({ default: m.AddBusiness }))
+);
+const BusinessDetails = lazyPage(() =>
+  import("./pages/BusinessManagement").then((m) => ({ default: m.BusinessDetails }))
+);
+const Finance = lazyPage(() => import("./pages/Finance"));
+const FinanceUsers = lazyPage(() => import("./pages/FinanceUsers"));
+const Partners = lazyPage(() =>
+  import("./pages/PartnerManagement").then((m) => ({ default: m.Partners }))
+);
+const PartnerDetails = lazyPage(() =>
+  import("./pages/PartnerManagement").then((m) => ({ default: m.PartnerDetails }))
+);
+const SupportTickets = lazyPage(() =>
+  import("./pages/SupportTickets").then((m) => ({ default: m.SupportTickets }))
+);
+const TicketDetails = lazyPage(() =>
+  import("./pages/SupportTickets").then((m) => ({ default: m.TicketDetails }))
+);
+const SOSInbox = lazyPage(() => import("./pages/SOSInbox"));
+const ServiceRequestsInbox = lazyPage(() => import("./pages/ServiceRequests"));
+const Leads = lazyPage(() =>
+  import("./pages/LeadManagement").then((m) => ({ default: m.Leads }))
+);
+const AddNewLead = lazyPage(() =>
+  import("./pages/LeadManagement").then((m) => ({ default: m.AddNewLead }))
+);
+const LeadDetails = lazyPage(() =>
+  import("./pages/LeadManagement").then((m) => ({ default: m.LeadDetails }))
+);
+const ConvertLead = lazyPage(() =>
+  import("./pages/LeadManagement").then((m) => ({ default: m.ConvertLead }))
+);
 
 // Public Pages
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage.jsx";

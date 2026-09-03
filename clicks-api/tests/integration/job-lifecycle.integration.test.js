@@ -3,6 +3,7 @@ const { connectTestDb, disconnectTestDb, clearCollections } = require("../helper
 const { technicianToken, bearer } = require("../helpers/tokens");
 const {
   seedArrivedJob,
+  seedInProgressCompletableJob,
   seedTechnician,
   farTechCoords,
   nearTechCoords,
@@ -80,5 +81,28 @@ describe("Job lifecycle + proximity gate", () => {
       .set(bearer(token));
     expect(noSigRes.status).toBe(400);
     expect(noSigRes.body.error).toMatch(/signature/i);
+  });
+
+  test("completion succeeds for technician with legacy expertise values", async () => {
+    const tech = await seedTechnician({
+      expertise: [
+        "Jump start",
+        "Flat tire",
+        "Fuel delivery",
+        "Lockout",
+        "Battery replacement",
+        "Accident assistance",
+      ],
+    });
+    const job = await seedInProgressCompletableJob({ technician: tech });
+    const token = technicianToken(tech._id);
+
+    const res = await request(techApp)
+      .post(`/api/jobs/${job._id}/complete`)
+      .set(bearer(token))
+      .send({ job_reference: "LEGACY-EXPERTISE-001" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.job_status).toBe("completed");
   });
 });

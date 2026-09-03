@@ -9,6 +9,7 @@ const DataTable = ({
   columns = [],
   data = [],
   loading = false,
+  fetching = false,
   onSearch,
   onFilter,
   onEdit,
@@ -33,7 +34,7 @@ const DataTable = ({
 }) => {
   return (
     <div className="data-table-outer">
-      <div className={`data-table${hasBorders ? ' bordered' : ''}`}>
+      <div className={`data-table${hasBorders ? ' bordered' : ''}${fetching ? ' data-table-fetching' : ''}`}>
         <TableHeader
           title={title}
           onSearch={onSearch}
@@ -49,6 +50,7 @@ const DataTable = ({
           columns={columns}
           data={data}
           loading={loading}
+          fetching={fetching}
           onEdit={onEdit}
           onDelete={onDelete}
           actionIcons={actionIcons}

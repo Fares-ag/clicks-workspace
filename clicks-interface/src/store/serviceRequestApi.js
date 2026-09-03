@@ -11,6 +11,7 @@ export const serviceRequestApi = apiSlice.injectEndpoints({
         return { url, method: "GET" };
       },
       providesTags: ["ServiceRequest"],
+      keepUnusedDataFor: 180,
     }),
     getServiceRequestById: builder.query({
       query: (id) => ({ url: `/service-requests/${id}`, method: "GET" }),

@@ -4,9 +4,11 @@ const {
   totalCompletedRevenue,
   revenueForDayWindow,
 } = require("clicks-shared/utils/dashboardRevenue");
+const { getTopJobSources, getTopJobSubSources } = require("./dashboardSourceStats");
 const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
 
 const STATS_KEY = "dashboard_summary";
+const FINANCE_STATS_KEY = "finance_overview_summary";
 
 // Qatar-local day (UTC+3, no DST) — the container runs UTC, so server-local
 // midnight booked overnight jobs to the wrong day. See utils/qatarDay.js.
@@ -24,10 +26,12 @@ async function computeDashboardAggregates() {
   const yesterdayStart = startOfDay(new Date(Date.now() - 86400000));
   const yesterdayEnd = endOfDay(new Date(Date.now() - 86400000));
 
-  const [totalAllTime, today, yesterday] = await Promise.all([
+  const [totalAllTime, today, yesterday, topSources, topSubSources] = await Promise.all([
     totalCompletedRevenue(Job),
     revenueForDayWindow(Job, todayStart, todayEnd),
     revenueForDayWindow(Job, yesterdayStart, yesterdayEnd),
+    getTopJobSources(5),
+    getTopJobSubSources(5),
   ]);
 
   return {
@@ -37,6 +41,8 @@ async function computeDashboardAggregates() {
       yesterday,
       currency: "QAR",
     },
+    topSources,
+    topSubSources,
   };
 }
 
@@ -83,10 +89,33 @@ async function getDashboardStatsDoc() {
   return PlatformStats.findOne({ key: STATS_KEY }).lean();
 }
 
+async function refreshFinanceOverviewStats() {
+  const { buildSummaryPayload } = require("../controllers/financeOverviewController");
+  try {
+    const payload = await buildSummaryPayload({ job_status: "completed" });
+    await PlatformStats.findOneAndUpdate(
+      { key: FINANCE_STATS_KEY },
+      { $set: { value: payload, computed_at: new Date() } },
+      { upsert: true }
+    );
+    return payload;
+  } catch (err) {
+    console.error("finance stats refresh failed:", err.message);
+    return null;
+  }
+}
+
+async function getFinanceStatsDoc() {
+  return PlatformStats.findOne({ key: FINANCE_STATS_KEY }).lean();
+}
+
 function startStatsRefresher(intervalMs = Number(process.env.STATS_REFRESH_MS || 60000)) {
   const tick = () => {
     refreshDashboardStats().catch((err) => {
       console.error("statsRefresher tick failed:", err.message);
+    });
+    refreshFinanceOverviewStats().catch((err) => {
+      console.error("finance statsRefresher tick failed:", err.message);
     });
   };
   tick();
@@ -101,9 +130,12 @@ function stopStatsRefresher(handle) {
 
 module.exports = {
   STATS_KEY,
+  FINANCE_STATS_KEY,
   computeDashboardAggregates,
   refreshDashboardStats,
+  refreshFinanceOverviewStats,
   getDashboardStatsDoc,
+  getFinanceStatsDoc,
   startStatsRefresher,
   stopStatsRefresher,
 };

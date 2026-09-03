@@ -3,6 +3,7 @@ const PartnerEarning = require("../models/PartnerEarning");
 const PartnerWithdrawal = require("../models/PartnerWithdrawal");
 const { hashPassword, comparePassword, generateAccessToken } = require("../utils/authUtils");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const {
   ensureGoogleSourceWithSubSource,
   refreshPeriodStatus,
@@ -65,6 +66,7 @@ function withdrawSummary(partner) {
 async function listPartners(req, res) {
   try {
     const { page = 1, limit = 50, search = "", status } = req.query;
+    const limitNum = capAdminLimit(limit, 50, 100);
     const match = {};
     // Escape + length-cap the operator-supplied term: an unescaped "(" or "*"
     // makes mongod reject the query, and "(a+)+$" would burn a mongod core.
@@ -79,9 +81,9 @@ async function listPartners(req, res) {
     }
     if (status) match.status = status;
 
-    const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
+    const skip = (Math.max(1, Number(page)) - 1) * limitNum;
     const [rows, total] = await Promise.all([
-      Partner.find(match).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      Partner.find(match).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
       Partner.countDocuments(match),
     ]);
 

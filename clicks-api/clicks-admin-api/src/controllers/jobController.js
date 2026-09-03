@@ -10,13 +10,22 @@ const {
   importHistoricalJobs,
 } = require("../../../clicks-shared/utils/historicalJobImport");
 const {
-  resolveJobLocationToGeoPoint,
+  resolveJobLocationToGeoPointRequired,
 } = require("../../../clicks-shared/utils/resolveJobLocation");
+const { formatGeoPointAsLocationString } = require("../../../clicks-shared/utils/parseJobLocation");
 const { createJobRecord } = require("../../../clicks-shared/services/createJobRecord");
+const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
+const {
+  putJobOnHold,
+  resumeJobFromHold,
+  resolveTechnicianStatusAfterJob,
+} = require("../../../clicks-shared/services/jobHold");
+const { TECH_BUSY_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
 const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { pick, str } = require("../../../clicks-shared/utils/coerce");
 const {
   computeJobChanges,
@@ -59,6 +68,7 @@ const ADMIN_EDITABLE_JOB_FIELDS = [
 async function getJobs(req, res) {
   try {
     const { page = 1, limit = 10, search = "", status, businessPortal } = req.query;
+    const limitNum = capAdminLimit(limit, 10, 100);
     
     // Build search query
     let query = {};
@@ -106,8 +116,8 @@ async function getJobs(req, res) {
         ],
       })
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
+      .skip((page - 1) * limitNum)
+      .limit(limitNum)
       .lean();
     const enrichedJobs = jobs.map((job) => ({
       ...job,
@@ -303,6 +313,22 @@ async function updateJob(req, res) {
       update.assigned_at = new Date();
     }
 
+    if (job_status === "on_hold" && currentJob.job_status !== "on_hold") {
+      return res.status(400).json({
+        message: "Use POST /api/jobs/:id/hold with a required reason",
+      });
+    }
+    if (
+      currentJob.job_status === "on_hold" &&
+      job_status &&
+      job_status !== "on_hold" &&
+      job_status !== "cancelled"
+    ) {
+      return res.status(400).json({
+        message: "Use POST /api/jobs/:id/resume to leave hold",
+      });
+    }
+
     // Handle job cancellation
     const isBeingCancelled = job_status === 'cancelled' && currentJob.job_status !== 'cancelled';
     if (isBeingCancelled) {
@@ -318,10 +344,12 @@ async function updateJob(req, res) {
       
       // Reset technician status to Online/Available
       if (currentJob.assignedTechnician) {
-        await Technician.findByIdAndUpdate(currentJob.assignedTechnician, {
-          currentStatus: 'Online'
-        });
-        console.log(`Technician ${currentJob.assignedTechnician} status reset to Online`);
+        const nextStatus = await resolveTechnicianStatusAfterJob(
+          currentJob.assignedTechnician,
+          currentJob._id
+        );
+        await setTechnicianStatus(currentJob.assignedTechnician, nextStatus);
+        console.log(`Technician ${currentJob.assignedTechnician} status reset to ${nextStatus}`);
       }
     }
 
@@ -348,12 +376,11 @@ async function updateJob(req, res) {
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body, "location")) {
-      const geo = await resolveJobLocationToGeoPoint(req.body.location);
-      if (geo) {
-        update.locationCoordinates = geo;
-      } else {
-        update.$unset = { ...(update.$unset || {}), locationCoordinates: 1 };
-      }
+      const locationStr = String(req.body.location).trim();
+      const geo = await resolveJobLocationToGeoPointRequired(locationStr);
+      update.location =
+        formatGeoPointAsLocationString(geo) || locationStr;
+      update.locationCoordinates = geo;
     }
 
     if (
@@ -481,6 +508,9 @@ async function updateJob(req, res) {
   } catch (err) {
     // runValidators surfaces bad enums/casts as ValidationError/CastError —
     // that is a bad request, not a server fault.
+    if (err.status === 400) {
+      return res.status(400).json({ message: err.message, error: err.message });
+    }
     if (err.name === "ValidationError" || err.name === "CastError") {
       return res.status(400).json({ message: "Invalid job update", error: err.message });
     }
@@ -595,6 +625,96 @@ async function importJobs(req, res) {
   }
 }
 
+async function applyAdminTechnicianPresence(technicianId, excludeJobId, forceOnJob = false) {
+  if (!technicianId) return;
+  const nextStatus = forceOnJob
+    ? "On Job"
+    : await resolveTechnicianStatusAfterJob(technicianId, excludeJobId);
+  await setTechnicianStatus(technicianId, nextStatus);
+  return nextStatus;
+}
+
+// POST /api/jobs/:id/hold
+async function holdJob(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await putJobOnHold(job, {
+      reason: req.body?.reason,
+      scheduledReturnAt: req.body?.scheduled_return_at,
+      heldBy: "admin",
+    });
+
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+
+    await recordAudit({
+      req,
+      action: "job.hold",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue("on_hold"),
+        hold_reason: serializeAuditValue(job.hold_reason),
+        status_before_hold: serializeAuditValue(job.status_before_hold),
+      },
+    });
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({
+      message: "Job put on hold",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to put job on hold",
+      error: err.message,
+    });
+  }
+}
+
+// POST /api/jobs/:id/resume
+async function resumeJob(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await resumeJobFromHold(job);
+
+    const restoredBusy = TECH_BUSY_JOB_STATUSES.includes(job.job_status);
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id, restoredBusy);
+
+    await recordAudit({
+      req,
+      action: "job.resume",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue(job.job_status),
+      },
+    });
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({
+      message: "Job resumed",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to resume job",
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getJobs,
   createJob,
@@ -603,4 +723,6 @@ module.exports = {
   deleteJob,
   getJobRepairs,
   importJobs,
+  holdJob,
+  resumeJob,
 };

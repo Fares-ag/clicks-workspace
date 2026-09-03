@@ -451,10 +451,118 @@ async function sendPartnerAccrualPush(partner, amountQar) {
   }
 }
 
+/** Ops admin roles that receive dispatch push alerts. */
+const ADMIN_OPS_ROLES = [
+  "Super Admin",
+  "Admin",
+  "Job Dispatcher",
+  "Coordinator",
+  "Call Center Agent",
+];
+
+const ADMIN_DISPATCH_CHANNEL = "clicks_admin_dispatch_v1";
+
+const ADMIN_DISPATCH_COPY = {
+  admin_sos: {
+    title: "New SOS request",
+    body: "A customer needs immediate assistance.",
+  },
+  admin_service_request: {
+    title: "New service request",
+    body: "A customer submitted a service request.",
+  },
+};
+
+/**
+ * Push dispatch alerts to all active ops admins with registered FCM tokens.
+ * Fire-and-forget — socket remains the primary realtime path.
+ */
+async function sendAdminDispatchPush(type, payload = {}) {
+  const msg = initFirebase();
+  if (!msg) return false;
+
+  const copy = ADMIN_DISPATCH_COPY[type] || {
+    title: "Clicks Admin",
+    body: "You have a new dispatch alert.",
+  };
+
+  let admins;
+  try {
+    const { Admin } = require("../../../clicks-shared/models");
+    admins = await Admin.find({
+      isActive: true,
+      role: { $in: ADMIN_OPS_ROLES },
+      fcm_token: { $exists: true, $nin: [null, ""] },
+    })
+      .select("_id fcm_token role")
+      .lean();
+  } catch (err) {
+    console.error("[fcm] admin dispatch query failed:", err.message);
+    return false;
+  }
+
+  if (!admins.length) {
+    console.log("[fcm] no admin fcm_token — skip dispatch push");
+    return false;
+  }
+
+  const data = buildPushData({
+    ...(payload || {}),
+    type,
+    channelId: ADMIN_DISPATCH_CHANNEL,
+    title: copy.title,
+    body: copy.body,
+  });
+
+  let sent = 0;
+  await Promise.all(
+    admins.map(async (admin) => {
+      try {
+        await msg.send({
+          token: admin.fcm_token,
+          notification: {
+            title: copy.title,
+            body: copy.body,
+          },
+          data,
+          android: {
+            priority: "high",
+            notification: {
+              channelId: ADMIN_DISPATCH_CHANNEL,
+              sound: "default",
+              priority: "high",
+            },
+          },
+        });
+        sent += 1;
+      } catch (err) {
+        console.error("[fcm] admin dispatch send failed:", err.message);
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          try {
+            const { Admin } = require("../../../clicks-shared/models");
+            await Admin.findByIdAndUpdate(admin._id, { fcm_token: null });
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      }
+    })
+  );
+
+  if (sent > 0) {
+    console.log(`[fcm] admin dispatch push sent (${type}) to ${sent} device(s)`);
+  }
+  return sent > 0;
+}
+
 module.exports = {
   sendJobAssignedPush,
   sendPartnerAccrualPush,
   sendCustomerPush,
+  sendAdminDispatchPush,
   customerPushCopyForEvent,
   initFirebase,
   initCustomerFirebase,

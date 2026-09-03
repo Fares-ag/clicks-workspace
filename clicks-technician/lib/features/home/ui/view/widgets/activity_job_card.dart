@@ -120,6 +120,9 @@ class ActivityJobCard extends StatelessWidget {
     if (['accepted', 'en_route', 'arrived', 'in_progress'].contains(status)) {
       return 'Active';
     }
+    if (status == 'on_hold') {
+      return 'On hold — contact dispatch';
+    }
     if (status == 'completed' &&
         (job['payment_status']?.toString() ?? '') != 'paid') {
       return 'Needs payment';

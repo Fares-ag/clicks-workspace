@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGetCustomersQuery } from "../../store/customerApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import FilterDropdown from "../../components/FilterDropdown.jsx";
@@ -57,7 +58,8 @@ function ClientActions({ onEdit, onView }) {
 function ClientManagement() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({});
   const [showSuccess, setShowSuccess] = useState(false);
@@ -67,7 +69,7 @@ function ClientManagement() {
   const { data, isLoading, refetch } = useGetCustomersQuery({
     page,
     limit: 5,
-    search
+    search: debouncedSearch
   });
 
   const customers = data?.customers || [];

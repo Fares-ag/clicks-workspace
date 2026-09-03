@@ -1,3 +1,4 @@
+import 'package:clicks_technician/core/config/job_fulfill_status.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/helper/assets_manager.dart';
 import 'package:clicks_technician/core/permissions/background_location_disclosure.dart';
@@ -44,11 +45,14 @@ class HomeScreen extends StatelessWidget {
         }
 
         final cubit = context.read<HomeCubit>();
-        final status = cubit.jobStatus;
-        final hasActiveFlow =
-            cubit.activeJob != null && status.isNotEmpty && status != 'assigned';
+        final showActiveJobScreen = cubit.activeJob != null &&
+            JobFulfillStatus.isBlocking(
+              cubit.jobStatus,
+              paymentStatus:
+                  cubit.activeJob?['payment_status']?.toString(),
+            );
 
-        if (hasActiveFlow) {
+        if (showActiveJobScreen) {
           return ActiveJobScreen(cubit: cubit);
         }
 
@@ -174,7 +178,8 @@ class _IdleHeroHome extends StatelessWidget {
               Positioned(
                 left: 16.w,
                 bottom: 120.h,
-                child: Material(
+                child: cubit.canShowAddJob
+                    ? Material(
                   color: Colors.black.withValues(alpha: 0.45),
                   borderRadius: BorderRadius.circular(999),
                   child: InkWell(
@@ -207,8 +212,30 @@ class _IdleHeroHome extends StatelessWidget {
                         ],
                       ),
                     ),
-                  ),
-                ),
+                    ),
+                  )
+                    : cubit.heldJobsCount > 0
+                        ? Material(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 14.w,
+                                vertical: 10.h,
+                              ),
+                              child: Text(
+                                cubit.heldJobsCount == 1
+                                    ? '1 job on hold'
+                                    : '${cubit.heldJobsCount} jobs on hold',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14.sp,
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
               ),
               Positioned(
                 right: 16.w,

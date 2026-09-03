@@ -8,6 +8,7 @@ Monorepo for the Clicks roadside-assistance platform.
 |--------|-------------|
 | `clicks-api` | Admin + customer/tech APIs |
 | `clicks-interface` | Admin web (Vite/React) |
+| `clicks-admin` | Admin mobile Flutter app (dispatch + ops) |
 | `clicks-business-web` | Business partner web portal |
 | `clicks-business` | Business partner Flutter app |
 | `clicks-partner` | Partner Flutter app |

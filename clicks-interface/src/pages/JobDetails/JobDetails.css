@@ -1051,10 +1051,11 @@
   color: var(--color-text-secondary);
 }
 
-.job-details-status-badge.on_hold,
-.job-details-status-badge.onhold {
-  background-color: #F59E0B;
-  color: var(--color-bg-white);
+.job-details-hold-card {
+  background: #FFF8F1;
+  border: 1px solid #F9DBAF;
+  border-radius: 12px;
+  padding: 16px 20px;
 }
 
 /* Warning button (On Hold / Resume) */

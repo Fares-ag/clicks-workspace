@@ -4,6 +4,7 @@ import {
   useGetPartnersQuery,
   useCreatePartnerMutation,
 } from "../../store/partnerApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import "./Partners.css";
 
 function statusClass(status) {
@@ -15,7 +16,8 @@ function statusClass(status) {
 
 function Partners() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [statusFilter, setStatusFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
   const [error, setError] = useState("");
@@ -31,10 +33,10 @@ function Partners() {
   });
 
   const queryArgs = useMemo(() => {
-    const args = { page: 1, limit: 100, search: search.trim() };
+    const args = { page: 1, limit: 100, search: debouncedSearch.trim() };
     if (statusFilter !== "all") args.status = statusFilter;
     return args;
-  }, [search, statusFilter]);
+  }, [debouncedSearch, statusFilter]);
 
   const { data, isLoading, isFetching } = useGetPartnersQuery(queryArgs);
   const [createPartner, { isLoading: creating }] = useCreatePartnerMutation();
@@ -94,8 +96,8 @@ function Partners() {
           <div className="partner-search">
             <input
               placeholder="Search name, email, phone"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <select

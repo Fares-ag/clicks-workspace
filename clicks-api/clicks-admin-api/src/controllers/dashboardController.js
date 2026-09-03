@@ -15,128 +15,22 @@ const {
   getDashboardStatsDoc,
   refreshDashboardStats,
 } = require("../services/statsRefresher");
+const { getTopJobSources, getTopJobSubSources } = require("../services/dashboardSourceStats");
 const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
 const { isHiddenSourceName } = require("clicks-shared/utils/systemSources");
-const ONGOING = ["assigned", "accepted", "en_route", "arrived", "in_progress"];
+const { ONGOING_JOB_STATUSES } = require("clicks-shared/constants/jobStatuses");
+const Lead = require("clicks-shared/models/Lead");
+const ServiceRequest = require("clicks-shared/models/ServiceRequest");
+const ONGOING = ONGOING_JOB_STATUSES;
+
+const OPEN_LEAD_STATUSES =
+  Lead.OPEN_LEAD_STATUSES || ["new", "contacted", "qualified"];
 
 function pctChange(current, previous) {
   const cur = Number(current) || 0;
   const prev = Number(previous) || 0;
   if (prev === 0) return cur > 0 ? 100 : 0;
   return Number((((cur - prev) / prev) * 100).toFixed(1));
-}
-
-async function getTopJobSources(limit = 5) {
-  const rows = await Job.aggregate([
-    { $group: { _id: "$source", count: { $sum: 1 } } },
-    { $sort: { count: -1 } },
-    { $limit: limit },
-    {
-      $lookup: {
-        from: "sources",
-        localField: "_id",
-        foreignField: "_id",
-        as: "sourceDoc",
-      },
-    },
-    {
-      $project: {
-        sourceId: "$_id",
-        name: {
-          $ifNull: [
-            { $arrayElemAt: ["$sourceDoc.mainSourceName", 0] },
-            "Unknown",
-          ],
-        },
-        count: 1,
-      },
-    },
-  ]);
-
-  return rows
-    .filter((row) => !isHiddenSourceName(row.name))
-    .map((row) => ({
-      sourceId: row.sourceId,
-      name: row.name,
-      count: row.count,
-    }));
-}
-
-async function getTopJobSubSources(limit = 5) {
-  const rows = await Job.aggregate([
-    {
-      $addFields: {
-        effectiveSubSource: {
-          $let: {
-            vars: {
-              rawSub: {
-                $trim: { input: { $ifNull: ["$subSource", ""] } },
-              },
-              techName: {
-                $trim: { input: { $ifNull: ["$createdByTechnicianName", ""] } },
-              },
-              bizName: {
-                $trim: { input: { $ifNull: ["$businessName", ""] } },
-              },
-            },
-            in: {
-              $cond: [
-                { $ne: ["$$techName", ""] },
-                "$$techName",
-                {
-                  $cond: [
-                    { $ne: ["$$bizName", ""] },
-                    "$$bizName",
-                    "$$rawSub",
-                  ],
-                },
-              ],
-            },
-          },
-        },
-      },
-    },
-    { $match: { effectiveSubSource: { $ne: "" } } },
-    {
-      $group: {
-        _id: { subSource: "$effectiveSubSource", source: "$source" },
-        count: { $sum: 1 },
-      },
-    },
-    { $sort: { count: -1 } },
-    { $limit: limit },
-    {
-      $lookup: {
-        from: "sources",
-        localField: "_id.source",
-        foreignField: "_id",
-        as: "sourceDoc",
-      },
-    },
-    {
-      $project: {
-        subSource: "$_id.subSource",
-        sourceId: "$_id.source",
-        sourceName: {
-          $ifNull: [
-            { $arrayElemAt: ["$sourceDoc.mainSourceName", 0] },
-            "Unknown",
-          ],
-        },
-        count: 1,
-      },
-    },
-  ]);
-
-  return rows
-    .filter((row) => !isHiddenSourceName(row.sourceName))
-    .map((row) => ({
-      subSource: row.subSource,
-      sourceId: row.sourceId,
-      sourceName: row.sourceName,
-      name: row.subSource,
-      count: row.count,
-    }));
 }
 
 // The business runs on Qatar time (UTC+3, no DST) while the container runs UTC,
@@ -178,6 +72,30 @@ function timeframeWindow(timeframe) {
   return { startDate, dateFormat };
 }
 
+// GET /api/dashboard/nav-badges — single payload for sidebar badge counts
+async function getNavBadges(req, res) {
+  try {
+    const [sosPending, sosInCall, servicePending, openLeads] = await Promise.all([
+      cachedCount(SOSRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sos_pending" }),
+      cachedCount(SOSRequest, { status: "in_call" }, { ttlMs: 15000, key: "nav_sos_in_call" }),
+      cachedCount(ServiceRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sr_pending" }),
+      cachedCount(
+        Lead,
+        { status: { $in: OPEN_LEAD_STATUSES } },
+        { ttlMs: 30000, key: "nav_leads_open" }
+      ),
+    ]);
+
+    res.json({
+      sos: sosPending + sosInCall,
+      serviceRequests: servicePending,
+      openLeads,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch nav badges", error: err.message });
+  }
+}
+
 // GET /api/dashboard/summary — ops + KPI snapshot for the admin Dashboard
 async function getDashboardSummary(req, res) {
   try {
@@ -210,6 +128,7 @@ async function getDashboardSummary(req, res) {
       jobsTotal,
       jobsCompleted,
       jobsOngoing,
+      jobsOnHold,
       jobsPending,
       jobsCancelled,
       jobsEnRoute,
@@ -228,12 +147,11 @@ async function getDashboardSummary(req, res) {
       vehiclesTotal,
       clientsTotal,
       insuredTotal,
-      topSourcesRaw,
-      topSubSourcesRaw,
     ] = await Promise.all([
       Job.estimatedDocumentCount(),
       cachedCount(Job, { job_status: { $in: COMPLETED } }, { ttlMs: 30000, key: "jobs_completed" }),
       cachedCount(Job, { job_status: { $in: ONGOING } }, { ttlMs: 30000, key: "jobs_ongoing" }),
+      cachedCount(Job, { job_status: "on_hold" }, { ttlMs: 30000, key: "jobs_on_hold" }),
       cachedCount(Job, { job_status: "pending" }, { ttlMs: 30000, key: "jobs_pending" }),
       cachedCount(Job, { job_status: "cancelled" }, { ttlMs: 30000, key: "jobs_cancelled" }),
       cachedCount(Job, { job_status: "en_route" }, { ttlMs: 30000, key: "jobs_en_route" }),
@@ -289,9 +207,14 @@ async function getDashboardSummary(req, res) {
       Vehicle.countDocuments({}),
       Customer.countDocuments({}),
       VehicleInsurance.countDocuments({}),
-      getTopJobSources(5),
-      getTopJobSubSources(5),
     ]);
+
+    const topSourcesRaw = Array.isArray(materialized?.topSources)
+        ? materialized.topSources
+        : await getTopJobSources(5);
+    const topSubSourcesRaw = Array.isArray(materialized?.topSubSources)
+        ? materialized.topSubSources
+        : await getTopJobSubSources(5);
 
     const topSources = topSourcesRaw.map((row) => ({
       ...row,
@@ -330,6 +253,7 @@ async function getDashboardSummary(req, res) {
         total: jobsTotal,
         completed: jobsCompleted,
         ongoing: jobsOngoing,
+        onHold: jobsOnHold,
         pending: jobsPending,
         cancelled: jobsCancelled,
         enRoute: jobsEnRoute,
@@ -464,44 +388,56 @@ async function getJobCompletionData(req, res) {
 }
 
 // GET /api/dashboard/technician-performance
+let techPerfCache = null;
+const TECH_PERF_TTL_MS = 30000;
+
 async function getTechnicianPerformance(req, res) {
   try {
-    const technicians = await Technician.find({ isActive: true }).select("firstName");
+    if (techPerfCache && techPerfCache.expiresAt > Date.now()) {
+      return res.json(techPerfCache.value);
+    }
 
-    const performanceData = await Promise.all(
-      technicians.map(async (tech) => {
-        const [completed, inProgress, cancelled] = await Promise.all([
-          Job.countDocuments({
-            assignedTechnician: tech._id,
-            job_status: { $in: COMPLETED },
-          }),
-          Job.countDocuments({
-            assignedTechnician: tech._id,
-            job_status: { $in: ONGOING },
-          }),
-          Job.countDocuments({
-            assignedTechnician: tech._id,
-            job_status: "cancelled",
-          }),
-        ]);
+    const technicians = await Technician.find({ isActive: true })
+      .select("_id firstName")
+      .lean();
+    const techById = new Map(technicians.map((t) => [String(t._id), t.firstName]));
 
-        return {
-          technicianId: tech._id,
-          name: tech.firstName,
-          completed,
-          inProgress,
-          cancelled,
-          total: completed + inProgress + cancelled,
-        };
-      })
-    );
+    const grouped = await Job.aggregate([
+      { $match: { assignedTechnician: { $ne: null } } },
+      {
+        $group: {
+          _id: { tech: "$assignedTechnician", status: "$job_status" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
 
-    // Top 6 by completed jobs
+    const statsByTech = new Map();
+    for (const row of grouped) {
+      const techId = String(row._id.tech);
+      if (!techById.has(techId)) continue;
+      if (!statsByTech.has(techId)) {
+        statsByTech.set(techId, { completed: 0, inProgress: 0, cancelled: 0 });
+      }
+      const bucket = statsByTech.get(techId);
+      const status = row._id.status;
+      if (COMPLETED.includes(status)) bucket.completed += row.count;
+      else if (ONGOING.includes(status)) bucket.inProgress += row.count;
+      else if (status === "cancelled") bucket.cancelled += row.count;
+    }
+
+    const performanceData = [...statsByTech.entries()].map(([techId, counts]) => ({
+      technicianId: techId,
+      name: techById.get(techId),
+      ...counts,
+      total: counts.completed + counts.inProgress + counts.cancelled,
+    }));
+
     performanceData.sort((a, b) => b.completed - a.completed || b.total - a.total);
 
-    res.json({
-      data: performanceData.slice(0, 6),
-    });
+    const payload = { data: performanceData.slice(0, 6) };
+    techPerfCache = { value: payload, expiresAt: Date.now() + TECH_PERF_TTL_MS };
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch technician performance data", error: err.message });
   }
@@ -525,25 +461,38 @@ async function getEarningsByDate(req, res) {
     const startDate = startOfDay(parsed);
     const endDate = endOfDay(parsed);
 
-    const jobs = await Job.find({
-      job_status: { $in: COMPLETED },
-      $or: [
-        { completed_at: { $gte: startDate, $lte: endDate } },
-        {
-          $and: [
-            { $or: [{ completed_at: null }, { completed_at: { $exists: false } }] },
-            { updatedAt: { $gte: startDate, $lte: endDate } },
+    const earningsAgg = await Job.aggregate([
+      {
+        $match: {
+          job_status: { $in: COMPLETED },
+          $or: [
+            { completed_at: { $gte: startDate, $lte: endDate } },
+            {
+              $and: [
+                { $or: [{ completed_at: null }, { completed_at: { $exists: false } }] },
+                { updatedAt: { $gte: startDate, $lte: endDate } },
+              ],
+            },
           ],
         },
-      ],
-    });
+      },
+      {
+        $group: {
+          _id: null,
+          totalEarnings: { $sum: { $ifNull: ["$price", 0] } },
+          jobCount: { $sum: 1 },
+        },
+      },
+    ]);
 
-    const totalEarnings = jobs.reduce((sum, job) => sum + (parseFloat(job.price) || 0), 0);
+    const row = earningsAgg[0] || {};
+    const totalEarnings = Number(row.totalEarnings) || 0;
+    const jobCount = row.jobCount || 0;
 
     res.json({
       date,
       totalEarnings,
-      jobCount: jobs.length,
+      jobCount,
       currency: "QAR",
     });
   } catch (err) {
@@ -552,6 +501,7 @@ async function getEarningsByDate(req, res) {
 }
 
 module.exports = {
+  getNavBadges,
   getDashboardSummary,
   getEarningsData,
   getEarningsByDate,

@@ -4,9 +4,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { logout } from "../store/authSlice";
 import { useLogoutMutation } from "../store/authApi";
 import { filterNavItemsForRole, useAdminRole } from "../utils/adminRoles";
-import { useGetSOSRequestsQuery } from "../store/sosApi";
-import { useGetServiceRequestsQuery } from "../store/serviceRequestApi";
-import { useGetLeadsQuery } from "../store/leadApi";
+import { useGetNavBadgesQuery } from "../store/dashboardApi";
+import { jobApi } from "../store/jobApi";
+import { leadApi } from "../store/leadApi";
+import { sosApi } from "../store/sosApi";
 import PrimaryButton from "./PrimaryButton.jsx";
 import "./AdminSidebar.css";
 
@@ -112,29 +113,22 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
     return filterNavItemsForRole(navItems, role);
   }, [role]);
 
-  // Open SOS count (pending + in_call) for red nav badge
-  const { data: pendingSos } = useGetSOSRequestsQuery(
-    { page: 1, limit: 1, status: "pending" },
-    { pollingInterval: 15000 }
-  );
-  const { data: inCallSos } = useGetSOSRequestsQuery(
-    { page: 1, limit: 1, status: "in_call" },
-    { pollingInterval: 15000 }
-  );
-  const sosCount =
-    (pendingSos?.pagination?.total || 0) + (inCallSos?.pagination?.total || 0);
+  const { data: navBadges } = useGetNavBadgesQuery(undefined, {
+    pollingInterval: 15000,
+  });
+  const sosCount = navBadges?.sos ?? 0;
+  const serviceCount = navBadges?.serviceRequests ?? 0;
+  const leadsCount = navBadges?.openLeads ?? 0;
 
-  const { data: pendingService } = useGetServiceRequestsQuery(
-    { page: 1, limit: 1, status: "pending" },
-    { pollingInterval: 15000 }
-  );
-  const serviceCount = pendingService?.pagination?.total || 0;
-
-  const { data: openLeadsData } = useGetLeadsQuery(
-    { page: 1, limit: 1, open: true },
-    { pollingInterval: 30000 }
-  );
-  const leadsCount = openLeadsData?.openCount ?? 0;
+  const prefetchNav = (to) => {
+    if (to === "/jobs") {
+      dispatch(jobApi.util.prefetch("getJobs", { page: 1, limit: 40, search: "" }, { force: false }));
+    } else if (to === "/leads") {
+      dispatch(leadApi.util.prefetch("getLeads", { page: 1, limit: 15, search: "" }, { force: false }));
+    } else if (to === "/sos") {
+      dispatch(sosApi.util.prefetch("getSOSRequests", { page: 1, limit: 15, search: "" }, { force: false }));
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -163,6 +157,8 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
           <NavLink
             key={item.to}
             to={item.to}
+            onMouseEnter={() => prefetchNav(item.to)}
+            onFocus={() => prefetchNav(item.to)}
             onClick={onNavigate}
             className={({ isActive }) =>
               "sidebar-nav-item" + (isActive ? " active" : "")

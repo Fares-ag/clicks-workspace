@@ -1,5 +1,7 @@
 import 'package:clicks_technician/core/components/app_button.dart';
 import 'package:clicks_technician/core/config/product_rules.dart';
+import 'package:clicks_technician/core/constants/job_status_labels.dart';
+import 'package:clicks_technician/core/helper/action_errors.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/helper/cache_helper.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
@@ -49,10 +51,20 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
 
   bool get _isPaid => _job?['payment_status']?.toString() == 'paid';
 
+  String get _jobStatus =>
+      (_job?['job_status'] ?? _job?['status'] ?? '').toString();
+
+  bool get _isInProgress => _jobStatus == 'in_progress';
+
   bool _hasValidSignature() {
-    return (_job?['customerSignatureUrl']?.toString().isNotEmpty ?? false) &&
-        !widget.cubit.signatureClearedBanner;
+    if (widget.cubit.signatureClearedBanner) return false;
+    final url = _job?['customerSignatureUrl']?.toString() ?? '';
+    final signedAt = _job?['customerSignedAt'];
+    return url.isNotEmpty && signedAt != null;
   }
+
+  String? get _readinessMessage =>
+      ActionErrors.completionReadiness(_job);
 
   @override
   void initState() {
@@ -109,6 +121,59 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _showCompletionSuccessDialog(String issue) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        contentPadding: EdgeInsets.fromLTRB(24.w, 28.h, 24.w, 8.h),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              color: Colors.green,
+              size: 64.sp,
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              'Job completed successfully',
+              style: TextStyles.font24Medium,
+              textAlign: TextAlign.center,
+            ),
+            if (issue.isNotEmpty) ...[
+              SizedBox(height: 8.h),
+              Text(
+                issue,
+                style: TextStyles.font14RegularGrey,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: EdgeInsets.fromLTRB(24.w, 0, 24.w, 20.h),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: AppButton(
+              label: 'Done',
+              onPressed: () => Navigator.of(ctx).pop(),
+              bgColor: ColorsManager.mainColor,
+              textColor: Colors.white,
+              height: 44.h,
+              radius: 10.r,
+              margin: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _complete() async {
     final jobReference = _jobRefCtrl.text.trim();
     if (jobReference.isEmpty) {
@@ -141,6 +206,8 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     // still resolve to this job's entries afterwards.
     final draftKey = _draftKey;
     final jobRefDraftKey = _jobRefDraftKey;
+    final issueLabel =
+        (_job?['issue'] ?? widget.cubit.jobIssue).toString().trim();
     final ok = await widget.cubit.completeJob(
       notes: _notesCtrl.text.trim(),
       jobReference: jobReference,
@@ -150,14 +217,16 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
     setState(() => _submitting = false);
     if (!ok) {
       AppSnackBars.errorSnackBar(
-        widget.cubit.lastActionError ??
-            'Could not complete — collect payment and customer signature first',
+        widget.cubit.lastActionError ?? 'Could not complete the job. Try again.',
       );
+      setState(() {});
       return;
     }
     _draftCleared = true;
     await CacheHelper.remove(draftKey);
     await CacheHelper.remove(jobRefDraftKey);
+    if (!mounted) return;
+    await _showCompletionSuccessDialog(issueLabel);
     if (mounted) Navigator.pop(context);
   }
 
@@ -195,6 +264,47 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
             widget.cubit.jobIssue,
             style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
           ),
+          if (_readinessMessage != null) ...[
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12.w),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3F2),
+                borderRadius: BorderRadius.circular(10.r),
+                border: Border.all(color: const Color(0xFFFECDCA)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Before you can complete',
+                    style: TextStyles.font12RegularGrey.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFB42318),
+                    ),
+                  ),
+                  SizedBox(height: 6.h),
+                  Text(
+                    _readinessMessage!,
+                    style: TextStyles.font12RegularGrey.copyWith(
+                      color: const Color(0xFF7A271A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 12.h),
+          ],
+          if (_jobStatus.isNotEmpty && !_isInProgress) ...[
+            Text(
+              'Current status: ${JobStatusLabels.labelFor(_jobStatus)}',
+              style: TextStyles.font12RegularGrey.copyWith(
+                color: const Color(0xFFB54708),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 12.h),
+          ],
           SizedBox(height: 16.h),
           Text(
             'Job ID',
@@ -298,7 +408,12 @@ class _BeginTasksScreenState extends State<BeginTasksScreen> {
           SizedBox(height: 10.h),
           AppButton(
             isLoading: _submitting || widget.cubit.isLoadingAction,
-            onPressed: (_submitting || !_isPaid) ? null : _complete,
+            onPressed: (_submitting ||
+                    !_isPaid ||
+                    !_isInProgress ||
+                    _readinessMessage != null)
+                ? null
+                : _complete,
             label: 'Complete Job',
             margin: 0,
             width: double.infinity,

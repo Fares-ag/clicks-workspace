@@ -25,6 +25,14 @@ import 'package:url_launcher/url_launcher.dart';
   return null;
 }
 
+/// Display job location as "lat, lng" when coordinates are known.
+String formatJobLocationDisplayFromMap(Map<String, dynamic> job) {
+  final ll = jobLatLngFromMap(job);
+  if (ll != null) return '${ll.lat}, ${ll.lng}';
+  final raw = (job['location'] ?? '').toString().trim();
+  return raw.isEmpty ? 'Location not provided' : raw;
+}
+
 /// Opens the job location in a maps/navigation app (Android "Open with" chooser).
 Future<bool> openJobLocationInMaps(
   String location, {

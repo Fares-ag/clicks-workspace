@@ -160,15 +160,12 @@ async function creditTechnicianForJob(job, options = {}) {
     );
   }
 
-  const technicianQuery = Technician.findById(technicianId);
-  if (session) technicianQuery.session(session);
-  const technician = await technicianQuery;
-  if (technician) {
-    if (!technician.performance) technician.performance = {};
-    technician.performance.completedJobs =
-      (technician.performance.completedJobs || 0) + 1;
-    await technician.save(sessionOpt);
-  }
+  const technicianUpdate = Technician.updateOne(
+    { _id: technicianId },
+    { $inc: { "performance.completedJobs": 1 } },
+    sessionOpt
+  );
+  await technicianUpdate;
 
   return { credited: true };
 }

@@ -11,6 +11,7 @@ import BusinessJobNotification from "./BusinessJobNotification.jsx";
 import TechnicianJobNotification from "./TechnicianJobNotification.jsx";
 import { apiSlice } from "../store/apiSlice";
 import { useDispatch } from "react-redux";
+import { AdminSocketContext } from "../context/AdminSocketContext.jsx";
 import "./AdminLayout.css";
 
 const { Content } = Layout;
@@ -55,6 +56,7 @@ function AdminLayout({ children }) {
   );
   const [notificationQueue, setNotificationQueue] = useState([]);
   const [socket, setSocket] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { user, token } = useSelector((state) => state.auth);
@@ -105,10 +107,16 @@ function AdminLayout({ children }) {
     });
 
     adminSocket.on("connect", () => {
+      setSocketConnected(true);
       adminSocket.emit("register", userId);
     });
 
+    adminSocket.on("disconnect", () => {
+      setSocketConnected(false);
+    });
+
     adminSocket.on("connect_error", (error) => {
+      setSocketConnected(false);
       console.error("Socket connection error:", error.message);
     });
 
@@ -121,7 +129,7 @@ function AdminLayout({ children }) {
           id: notificationId(NOTIFICATION_TYPES.SOS, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["SOS"]));
+      dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
       playNotificationSound();
     });
 
@@ -134,7 +142,7 @@ function AdminLayout({ children }) {
           id: notificationId(NOTIFICATION_TYPES.SERVICE_REQUEST, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
+      dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "NavBadges"]));
       playNotificationSound();
     });
 
@@ -154,7 +162,7 @@ function AdminLayout({ children }) {
           (item) => item.type !== NOTIFICATION_TYPES.SERVICE_REQUEST
         );
       });
-      dispatch(apiSlice.util.invalidateTags(["ServiceRequest"]));
+      dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "NavBadges"]));
     });
 
     adminSocket.on("newBusinessLead", (data) => {
@@ -166,7 +174,7 @@ function AdminLayout({ children }) {
           id: notificationId(NOTIFICATION_TYPES.BUSINESS_LEAD, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["Lead", "Dashboard"]));
+      dispatch(apiSlice.util.invalidateTags(["Lead", "NavBadges"]));
       playNotificationSound();
     });
 
@@ -183,7 +191,7 @@ function AdminLayout({ children }) {
           id: notificationId(type, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "Dashboard"]));
+      dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "NavBadges"]));
       playNotificationSound();
     });
 
@@ -196,12 +204,12 @@ function AdminLayout({ children }) {
           id: notificationId(NOTIFICATION_TYPES.TECHNICIAN_JOB, data),
         },
       ]);
-      dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+      dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
       playNotificationSound();
     });
 
     adminSocket.on("sosExpired", () => {
-      dispatch(apiSlice.util.invalidateTags(["SOS"]));
+      dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
     });
 
     adminSocket.on("sosClaimed", (data) => {
@@ -218,7 +226,7 @@ function AdminLayout({ children }) {
         );
         message.info("SOS claimed by another dispatcher");
       }
-      dispatch(apiSlice.util.invalidateTags(["SOS"]));
+      dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
     });
 
     adminSocket.on("sosCancelled", (data) => {
@@ -231,7 +239,7 @@ function AdminLayout({ children }) {
             )
         )
       );
-      dispatch(apiSlice.util.invalidateTags(["SOS"]));
+      dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
     });
 
     adminSocket.on("error", (err) => {
@@ -240,13 +248,13 @@ function AdminLayout({ children }) {
         setNotificationQueue((queue) =>
           queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
         );
-        dispatch(apiSlice.util.invalidateTags(["SOS"]));
+        dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
       } else if (err?.code === "SOS_UNAVAILABLE") {
         message.error("SOS is no longer available");
         setNotificationQueue((queue) =>
           queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
         );
-        dispatch(apiSlice.util.invalidateTags(["SOS"]));
+        dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
       }
     });
 
@@ -279,7 +287,7 @@ function AdminLayout({ children }) {
 
     navigate("/jobs/new", { state: { sosData } });
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["SOS"]));
+    dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
   };
 
   const handleDismissNotification = () => {
@@ -312,7 +320,7 @@ function AdminLayout({ children }) {
       });
     }
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "Lead"]));
+    dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "Lead", "NavBadges"]));
   };
 
   const handleDismissServiceRequest = () => {
@@ -329,12 +337,12 @@ function AdminLayout({ children }) {
       navigate("/leads");
     }
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "Dashboard"]));
+    dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "NavBadges"]));
   };
 
   const handleDismissBusinessLead = () => {
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["Lead", "Dashboard"]));
+    dispatch(apiSlice.util.invalidateTags(["Lead", "NavBadges"]));
   };
 
   const handleOpenBusinessJob = (jobData) => {
@@ -348,12 +356,12 @@ function AdminLayout({ children }) {
       navigate("/jobs");
     }
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+    dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
   };
 
   const handleDismissBusinessJob = () => {
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+    dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
   };
 
   const handleOpenTechnicianJob = (jobData) => {
@@ -363,7 +371,7 @@ function AdminLayout({ children }) {
       navigate("/jobs");
     }
     dequeueNotification();
-    dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+    dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
   };
 
   const handleDismissTechnicianJob = () => {
@@ -371,6 +379,7 @@ function AdminLayout({ children }) {
   };
 
   return (
+    <AdminSocketContext.Provider value={{ socket, connected: socketConnected }}>
     <Layout className="admin-layout">
       <AdminSidebar isOpen={sidebarOpen} onNavigate={handleCloseSidebar} />
       {isMobile && sidebarOpen && (
@@ -438,6 +447,7 @@ function AdminLayout({ children }) {
         />
       )}
     </Layout>
+    </AdminSocketContext.Provider>
   );
 }
 

@@ -1,8 +1,6 @@
-/**
- * Admin-side, READ-ONLY window onto the finance portal's numbers: what has been
- * audited and what is still waiting. Nothing here writes — auditing, re-auditing
- * and vendor management stay in the finance portal (routes/financePortal.js).
- */
+const {
+  getFinanceStatsDoc,
+} = require("../services/statsRefresher");
 const Job = require("../models/Job");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { str } = require("../../../clicks-shared/utils/coerce");
@@ -318,6 +316,16 @@ async function getSummary(req, res) {
     if (shared.error) return res.status(400).json({ message: shared.error });
 
     if (!hasSummaryFilters(req.query)) {
+      const materialized = await getFinanceStatsDoc();
+      const statsStaleMs = 5 * 60 * 1000;
+      if (
+        materialized?.value &&
+        materialized.computed_at &&
+        Date.now() - new Date(materialized.computed_at).getTime() <= statsStaleMs
+      ) {
+        return res.json(materialized.value);
+      }
+
       const cached = readSummaryCache();
       if (cached) return res.json(cached);
 
@@ -370,4 +378,5 @@ module.exports = {
   getSummary,
   listJobs,
   clearSummaryCache,
+  buildSummaryPayload,
 };

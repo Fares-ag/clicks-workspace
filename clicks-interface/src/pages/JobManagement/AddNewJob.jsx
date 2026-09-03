@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useCreateJobMutation } from "../../store/jobApi";
-import { useGetTechniciansQuery } from "../../store/technicianApi";
+import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import { useGetSourcesQuery } from "../../store/sourceApi";
 import { useGetVehicleMakesQuery, useGetVehicleModelsByMakeQuery } from "../../store/vehicleConfigApi";
 import CustomSelect from "../../components/CustomSelect.jsx";
@@ -56,7 +56,7 @@ function AddNewJob() {
   const [phoneError, setPhoneError] = useState("");
 
   const [createJob, { isLoading }] = useCreateJobMutation();
-  const { data: techniciansData, refetch: refetchTechnicians } = useGetTechniciansQuery({ limit: 100 });
+  const { data: techniciansData, refetch: refetchTechnicians } = useGetAssignmentRosterQuery();
   const { data: sourcesData } = useGetSourcesQuery();
   const { data: vehicleMakesData } = useGetVehicleMakesQuery();
   

@@ -5,6 +5,8 @@ const {
   toGeoPoint,
   parseJobLocationToGeoPoint,
   normalizeLocationString,
+  formatGeoPointAsLocationString,
+  formatJobLocationDisplay,
   isWithinQatar,
   extractGeocodeQuery,
   isExpandableMapsUrl,
@@ -124,6 +126,34 @@ describe("parseJobLocationToGeoPoint", () => {
 
   it("returns null for invalid", () => {
     assert.equal(parseJobLocationToGeoPoint("not a place"), null);
+  });
+});
+
+describe("formatGeoPointAsLocationString", () => {
+  it("formats GeoJSON as lat, lng", () => {
+    assert.equal(
+      formatGeoPointAsLocationString({
+        type: "Point",
+        coordinates: [51.5142408, 25.2701124],
+      }),
+      "25.2701124, 51.5142408"
+    );
+  });
+});
+
+describe("formatJobLocationDisplay", () => {
+  it("prefers locationCoordinates over URL in location field", () => {
+    assert.equal(
+      formatJobLocationDisplay({
+        location:
+          "https://www.google.com/maps/place/Espoir+Psychology+Center",
+        locationCoordinates: {
+          type: "Point",
+          coordinates: [51.5142408, 25.2701124],
+        },
+      }),
+      "25.2701124, 51.5142408"
+    );
   });
 });
 

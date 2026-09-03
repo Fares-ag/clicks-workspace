@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { TECHNICIAN_EXPERTISE } = require("../constants/jobTypes");
+const { normalizeSearchName, digitsOnly } = require("../utils/searchFields");
 
 const TechnicianPerformanceSchema = new mongoose.Schema(
   {
@@ -26,6 +27,8 @@ const TechnicianSchema = new mongoose.Schema(
     lastName: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     phone: { type: String, required: true },
+    search_name: { type: String, index: true }, // admin list prefix search — provenance: getTechnicians
+    search_phone: { type: String, index: true }, // admin list prefix search — provenance: getTechnicians
     profilePicture: { type: String },
     homeHeroUrl: { type: String, default: "" },
     password: { type: String, required: true, select: false },
@@ -104,5 +107,11 @@ TechnicianSchema.index({ currentLocation: "2dsphere" });
 // Live Map filter: { isActive, currentStatus }. Polled every 8s per admin tab,
 // and previously a full collection scan.
 TechnicianSchema.index({ isActive: 1, currentStatus: 1 });
+
+TechnicianSchema.pre("save", function (next) {
+  this.search_name = normalizeSearchName(`${this.firstName || ""} ${this.lastName || ""}`);
+  this.search_phone = digitsOnly(this.phone);
+  next();
+});
 
 module.exports = mongoose.model("Technician", TechnicianSchema);

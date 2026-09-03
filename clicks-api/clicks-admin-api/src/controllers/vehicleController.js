@@ -1,10 +1,12 @@
 const Vehicle = require("../models/Vehicle");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
 
 // GET /api/vehicles
 async function getVehicles(req, res) {
   try {
     const { page = 1, limit = 10, search = "", status } = req.query;
+    const limitNum = capAdminLimit(limit, 10, 100);
     
     // Build search query
     let query = {};
@@ -26,8 +28,9 @@ async function getVehicles(req, res) {
       .populate("make")
       .populate("model")
       .populate("assignedTechnician")
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
+      .skip((page - 1) * limitNum)
+      .limit(limitNum)
+      .lean();
     const total = await Vehicle.countDocuments(query);
     res.json({ vehicles, total });
   } catch (err) {

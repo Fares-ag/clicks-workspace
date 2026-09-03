@@ -2,6 +2,13 @@ import { apiSlice } from "./apiSlice";
 
 export const technicianApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getAssignmentRoster: builder.query({
+      query: () => ({
+        url: "/technicians/assignment-roster",
+        method: "GET",
+      }),
+      providesTags: ["Technician"],
+    }),
     getTechnicians: builder.query({
       query: ({ page = 1, limit = 10, search = "", currentStatus, applicationStatus } = {}) => {
         let url = `/technicians?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`;
@@ -16,7 +23,8 @@ export const technicianApi = apiSlice.injectEndpoints({
           method: "GET"
         };
       },
-      providesTags: ["Technician"]
+      providesTags: ["Technician"],
+      keepUnusedDataFor: 180,
     }),
     getOnlineTechnicians: builder.query({
       query: () => ({
@@ -139,6 +147,7 @@ export const technicianApi = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetAssignmentRosterQuery,
   useGetTechniciansQuery,
   useGetOnlineTechniciansQuery,
   useCreateTechnicianMutation,

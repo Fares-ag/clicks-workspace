@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useSelector } from "react-redux";
-import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery } from "../../store/jobApi";
-import { useGetTechniciansQuery } from "../../store/technicianApi";
+import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation } from "../../store/jobApi";
+import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
-import io from "socket.io-client";
+import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import "./JobDetails.css";
 import { jobTypeLabel, matchesJobTypeExpertise } from "../../constants/jobTypes";
 import { isSourceLockedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
 import { getJobStatusCssClass, getJobStatusLabel } from "../../utils/jobStatusLabels";
+
+const HOLDABLE_STATUSES = ["accepted", "en_route", "arrived", "in_progress"];
 import { getJobDisplayId } from "../../utils/jobLabel.js";
+import {
+  formatJobLocationDisplay,
+  buildJobMapsLink,
+} from "../../utils/formatJobLocationDisplay.js";
 
 function getJobVehicleInfo(job) {
   if (!job) return null;
@@ -33,18 +38,24 @@ function getJobVehicleInfo(job) {
 function JobDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const token = useSelector((state) => state.auth.token);
+  const { socket } = useAdminSocket() || {};
   const { data, isLoading, error, refetch } = useGetJobByIdQuery(id);
   const { data: repairsData } = useGetJobRepairsQuery(id);
-  const { data: techniciansData, refetch: refetchTechnicians } = useGetTechniciansQuery({ limit: 100 });
+  const { data: techniciansData, refetch: refetchTechnicians } = useGetAssignmentRosterQuery();
   const [updateJob] = useUpdateJobMutation();
+  const [holdJob] = useHoldJobMutation();
+  const [resumeJob] = useResumeJobMutation();
   const [getJobReceipt] = useLazyGetJobReceiptQuery();
   
-  const [socket, setSocket] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelReasonText, setCancelReasonText] = useState('');
+  const [showHoldModal, setShowHoldModal] = useState(false);
+  const [holdReason, setHoldReason] = useState('');
+  const [holdReturnDate, setHoldReturnDate] = useState('');
+  const [holding, setHolding] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [selectedTechnician, setSelectedTechnician] = useState(null);
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [techSearch, setTechSearch] = useState("");
@@ -97,40 +108,29 @@ function JobDetails() {
     finalAmount: null,
   };
 
-  // Connect to admin socket for cancel job functionality
+  // Listen on the shared admin socket for cancel confirmations.
   useEffect(() => {
-    if (!token) return undefined;
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
-    const adminSocket = io(`${socketUrl}/admin`, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      auth: { token },
-    });
+    if (!socket || !id) return undefined;
 
-    adminSocket.on('connect', () => {
-      console.log('JobDetails: Admin socket connected');
-      adminSocket.emit('register');
-    });
-
-    adminSocket.on('jobCancelled', (data) => {
-      console.log('Job cancelled confirmation:', data);
+    const onJobCancelled = (data) => {
       if (data.job_id === id) {
-        refetch(); // Refresh job data
+        refetch();
       }
-    });
+    };
 
-    adminSocket.on('error', (data) => {
-      console.error('Socket error:', data);
-      alert(data.message || 'An error occurred');
+    const onError = (data) => {
+      alert(data.message || "An error occurred");
       setCancelling(false);
-    });
+    };
 
-    setSocket(adminSocket);
+    socket.on("jobCancelled", onJobCancelled);
+    socket.on("error", onError);
 
     return () => {
-      adminSocket.disconnect();
+      socket.off("jobCancelled", onJobCancelled);
+      socket.off("error", onError);
     };
-  }, [id, refetch, token]);
+  }, [id, refetch, socket]);
 
   // Initialize selected technician from job data
   useEffect(() => {
@@ -263,6 +263,46 @@ function JobDetails() {
     setCancelReasonText('');
   };
 
+  const handleHoldJob = () => {
+    setHoldReason('');
+    setHoldReturnDate('');
+    setShowHoldModal(true);
+  };
+
+  const confirmHoldJob = async () => {
+    const reason = holdReason.trim();
+    if (!reason || !job) return;
+    setHolding(true);
+    try {
+      await holdJob({
+        id: job._id,
+        reason,
+        scheduled_return_at: holdReturnDate || undefined,
+      }).unwrap();
+      setShowHoldModal(false);
+      setHoldReason('');
+      setHoldReturnDate('');
+      refetch();
+    } catch (err) {
+      alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to put job on hold');
+    } finally {
+      setHolding(false);
+    }
+  };
+
+  const handleResumeJob = async () => {
+    if (!job) return;
+    setResuming(true);
+    try {
+      await resumeJob(job._id).unwrap();
+      refetch();
+    } catch (err) {
+      alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to resume job');
+    } finally {
+      setResuming(false);
+    }
+  };
+
   // Handle download receipt
   const handleDownloadReceipt = async () => {
     if (!job || job.job_status !== 'completed') {
@@ -358,12 +398,12 @@ function JobDetails() {
                         <path d="M9 16.5C9 16.5 15 11.625 15 7.5C15 4.18629 12.3137 1.5 9 1.5C5.68629 1.5 3 4.18629 3 7.5C3 11.625 9 16.5 9 16.5Z" stroke="#5A5A5A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                       <a 
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.location)}`}
+                        href={buildJobMapsLink(job)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="job-details-location-link"
                       >
-                        {job.location}
+                        {formatJobLocationDisplay(job)}
                       </a>
                     </div>
                   </div>
@@ -548,6 +588,46 @@ function JobDetails() {
                 {job.cancelled_at && (
                   <span className="job-details-cancellation-date">
                     Cancelled on {new Date(job.cancelled_at).toLocaleString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric',
+                      hour: 'numeric', minute: '2-digit', hour12: true
+                    })}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(job.job_status === 'on_hold' || job.hold_reason) && (
+            <div className="job-details-section-full">
+              <div className="job-details-hold-card">
+                <div className="job-details-cancellation-header">
+                  <h3 className="job-details-cancellation-title">
+                    {job.job_status === 'on_hold' ? 'On Hold' : 'Previous hold'}
+                  </h3>
+                  {job.held_by && (
+                    <span className="job-details-cancellation-by">
+                      by {job.held_by === 'admin' ? 'Admin' : 'Technician'}
+                    </span>
+                  )}
+                </div>
+                <p className="job-details-cancellation-text">
+                  {job.hold_reason || 'No reason provided'}
+                </p>
+                {job.status_before_hold && job.job_status === 'on_hold' && (
+                  <p className="job-details-cancellation-description">
+                    Will resume to {getJobStatusLabel(job.status_before_hold)}
+                  </p>
+                )}
+                {job.scheduled_return_at && (
+                  <p className="job-details-cancellation-description">
+                    Scheduled return: {new Date(job.scheduled_return_at).toLocaleString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric',
+                    })}
+                  </p>
+                )}
+                {job.on_hold_at && (
+                  <span className="job-details-cancellation-date">
+                    Put on hold {new Date(job.on_hold_at).toLocaleString('en-US', {
                       month: 'short', day: 'numeric', year: 'numeric',
                       hour: 'numeric', minute: '2-digit', hour12: true
                     })}
@@ -1199,6 +1279,24 @@ function JobDetails() {
           >
             {cancelling ? 'Cancelling...' : job.job_status === 'cancelled' ? 'Job Cancelled' : job.job_status === 'completed' ? 'Job Completed' : 'Cancel Job'}
           </button>
+          {HOLDABLE_STATUSES.includes(job.job_status) && (
+            <button
+              className="job-details-btn job-details-btn-warning"
+              onClick={handleHoldJob}
+              disabled={holding}
+            >
+              {holding ? 'Holding...' : 'Put on hold'}
+            </button>
+          )}
+          {job.job_status === 'on_hold' && (
+            <button
+              className="job-details-btn job-details-btn-primary"
+              onClick={handleResumeJob}
+              disabled={resuming}
+            >
+              {resuming ? 'Resuming...' : 'Resume job'}
+            </button>
+          )}
           <button 
             className="job-details-btn job-details-btn-primary"
             onClick={handleSave}
@@ -1267,6 +1365,52 @@ function JobDetails() {
                   style={{ opacity: (!cancelReason || (cancelReason === 'Other' && !cancelReasonText.trim())) ? 0.5 : 1 }}
                 >
                   Confirm Cancellation
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHoldModal && (
+        <div className="confirmation-modal-backdrop">
+          <div className="confirmation-modal" style={{ maxWidth: '520px' }}>
+            <button className="confirmation-modal-close" onClick={() => { setShowHoldModal(false); setHoldReason(''); setHoldReturnDate(''); }} aria-label="Close">
+              <span className="confirmation-modal-close-x">&#10005;</span>
+            </button>
+            <div className="confirmation-modal-content">
+              <div className="confirmation-modal-title">Put job on hold</div>
+              <div className="confirmation-modal-message" style={{ marginBottom: '16px' }}>
+                Enter a reason. Dispatch and the technician will see this on the job.
+              </div>
+              <textarea
+                className="cancel-reason-textarea"
+                placeholder="Car sent to garage for 2-day maintenance"
+                value={holdReason}
+                onChange={(e) => setHoldReason(e.target.value)}
+                rows={4}
+                maxLength={2000}
+              />
+              <label className="job-details-label" style={{ display: 'block', marginTop: '12px' }}>
+                Scheduled return (optional)
+              </label>
+              <input
+                type="date"
+                className="job-details-input"
+                value={holdReturnDate}
+                onChange={(e) => setHoldReturnDate(e.target.value)}
+              />
+              <div className="confirmation-modal-actions" style={{ marginTop: '20px' }}>
+                <button className="confirmation-modal-cancel" onClick={() => { setShowHoldModal(false); setHoldReason(''); setHoldReturnDate(''); }}>
+                  Go Back
+                </button>
+                <button
+                  className="confirmation-modal-confirm"
+                  onClick={confirmHoldJob}
+                  disabled={!holdReason.trim() || holding}
+                  style={{ opacity: (!holdReason.trim() || holding) ? 0.5 : 1 }}
+                >
+                  {holding ? 'Holding...' : 'Confirm hold'}
                 </button>
               </div>
             </div>

@@ -85,6 +85,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         if (status != 'assigned' && _showIncomingDetails) {
           setState(() => _showIncomingDetails = false);
         }
+        if (_lastJobStatus == 'assigned' && status != 'assigned') {
+          // ignore: discarded_futures
+          JobNotificationService.instance.cancelUrgentJobNotification();
+        }
         _lastJobStatus = status.isEmpty ? null : status;
       },
       builder: (context, state) {
@@ -92,11 +96,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         final status = cubit.jobStatus;
         final showIncoming =
             cubit.activeJob != null && status == 'assigned';
-        if (showIncoming) {
-          // Keep the alarm going while the Accept modal is visible.
-          // ignore: discarded_futures
-          JobNotificationService.instance.startInsistentAlarm();
-        }
         final onPhotoHome = cubit.activeJob == null || status == 'assigned';
         final photoHome = _index == 0 && onPhotoHome;
         final idleIcon = photoHome ? Colors.white : ColorsManager.greyColor;

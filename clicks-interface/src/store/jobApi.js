@@ -19,7 +19,8 @@ export const jobApi = apiSlice.injectEndpoints({
           method: "GET"
         };
       },
-      providesTags: ["Job"]
+      providesTags: ["Job"],
+      keepUnusedDataFor: 180,
     }),
     createJob: builder.mutation({
       query: (body) => ({
@@ -43,6 +44,21 @@ export const jobApi = apiSlice.injectEndpoints({
         method: "DELETE"
       }),
       invalidatesTags: ["Job"]
+    }),
+    holdJob: builder.mutation({
+      query: ({ id, reason, scheduled_return_at }) => ({
+        url: `/jobs/${id}/hold`,
+        method: "POST",
+        body: { reason, scheduled_return_at },
+      }),
+      invalidatesTags: ["Job"],
+    }),
+    resumeJob: builder.mutation({
+      query: (id) => ({
+        url: `/jobs/${id}/resume`,
+        method: "POST",
+      }),
+      invalidatesTags: ["Job"],
     }),
     getJobById: builder.query({
       query: (id) => ({
@@ -144,6 +160,8 @@ export const {
   useGetJobsQuery,
   useCreateJobMutation,
   useUpdateJobMutation,
+  useHoldJobMutation,
+  useResumeJobMutation,
   useDeleteJobMutation,
   useGetJobByIdQuery,
   useGetJobRepairsQuery,

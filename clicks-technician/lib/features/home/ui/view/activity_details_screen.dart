@@ -399,7 +399,7 @@ class _ClientCard extends StatelessWidget {
         : '';
     final phone = (job['clientMobileNumber'] ?? phoneFromCustomer).toString();
     final name = (job['clientName'] ?? '—').toString();
-    final location = (job['location'] ?? '—').toString();
+    final location = formatJobLocationDisplayFromMap(job);
     final coords = jobLatLngFromMap(job);
 
     return _SectionCard(

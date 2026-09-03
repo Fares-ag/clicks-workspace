@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGetJobQuery } from "../../store/portalApi";
 import StatusPill from "../../components/StatusPill";
 import { formatDateTime, statusLabel } from "../../utils/phone";
+import { formatJobLocationDisplay } from "../../utils/formatJobLocationDisplay";
 import { getJobStatusLabel } from "../../utils/jobStatusLabels";
 import { jobTypeLabel } from "../../constants/jobTypes";
 import "../../styles/add-new-job.css";
@@ -97,7 +98,7 @@ function JobDetail() {
           ) : null}
           <DetailRow label="Type">{jobTypeLabel(job.jobType)}</DetailRow>
           <DetailRow label="Issue">{job.issue}</DetailRow>
-          <DetailRow label="Location">{job.location}</DetailRow>
+          <DetailRow label="Location">{formatJobLocationDisplay(job)}</DetailRow>
           <DetailRow label="Price">{`${job.price ?? ""} QAR`}</DetailRow>
           {job.businessCutPercent != null ? (
             <DetailRow label="Your cut">

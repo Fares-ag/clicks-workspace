@@ -43,10 +43,26 @@ function buildPrefixSearchFilter(search, { phoneField, nameField, businessNameFi
   return { $or: or };
 }
 
+function computeCustomerSearchFields(doc) {
+  return {
+    search_name: normalizeSearchName(`${doc.first_name || ""} ${doc.last_name || ""}`),
+    search_phone: digitsOnly(doc.phone_number),
+  };
+}
+
+function computeTechnicianSearchFields(doc) {
+  return {
+    search_name: normalizeSearchName(`${doc.firstName || ""} ${doc.lastName || ""}`),
+    search_phone: digitsOnly(doc.phone),
+  };
+}
+
 module.exports = {
   digitsOnly,
   normalizeSearchName,
   computeJobSearchFields,
   computeLeadSearchFields,
+  computeCustomerSearchFields,
+  computeTechnicianSearchFields,
   buildPrefixSearchFilter,
 };

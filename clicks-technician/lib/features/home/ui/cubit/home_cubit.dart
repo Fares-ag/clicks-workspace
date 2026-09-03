@@ -13,6 +13,7 @@ import '../../../../core/config/job_fulfill_status.dart';
 import '../../../../core/config/location_tracking.dart';
 import '../../../../core/api/dio_helper.dart';
 import '../../../../core/api/end_points/end_points.dart';
+import '../../../../core/helper/action_errors.dart';
 import '../../../../core/helper/cache_helper.dart';
 import '../../../../core/notifications/job_notification_service.dart';
 import '../../../../core/monitoring/sentry_config.dart';
@@ -265,9 +266,17 @@ class HomeCubit extends Cubit<HomeState> {
       } else {
         activeJob = incoming;
       }
-      // Keep beeping until Accept — start alarm even if FCM was missed.
-      // ignore: discarded_futures
-      JobNotificationService.instance.startInsistentAlarm();
+      final incomingStatus =
+          (incoming['job_status'] ?? incoming['status'] ?? 'assigned')
+              .toString();
+      if (incomingStatus == 'assigned' && !isLoadingAction) {
+        // Keep beeping until Accept — start alarm even if FCM was missed.
+        // ignore: discarded_futures
+        JobNotificationService.instance.startInsistentAlarm();
+      } else if (incomingStatus != 'assigned') {
+        // ignore: discarded_futures
+        JobNotificationService.instance.cancelUrgentJobNotification();
+      }
       _emitLoaded();
       _syncLocationTracking();
       _syncSessionPoll();
@@ -333,6 +342,10 @@ class HomeCubit extends Cubit<HomeState> {
       if (status != null) {
         activeJob!['job_status'] = status;
         activeJob!['status'] = status;
+        if (status.toString() != 'assigned') {
+          // ignore: discarded_futures
+          JobNotificationService.instance.cancelUrgentJobNotification();
+        }
       }
     }
     isLoadingAction = false;
@@ -651,6 +664,36 @@ class HomeCubit extends Cubit<HomeState> {
   /// True when tech is on fulfill path and must not go Offline or accept overwrites.
   bool get hasBlockingActiveJob => _isFulfillPathStatus(jobStatus);
 
+  bool get hasBlockingFulfillJob {
+    if (activeJobs.isEmpty) {
+      return hasBlockingActiveJob;
+    }
+    return activeJobs.any((j) {
+      final status = (j['job_status'] ?? j['status'] ?? '').toString();
+      return JobFulfillStatus.isBlocking(
+        status,
+        paymentStatus: j['payment_status']?.toString(),
+      );
+    });
+  }
+
+  bool get hasIncomingAssignedJob {
+    if (jobStatus == 'assigned') return true;
+    return activeJobs.any((j) {
+      final status = (j['job_status'] ?? j['status'] ?? '').toString();
+      return status == 'assigned';
+    });
+  }
+
+  /// Add job is allowed when no fulfill-path jobs and no pending dispatch.
+  /// Held jobs (`on_hold`) do not block.
+  bool get canShowAddJob => !hasBlockingFulfillJob && !hasIncomingAssignedJob;
+
+  int get heldJobsCount => activeJobs.where((j) {
+        final status = (j['job_status'] ?? j['status'] ?? '').toString();
+        return status == 'on_hold';
+      }).length;
+
   /// Slide toggle enabled only when no incoming/active fulfill job blocks it.
   bool get canToggleOnlineStatus =>
       !hasBlockingActiveJob && jobStatus != 'assigned';
@@ -697,6 +740,9 @@ class HomeCubit extends Cubit<HomeState> {
   String get jobLocation {
     final job = activeJob;
     if (job == null) return 'Location not provided';
+
+    final ll = jobLatLng(job);
+    if (ll != null) return '${ll.lat}, ${ll.lng}';
 
     // Prefer explicit lat/lng fields (SOS payloads often include these).
     final lat = job['latitude'] ??
@@ -749,8 +795,11 @@ class HomeCubit extends Cubit<HomeState> {
   Future<void> acceptJob() async {
     final id = jobId;
     if (id == null) return;
+    // Stop alarm immediately — do not wait for the accept API round-trip.
+    await JobNotificationService.instance.cancelUrgentJobNotification();
     await _runJobAction(
       () => DioHelper.postData(url: EndPoints.acceptJob(id), data: {}),
+      optimisticStatus: 'accepted',
       onSuccess: () {
         activeJob!['job_status'] = 'accepted';
         activeJob!['status'] = 'accepted';
@@ -961,6 +1010,11 @@ class HomeCubit extends Cubit<HomeState> {
 
   Future<bool> createJobCard(Map<String, dynamic> body) async {
     lastActionError = null;
+    if (!canShowAddJob) {
+      lastActionError =
+          'Ask dispatch to put your current job on hold before adding another.';
+      return false;
+    }
     try {
       final res = await DioHelper.postData(
         url: EndPoints.createTechnicianJob,
@@ -1067,6 +1121,18 @@ class HomeCubit extends Cubit<HomeState> {
     return false;
   }
 
+  Map<String, dynamic>? jobSnapshot(String id) {
+    final active = activeJob;
+    if (active != null &&
+        (active['_id'] ?? active['job_id'])?.toString() == id) {
+      return active;
+    }
+    for (final job in activeJobs) {
+      if ((job['_id'] ?? job['job_id'])?.toString() == id) return job;
+    }
+    return null;
+  }
+
   Future<bool> completeJob({
     String notes = '',
     required String jobReference,
@@ -1076,15 +1142,31 @@ class HomeCubit extends Cubit<HomeState> {
     // Pin the caller's job: the 25s session poll can swap [activeJob] while the
     // complete sheet is open, which would post the typed Job ID to another job.
     final id = jobId ?? this.jobId;
-    if (id == null) return false;
+    if (id == null) {
+      lastActionError = 'Job not found. Go back and reopen it from Activity.';
+      return false;
+    }
+    if (isLoadingAction) {
+      lastActionError = 'Please wait — another action is still in progress.';
+      return false;
+    }
     lastActionError = null;
     // Server requires the technician-entered Job ID before it will complete.
     final reference = jobReference.trim();
     if (reference.isEmpty) {
-      lastActionError = 'Job ID is required to complete the job';
+      lastActionError = 'Enter the Job ID before completing.';
+      return false;
+    }
+    if (reference.length > 64) {
+      lastActionError = 'Job ID is too long (max 64 characters).';
       return false;
     }
     await fetchSession();
+    final readiness = ActionErrors.completionReadiness(jobSnapshot(id));
+    if (readiness != null) {
+      lastActionError = readiness;
+      return false;
+    }
     return _runJobAction(
       () => DioHelper.postData(
         url: EndPoints.completeJob(id),
@@ -1195,8 +1277,7 @@ class HomeCubit extends Cubit<HomeState> {
           activeJob!['job_status'] = previousStatus;
           activeJob!['status'] = previousStatus;
         }
-        final err = DioHelper.errorMessage(response);
-        lastActionError = err ?? 'Action failed';
+        lastActionError = DioHelper.errorMessage(response);
         if (!isClosed) emit(HomeActionError(lastActionError!));
       }
     } catch (e) {

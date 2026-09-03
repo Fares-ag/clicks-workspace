@@ -4,6 +4,7 @@ const authenticateToken = require("../middleware/auth");
 const { requireOps, requireFullAdmin } = require("../middleware/rbac");
 const dashboardController = require("../controllers/dashboardController");
 
+router.get("/nav-badges", authenticateToken, requireOps, dashboardController.getNavBadges);
 router.get("/summary", authenticateToken, requireOps, dashboardController.getDashboardSummary);
 router.get("/earnings", authenticateToken, requireFullAdmin, dashboardController.getEarningsData);
 router.get(

@@ -47,10 +47,12 @@ const JobSchema = new mongoose.Schema(
       ref: "Partner",
       default: null,
     },
-    // Job Status Flow: pending → assigned → accepted → en_route → arrived → in_progress → completed → cancelled
+    // Job Status Flow: pending → assigned → accepted → en_route → arrived → in_progress → completed
+    // Hold branch: accepted|en_route|arrived|in_progress → on_hold → (resume restores prior status)
+    // Terminals: completed | cancelled
     job_status: {
       type: String,
-      enum: ["pending", "assigned", "accepted", "en_route", "arrived", "in_progress", "completed", "cancelled"],
+      enum: ["pending", "assigned", "accepted", "en_route", "arrived", "in_progress", "on_hold", "completed", "cancelled"],
       default: "pending"
     },
     // Separate Payment Status: unpaid → paid
@@ -76,6 +78,17 @@ const JobSchema = new mongoose.Schema(
       enum: ["admin", "technician", "customer"],
       default: undefined,
     },
+    // On-hold audit — resume restores status_before_hold; hold_reason is kept after resume.
+    status_before_hold: { type: String, default: null },
+    on_hold_at: { type: Date, default: null },
+    hold_reason: { type: String, maxlength: 2000, default: "" },
+    scheduled_return_at: { type: Date, default: null },
+    held_by: {
+      type: String,
+      enum: ["admin", "technician"],
+      default: undefined,
+    },
+    resumed_at: { type: Date, default: null },
     task_description: { type: String },
     rejection_reasons: [{ type: String }],
     rejection_description: { type: String, maxlength: 500 },

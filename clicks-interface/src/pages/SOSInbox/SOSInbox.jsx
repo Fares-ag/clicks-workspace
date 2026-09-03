@@ -5,6 +5,7 @@ import {
   useGetSOSRequestsQuery,
   useClaimSOSMutation,
 } from "../../store/sosApi";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import { formatCancelReason } from "../../utils/cancelReasonLabels.js";
 import { getJobStatusLabel, JOB_STATUS_LABELS } from "../../utils/jobStatusLabels";
@@ -45,14 +46,15 @@ function StatusBadge({ status }) {
 function SOSInbox() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebouncedValue(searchInput, 400);
   const [statusFilter, setStatusFilter] = useState("");
   const [claimSOS, { isLoading: claiming }] = useClaimSOSMutation();
 
-  const { data, isLoading, refetch } = useGetSOSRequestsQuery({
+  const { data, isLoading, isFetching, refetch } = useGetSOSRequestsQuery({
     page,
     limit: 15,
-    search,
+    search: debouncedSearch,
     status: statusFilter || undefined,
   });
 
@@ -199,9 +201,9 @@ function SOSInbox() {
           <input
             className="sos-inbox-search"
             placeholder="Search name, phone, plate…"
-            value={search}
+            value={searchInput}
             onChange={(e) => {
-              setSearch(e.target.value);
+              setSearchInput(e.target.value);
               setPage(1);
             }}
           />
@@ -214,7 +216,8 @@ function SOSInbox() {
       <DataTable
         columns={columns}
         data={requests}
-        loading={isLoading}
+        loading={isLoading && !data}
+        fetching={isFetching && !!data}
         searchPlaceholder="Search…"
         hideFilterIcon={true}
         pagination={{

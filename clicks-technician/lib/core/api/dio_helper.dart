@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../helper/action_errors.dart';
 import '../helper/cache_helper.dart';
 import 'end_points/end_points.dart';
 
@@ -58,11 +59,7 @@ class DioHelper {
   }
 
   static String? errorMessage(Response response) {
-    final data = response.data;
-    if (data is Map) {
-      return (data['error'] ?? data['message'] ?? data['details'])?.toString();
-    }
-    return null;
+    return ActionErrors.fromResponse(response);
   }
 
   static Future<Response> getData({

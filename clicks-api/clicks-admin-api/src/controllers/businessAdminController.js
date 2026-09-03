@@ -6,10 +6,12 @@ const Job = require("../models/Job");
 // Same earnings definition as the business portal/dashboard: a "profit" cut is
 // a share of the audited net profit, not of revenue.
 const { cutAmountExpr } = require("../../../clicks-shared/utils/businessCut");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 
 async function listBusinesses(req, res) {
   try {
     const { page = 1, limit = 20, search = "", isActive } = req.query;
+    const limitNum = capAdminLimit(limit, 20, 100);
     const match = {};
     if (search) {
       match.$or = [
@@ -21,8 +23,7 @@ async function listBusinesses(req, res) {
     if (isActive === "true") match.isActive = true;
     if (isActive === "false") match.isActive = false;
 
-    const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
-    const limitNum = Number(limit);
+    const skip = (Math.max(1, Number(page)) - 1) * limitNum;
 
     const [rows, total] = await Promise.all([
       Business.aggregate([
