@@ -39,6 +39,19 @@ router.get("/:id", authenticateToken, requireOps, jobController.getJobById);
 router.put("/:id", authenticateToken, requireOps, jobController.updateJob);
 router.post("/:id/hold", authenticateToken, requireOps, jobController.holdJob);
 router.post("/:id/resume", authenticateToken, requireOps, jobController.resumeJob);
+router.post("/:id/complete", authenticateToken, requireOps, jobController.completeJob);
+router.post(
+  "/:id/hold-request/approve",
+  authenticateToken,
+  requireOps,
+  jobController.approveHoldRequestJob
+);
+router.post(
+  "/:id/hold-request/reject",
+  authenticateToken,
+  requireOps,
+  jobController.rejectHoldRequestJob
+);
 router.delete("/:id", authenticateToken, requireFullAdmin, jobController.deleteJob);
 router.get("/:id/repairs", authenticateToken, requireOps, jobController.getJobRepairs);
 

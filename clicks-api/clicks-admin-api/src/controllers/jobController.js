@@ -19,8 +19,13 @@ const {
   putJobOnHold,
   resumeJobFromHold,
   resolveTechnicianStatusAfterJob,
+  approveHoldRequest,
+  rejectHoldRequest,
+  clearPendingHoldRequest,
 } = require("../../../clicks-shared/services/jobHold");
-const { TECH_BUSY_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
+const { TECH_BUSY_JOB_STATUSES, ONGOING_JOB_STATUSES, ADMIN_COMPLETABLE_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
+const { COMPLETED } = require("../../../clicks-shared/utils/dashboardRevenue");
+const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
 const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
 const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
@@ -67,8 +72,10 @@ const ADMIN_EDITABLE_JOB_FIELDS = [
 // GET /api/jobs
 async function getJobs(req, res) {
   try {
-    const { page = 1, limit = 10, search = "", status, businessPortal } = req.query;
+    const { page = 1, limit = 10, search = "", status, businessPortal, completedToday } = req.query;
     const limitNum = capAdminLimit(limit, 10, 100);
+    const filterCompletedToday =
+      completedToday === "1" || completedToday === "true";
     
     // Build search query
     let query = {};
@@ -95,7 +102,15 @@ async function getJobs(req, res) {
     }
     
     // Add status filter
-    if (status) {
+    if (filterCompletedToday) {
+      query.job_status = { $in: COMPLETED };
+      query.completed_at = {
+        $gte: startOfQatarDay(),
+        $lte: endOfQatarDay(),
+      };
+    } else if (status === "ongoing") {
+      query.job_status = { $in: ONGOING_JOB_STATUSES };
+    } else if (status) {
       query.job_status = status;
     }
 
@@ -104,6 +119,9 @@ async function getJobs(req, res) {
     }
     
     const jobs = await Job.find(query)
+      .select(
+        "job_reference clientName clientMobileNumber job_status hold_reason dateTime location locationCoordinates source subSource assignedTechnician legacyTechnicianName price issue jobType vehicleMake vehicleModel vehicleYear licensePlate customer_vehicle_id business_id businessName created_by_technician createdByTechnicianName payment_status createdAt"
+      )
       .populate("assignedTechnician", "firstName lastName phone profilePicture currentStatus")
       .populate("created_by_technician", "firstName lastName")
       .populate("source", "mainSourceName")
@@ -123,11 +141,17 @@ async function getJobs(req, res) {
       ...job,
       sourceDisplay: formatJobSourceLabel(job),
     }));
-    const hasFilter = Boolean(search || status || businessPortal === "1" || businessPortal === "true");
+    const hasFilter = Boolean(
+      search ||
+        status ||
+        filterCompletedToday ||
+        businessPortal === "1" ||
+        businessPortal === "true"
+    );
     // Key off the raw inputs, not the compiled query: buildPrefixSearchFilter
     // returns RegExp values and JSON.stringify turns a RegExp into {}, so every
     // search used to collapse onto one cache entry and report another search's total.
-    const countKey = `admin_jobs:${str(search)}|${str(status)}|${str(businessPortal)}`;
+    const countKey = `admin_jobs:${str(search)}|${str(status)}|${filterCompletedToday ? "1" : ""}|${str(businessPortal)}`;
     const total = hasFilter
       ? await cachedCount(Job, query, { ttlMs: 15000, key: countKey })
       : page === 1
@@ -281,6 +305,17 @@ async function updateJob(req, res) {
     const currentJob = await Job.findById(req.params.id).populate("source", "mainSourceName");
     if (!currentJob) {
       return res.status(404).json({ message: "Job not found" });
+    }
+
+    // Location is frozen once the job is completed (the visit already happened).
+    // Every other status — including cancelled and on_hold — stays editable.
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "location") &&
+      currentJob.job_status === "completed"
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Cannot change location on a completed job" });
     }
 
     if (isSourceLockedJob(currentJob)) {
@@ -640,6 +675,8 @@ async function holdJob(req, res) {
     const job = await Job.findById(req.params.id);
     if (!job) return res.status(404).json({ message: "Job not found" });
 
+    clearPendingHoldRequest(job, { adminId: req.user?.id });
+
     await putJobOnHold(job, {
       reason: req.body?.reason,
       scheduledReturnAt: req.body?.scheduled_return_at,
@@ -715,6 +752,199 @@ async function resumeJob(req, res) {
   }
 }
 
+// POST /api/jobs/:id/hold-request/approve
+async function approveHoldRequestJob(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await approveHoldRequest(job, {
+      adminId: req.user?.id,
+      scheduledReturnAt: req.body?.scheduled_return_at,
+    });
+
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+
+    await recordAudit({
+      req,
+      action: "job.hold_request.approve",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue("on_hold"),
+        hold_reason: serializeAuditValue(job.hold_reason),
+      },
+    });
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({
+      message: "Hold request approved",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to approve hold request",
+      error: err.message,
+    });
+  }
+}
+
+// POST /api/jobs/:id/hold-request/reject
+async function rejectHoldRequestJob(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await rejectHoldRequest(job, {
+      adminId: req.user?.id,
+      note: req.body?.note,
+    });
+
+    await recordAudit({
+      req,
+      action: "job.hold_request.reject",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        hold_request_status: serializeAuditValue("rejected"),
+      },
+    });
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({
+      message: "Hold request rejected",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to reject hold request",
+      error: err.message,
+    });
+  }
+}
+
+// POST /api/jobs/:id/complete — dispatch override (no payment/signature gate)
+async function completeJob(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (job.job_status === "completed") {
+      return res.status(400).json({ message: "Job is already completed" });
+    }
+    if (job.job_status === "cancelled") {
+      return res.status(400).json({ message: "Cannot complete a cancelled job" });
+    }
+    if (!ADMIN_COMPLETABLE_JOB_STATUSES.includes(job.job_status)) {
+      return res.status(400).json({
+        message: `Cannot complete job with status: ${job.job_status}`,
+      });
+    }
+
+    clearPendingHoldRequest(job, { adminId: req.user?.id });
+
+    const notes =
+      typeof req.body?.completion_notes === "string"
+        ? req.body.completion_notes.trim().slice(0, 2000)
+        : "";
+    const jobReference =
+      typeof req.body?.job_reference === "string"
+        ? req.body.job_reference.trim().slice(0, 64)
+        : "";
+
+    const prevStatus = job.job_status;
+    job.job_status = "completed";
+    job.completed_at = new Date();
+    if (notes) job.completion_notes = notes;
+    if (jobReference) job.job_reference = jobReference;
+    if (prevStatus === "on_hold" || job.hold_reason) {
+      job.status_before_hold = null;
+      job.hold_reason = "";
+      job.scheduled_return_at = null;
+    }
+
+    await job.save();
+
+    try {
+      const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
+      await creditTechnicianForJob(job);
+    } catch (creditErr) {
+      console.error("Admin complete: technician credit failed:", creditErr.message);
+    }
+
+    if (job.payment_status === "paid") {
+      try {
+        const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
+        const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
+        const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+        if (!existing) {
+          const repairs = await RepairProcedure.find({ job_id: job._id });
+          const pricing = computeJobPricing(job, repairs);
+          await Receipt.create({
+            job_id: job._id,
+            customer_id: job.customer_id,
+            technician_id: job.assignedTechnician,
+            total_amount: pricing.total,
+            payment_status: "paid",
+            items: repairs.map((r) => ({
+              description: r.description,
+              quantity: r.quantity,
+              price: r.price,
+              receipt_image_url: r.receipt_image_url,
+            })),
+          });
+        }
+      } catch (receiptErr) {
+        console.error("Admin complete: receipt creation failed:", receiptErr.message);
+      }
+    }
+
+    try {
+      const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
+      const populatedForPartner = await Job.findById(job._id).populate("source", "mainSourceName");
+      await accruePartnerFromCompletedJob(populatedForPartner);
+    } catch (partnerErr) {
+      console.error("Partner accrual failed:", partnerErr.message);
+    }
+
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+
+    await recordAudit({
+      req,
+      action: "job.complete",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue("completed"),
+        completed_at: serializeAuditValue(job.completed_at),
+      },
+    });
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({
+      message: "Job marked as completed",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to complete job",
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getJobs,
   createJob,
@@ -725,4 +955,7 @@ module.exports = {
   importJobs,
   holdJob,
   resumeJob,
+  approveHoldRequestJob,
+  rejectHoldRequestJob,
+  completeJob,
 };

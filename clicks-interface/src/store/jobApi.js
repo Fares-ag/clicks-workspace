@@ -3,7 +3,7 @@ import { apiSlice } from "./apiSlice";
 export const jobApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getJobs: builder.query({
-      query: ({ page = 1, limit = 10, search = "", status, technician, businessPortal } = {}) => {
+      query: ({ page = 1, limit = 10, search = "", status, technician, businessPortal, completedToday } = {}) => {
         let url = `/jobs?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`;
         if (status) {
           url += `&status=${encodeURIComponent(status)}`;
@@ -13,6 +13,9 @@ export const jobApi = apiSlice.injectEndpoints({
         }
         if (businessPortal) {
           url += `&businessPortal=true`;
+        }
+        if (completedToday) {
+          url += `&completedToday=1`;
         }
         return {
           url,
@@ -60,12 +63,37 @@ export const jobApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Job"],
     }),
+    completeJob: builder.mutation({
+      query: ({ id, completion_notes, job_reference }) => ({
+        url: `/jobs/${id}/complete`,
+        method: "POST",
+        body: { completion_notes, job_reference },
+      }),
+      invalidatesTags: ["Job"],
+    }),
+    approveHoldRequest: builder.mutation({
+      query: ({ id, scheduled_return_at }) => ({
+        url: `/jobs/${id}/hold-request/approve`,
+        method: "POST",
+        body: { scheduled_return_at },
+      }),
+      invalidatesTags: ["Job"],
+    }),
+    rejectHoldRequest: builder.mutation({
+      query: ({ id, note }) => ({
+        url: `/jobs/${id}/hold-request/reject`,
+        method: "POST",
+        body: { note },
+      }),
+      invalidatesTags: ["Job"],
+    }),
     getJobById: builder.query({
       query: (id) => ({
         url: `/jobs/${id}`,
         method: "GET"
       }),
-      providesTags: ["Job"]
+      providesTags: ["Job"],
+      keepUnusedDataFor: 180,
     }),
     getJobRepairs: builder.query({
       query: (jobId) => ({
@@ -162,6 +190,9 @@ export const {
   useUpdateJobMutation,
   useHoldJobMutation,
   useResumeJobMutation,
+  useCompleteJobMutation,
+  useApproveHoldRequestMutation,
+  useRejectHoldRequestMutation,
   useDeleteJobMutation,
   useGetJobByIdQuery,
   useGetJobRepairsQuery,

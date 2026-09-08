@@ -65,6 +65,17 @@ const ONGOING_JOB_STATUSES = [
   "in_progress",
 ];
 
+/** Statuses dispatch may mark completed from the admin portal (override). */
+const ADMIN_COMPLETABLE_JOB_STATUSES = [
+  "pending",
+  "assigned",
+  "accepted",
+  "en_route",
+  "arrived",
+  "in_progress",
+  "on_hold",
+];
+
 /** Lower number = higher priority in technician session sort. */
 const JOB_STATUS_PRIORITY = {
   in_progress: 0,
@@ -83,5 +94,6 @@ module.exports = {
   HOLDABLE_JOB_STATUSES,
   OFFLINE_BLOCKING_STATUSES,
   ONGOING_JOB_STATUSES,
+  ADMIN_COMPLETABLE_JOB_STATUSES,
   JOB_STATUS_PRIORITY,
 };

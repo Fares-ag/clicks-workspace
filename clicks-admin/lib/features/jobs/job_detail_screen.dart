@@ -91,7 +91,8 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     if (_selectedTechnician == null || _selectedTechnician!.isEmpty) return;
     setState(() => _working = true);
     try {
-      final res = await DioHelper.patchData(
+      // Admin API exposes PUT /jobs/:id only (no PATCH route).
+      final res = await DioHelper.putData(
         url: '${EndPoints.jobs}/${widget.jobId}',
         data: {'assignedTechnician': _selectedTechnician},
       );
@@ -105,6 +106,229 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(DioHelper.errorMessage(res) ?? 'Assign failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _approveHoldRequest() async {
+    setState(() => _working = true);
+    try {
+      final res = await DioHelper.postData(
+        url: EndPoints.jobHoldRequestApprove(widget.jobId),
+        data: {},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        await _load();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hold request approved')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Approve failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _rejectHoldRequest() async {
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          title: const Text('Reject hold request'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Note for technician (optional)',
+            ),
+            maxLines: 3,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Reject'),
+            ),
+          ],
+        );
+      },
+    );
+    if (note == null) return;
+
+    setState(() => _working = true);
+    try {
+      final res = await DioHelper.postData(
+        url: EndPoints.jobHoldRequestReject(widget.jobId),
+        data: {'note': note},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Reject failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _putOnHold() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          title: const Text('Put job on hold'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(labelText: 'Reason'),
+            maxLines: 3,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final text = ctrl.text.trim();
+                if (text.isEmpty) return;
+                Navigator.pop(ctx, text);
+              },
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    );
+    if (reason == null || reason.isEmpty) return;
+
+    setState(() => _working = true);
+    try {
+      final res = await DioHelper.postData(
+        url: EndPoints.jobHold(widget.jobId),
+        data: {'reason': reason},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Hold failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _resumeJob() async {
+    setState(() => _working = true);
+    try {
+      final res = await DioHelper.postData(
+        url: EndPoints.jobResume(widget.jobId),
+        data: {},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Resume failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _completeJob() async {
+    final notesCtrl = TextEditingController();
+    final refCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mark job as completed'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'This closes the job in dispatch. Payment and signature are not required.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: refCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Job ID / reference (optional)',
+                ),
+                maxLength: 64,
+              ),
+              TextField(
+                controller: notesCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Completion notes (optional)',
+                ),
+                maxLines: 3,
+                maxLength: 2000,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Back')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mark completed'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _working = true);
+    try {
+      final body = <String, String>{};
+      final notes = notesCtrl.text.trim();
+      final ref = refCtrl.text.trim();
+      if (notes.isNotEmpty) body['completion_notes'] = notes;
+      if (ref.isNotEmpty) body['job_reference'] = ref;
+
+      final res = await DioHelper.postData(
+        url: EndPoints.jobComplete(widget.jobId),
+        data: body,
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Job marked as completed')),
+        );
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Complete failed'),
             backgroundColor: AppColors.danger,
           ),
         );
@@ -175,6 +399,62 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     if (await canLaunchUrl(uri)) await launchUrl(uri);
   }
 
+  /// Edit the job location (any status except completed — the API rejects
+  /// completed jobs with 400). PUT /jobs/:id with { location } only; the API
+  /// re-geocodes, updates locationCoordinates and clears a customer signature.
+  Future<void> _editLocation() async {
+    final job = _job;
+    if (job == null) return;
+    final ctrl = TextEditingController(text: job['location']?.toString() ?? '');
+    final next = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit location'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Location',
+            hintText: 'Address, lat/lng, or Google Maps / Waze link',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (next == null || next.isEmpty) return;
+    setState(() => _working = true);
+    try {
+      final res = await DioHelper.putData(
+        url: '${EndPoints.jobs}/${widget.jobId}',
+        data: {'location': next},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        await _load();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location updated')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(DioHelper.errorMessage(res) ?? 'Location update failed'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   List<Map<String, dynamic>> get _availableTechnicians {
     final jobType = _job?['jobType']?.toString() ?? '';
     return _technicians.where((tech) {
@@ -197,6 +477,11 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     }
     final job = _job!;
     final status = job['job_status']?.toString() ?? '';
+    final holdRequest = job['hold_request'];
+    final holdRequestStatus =
+        holdRequest is Map ? holdRequest['status']?.toString() : null;
+    final holdRequestReason =
+        holdRequest is Map ? holdRequest['reason']?.toString() ?? '' : '';
     final location = formatJobLocationDisplay(job);
     final mapsLink = buildJobMapsLink(job);
     final jobId = job['jobId']?.toString() ?? widget.jobId;
@@ -254,6 +539,23 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                   ),
                 ],
               ),
+              if (status == 'completed')
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: Text(
+                    'Location cannot be changed after completion',
+                    style: AdminTypography.body.copyWith(color: AppColors.muted),
+                  ),
+                )
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _working ? null : _editLocation,
+                    icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
+                    label: const Text('Edit location'),
+                  ),
+                ),
               const SizedBox(height: AppSpacing.md),
               Row(
                 children: [
@@ -308,6 +610,71 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
             ],
           ),
         ),
+        if (holdRequestStatus == 'pending') ...[
+          const SizedBox(height: AppSpacing.md),
+          AdminCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Hold request pending', style: AdminTypography.heading),
+                const SizedBox(height: AppSpacing.sm),
+                Text(holdRequestReason.isEmpty ? 'No reason provided' : holdRequestReason),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        label: 'Approve hold',
+                        loading: _working,
+                        onPressed: _approveHoldRequest,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: PrimaryButton(
+                        label: 'Reject',
+                        outlined: true,
+                        loading: _working,
+                        onPressed: _rejectHoldRequest,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (status != 'completed' && status != 'cancelled') ...[
+          const SizedBox(height: AppSpacing.md),
+          if (const {'accepted', 'en_route', 'arrived', 'in_progress'}.contains(status) &&
+              holdRequestStatus != 'pending')
+            PrimaryButton(
+              label: 'Put on hold',
+              outlined: true,
+              loading: _working,
+              onPressed: _putOnHold,
+            ),
+          if (status == 'on_hold')
+            PrimaryButton(
+              label: 'Resume job',
+              loading: _working,
+              onPressed: _resumeJob,
+            ),
+          if (const {
+            'pending',
+            'assigned',
+            'accepted',
+            'en_route',
+            'arrived',
+            'in_progress',
+            'on_hold',
+          }.contains(status))
+            PrimaryButton(
+              label: 'Mark as completed',
+              loading: _working,
+              onPressed: _completeJob,
+            ),
+        ],
         if (status != 'completed' && status != 'cancelled') ...[
           const SizedBox(height: AppSpacing.md),
           PrimaryButton(

@@ -17,6 +17,11 @@ class EndPoints {
   static const String sos = '/sos';
   static const String serviceRequests = '/service-requests';
   static const String jobs = '/jobs';
+  static String jobHold(String id) => '/jobs/$id/hold';
+  static String jobResume(String id) => '/jobs/$id/resume';
+  static String jobComplete(String id) => '/jobs/$id/complete';
+  static String jobHoldRequestApprove(String id) => '/jobs/$id/hold-request/approve';
+  static String jobHoldRequestReject(String id) => '/jobs/$id/hold-request/reject';
   static const String leads = '/leads';
   static const String technicians = '/technicians';
   static const String techniciansLiveMap = '/technicians/live-map';

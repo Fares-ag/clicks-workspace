@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation } from "../../store/jobApi";
+import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
 import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
@@ -10,6 +10,7 @@ import { isSourceLockedJob, formatJobSourceLabel } from "../../utils/jobOrigin.j
 import { getJobStatusCssClass, getJobStatusLabel } from "../../utils/jobStatusLabels";
 
 const HOLDABLE_STATUSES = ["accepted", "en_route", "arrived", "in_progress"];
+const COMPLETABLE_STATUSES = ["pending", "assigned", "accepted", "en_route", "arrived", "in_progress", "on_hold"];
 import { getJobDisplayId } from "../../utils/jobLabel.js";
 import {
   formatJobLocationDisplay,
@@ -45,6 +46,9 @@ function JobDetails() {
   const [updateJob] = useUpdateJobMutation();
   const [holdJob] = useHoldJobMutation();
   const [resumeJob] = useResumeJobMutation();
+  const [completeJob] = useCompleteJobMutation();
+  const [approveHoldRequest] = useApproveHoldRequestMutation();
+  const [rejectHoldRequest] = useRejectHoldRequestMutation();
   const [getJobReceipt] = useLazyGetJobReceiptQuery();
   
   const [cancelling, setCancelling] = useState(false);
@@ -52,10 +56,18 @@ function JobDetails() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelReasonText, setCancelReasonText] = useState('');
   const [showHoldModal, setShowHoldModal] = useState(false);
+  const [showRejectHoldModal, setShowRejectHoldModal] = useState(false);
+  const [rejectHoldNote, setRejectHoldNote] = useState('');
   const [holdReason, setHoldReason] = useState('');
   const [holdReturnDate, setHoldReturnDate] = useState('');
   const [holding, setHolding] = useState(false);
+  const [approvingHoldRequest, setApprovingHoldRequest] = useState(false);
+  const [rejectingHoldRequest, setRejectingHoldRequest] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completeNotes, setCompleteNotes] = useState('');
+  const [completeJobRef, setCompleteJobRef] = useState('');
+  const [completing, setCompleting] = useState(false);
   const [selectedTechnician, setSelectedTechnician] = useState(null);
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [techSearch, setTechSearch] = useState("");
@@ -63,6 +75,10 @@ function JobDetails() {
   const [estimateValue, setEstimateValue] = useState("");
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState({ title: "", subtitle: "" });
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationValue, setLocationValue] = useState("");
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const techDropdownRef = useRef(null);
 
   const job = data?.job;
@@ -227,6 +243,54 @@ function JobDetails() {
     }
   };
 
+  // Inline job-location edit (PUT /jobs/:id with { location } only).
+  // The API re-geocodes, updates locationCoordinates and clears any customer
+  // signature; completed jobs are rejected server-side (400).
+  const startEditLocation = () => {
+    setLocationValue(String(job?.location || ""));
+    setLocationError("");
+    setEditingLocation(true);
+  };
+
+  const cancelEditLocation = () => {
+    setEditingLocation(false);
+    setLocationError("");
+  };
+
+  const handleSaveLocation = async () => {
+    const next = locationValue.trim();
+    if (!next) {
+      setLocationError("Enter an address, lat,lng, or a Google Maps / Waze link");
+      return;
+    }
+    setSavingLocation(true);
+    setLocationError("");
+    try {
+      const result = await updateJob({ id: job._id, location: next }).unwrap();
+      setEditingLocation(false);
+      setSuccessMessage(
+        result?.signatureCleared
+          ? {
+              title: "Location updated — signature cleared",
+              subtitle: "The technician must re-collect the customer signature before completing.",
+            }
+          : {
+              title: "Location updated",
+              subtitle: "The maps link now points to the new location.",
+            }
+      );
+      setShowSuccessModal(true);
+      refetch();
+    } catch (err) {
+      console.error("Failed to update location:", err);
+      setLocationError(
+        err?.data?.message || err?.data?.error || "Failed to update location"
+      );
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
   // Use financials from API response
   const dispatcherEstimate = financials.dispatcherEstimate || 0;
   const technicianEstimate = financials.technicianEstimate || 0;
@@ -300,6 +364,62 @@ function JobDetails() {
       alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to resume job');
     } finally {
       setResuming(false);
+    }
+  };
+
+  const confirmCompleteJob = async () => {
+    if (!job) return;
+    setCompleting(true);
+    try {
+      await completeJob({
+        id: job._id,
+        completion_notes: completeNotes.trim() || undefined,
+        job_reference: completeJobRef.trim() || undefined,
+      }).unwrap();
+      setShowCompleteModal(false);
+      setCompleteNotes('');
+      setCompleteJobRef('');
+      setSuccessMessage({
+        title: 'Job marked as completed',
+        subtitle: 'The job status is now Completed.',
+      });
+      setShowSuccessModal(true);
+      refetch();
+    } catch (err) {
+      alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to complete job');
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  const handleApproveHoldRequest = async () => {
+    if (!job) return;
+    setApprovingHoldRequest(true);
+    try {
+      await approveHoldRequest({ id: job._id }).unwrap();
+      refetch();
+    } catch (err) {
+      alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to approve hold request');
+    } finally {
+      setApprovingHoldRequest(false);
+    }
+  };
+
+  const confirmRejectHoldRequest = async () => {
+    if (!job) return;
+    setRejectingHoldRequest(true);
+    try {
+      await rejectHoldRequest({
+        id: job._id,
+        note: rejectHoldNote.trim() || undefined,
+      }).unwrap();
+      setShowRejectHoldModal(false);
+      setRejectHoldNote('');
+      refetch();
+    } catch (err) {
+      alert(err?.data?.message || err?.data?.error || err?.message || 'Failed to reject hold request');
+    } finally {
+      setRejectingHoldRequest(false);
     }
   };
 
@@ -397,7 +517,7 @@ function JobDetails() {
                         <path d="M9 9.75C10.2426 9.75 11.25 8.74264 11.25 7.5C11.25 6.25736 10.2426 5.25 9 5.25C7.75736 5.25 6.75 6.25736 6.75 7.5C6.75 8.74264 7.75736 9.75 9 9.75Z" stroke="#5A5A5A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         <path d="M9 16.5C9 16.5 15 11.625 15 7.5C15 4.18629 12.3137 1.5 9 1.5C5.68629 1.5 3 4.18629 3 7.5C3 11.625 9 16.5 9 16.5Z" stroke="#5A5A5A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      <a 
+                      <a
                         href={buildJobMapsLink(job)}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -406,6 +526,52 @@ function JobDetails() {
                         {formatJobLocationDisplay(job)}
                       </a>
                     </div>
+                    {job.job_status === "completed" ? (
+                      <span className="job-details-location-helper">
+                        Location cannot be changed after completion
+                      </span>
+                    ) : editingLocation ? (
+                      <div className="job-details-location-edit">
+                        <input
+                          type="text"
+                          className="job-details-input job-details-location-input"
+                          value={locationValue}
+                          onChange={(e) => setLocationValue(e.target.value)}
+                          placeholder="Address, lat/lng, or Google Maps / Waze link"
+                          disabled={savingLocation}
+                          autoFocus
+                        />
+                        <div className="job-details-location-edit-actions">
+                          <button
+                            type="button"
+                            className="job-details-btn job-details-btn-primary"
+                            onClick={handleSaveLocation}
+                            disabled={savingLocation}
+                          >
+                            {savingLocation ? "Saving…" : "Save location"}
+                          </button>
+                          <button
+                            type="button"
+                            className="job-details-btn job-details-btn-secondary"
+                            onClick={cancelEditLocation}
+                            disabled={savingLocation}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        {locationError && (
+                          <span className="job-details-location-error">{locationError}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="job-details-location-edit-link"
+                        onClick={startEditLocation}
+                      >
+                        Edit location
+                      </button>
+                    )}
                   </div>
                   
                   {job.job_status === 'completed' && job.completed_at && (
@@ -593,6 +759,48 @@ function JobDetails() {
                     })}
                   </span>
                 )}
+              </div>
+            </div>
+          )}
+
+          {job.hold_request?.status === 'pending' && (
+            <div className="job-details-section-full">
+              <div className="job-details-hold-card">
+                <div className="job-details-cancellation-header">
+                  <h3 className="job-details-cancellation-title">Hold request pending</h3>
+                </div>
+                <p className="job-details-cancellation-text">
+                  {job.hold_request.reason || 'No reason provided'}
+                </p>
+                {job.hold_request.requested_at && (
+                  <span className="job-details-cancellation-date">
+                    Requested {new Date(job.hold_request.requested_at).toLocaleString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric',
+                      hour: 'numeric', minute: '2-digit', hour12: true
+                    })}
+                  </span>
+                )}
+                <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                  <button
+                    type="button"
+                    className="job-details-btn job-details-btn-warning"
+                    onClick={handleApproveHoldRequest}
+                    disabled={approvingHoldRequest || rejectingHoldRequest}
+                  >
+                    {approvingHoldRequest ? 'Approving…' : 'Approve hold'}
+                  </button>
+                  <button
+                    type="button"
+                    className="job-details-btn job-details-btn-danger"
+                    onClick={() => {
+                      setRejectHoldNote('');
+                      setShowRejectHoldModal(true);
+                    }}
+                    disabled={approvingHoldRequest || rejectingHoldRequest}
+                  >
+                    Reject
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1279,7 +1487,7 @@ function JobDetails() {
           >
             {cancelling ? 'Cancelling...' : job.job_status === 'cancelled' ? 'Job Cancelled' : job.job_status === 'completed' ? 'Job Completed' : 'Cancel Job'}
           </button>
-          {HOLDABLE_STATUSES.includes(job.job_status) && (
+          {HOLDABLE_STATUSES.includes(job.job_status) && job.hold_request?.status !== 'pending' && (
             <button
               className="job-details-btn job-details-btn-warning"
               onClick={handleHoldJob}
@@ -1295,6 +1503,15 @@ function JobDetails() {
               disabled={resuming}
             >
               {resuming ? 'Resuming...' : 'Resume job'}
+            </button>
+          )}
+          {COMPLETABLE_STATUSES.includes(job.job_status) && (
+            <button
+              className="job-details-btn job-details-btn-primary"
+              onClick={() => setShowCompleteModal(true)}
+              disabled={completing}
+            >
+              {completing ? 'Completing...' : 'Mark as completed'}
             </button>
           )}
           <button 
@@ -1372,6 +1589,57 @@ function JobDetails() {
         </div>
       )}
 
+      {showCompleteModal && (
+        <div className="confirmation-modal-backdrop">
+          <div className="confirmation-modal" style={{ maxWidth: '520px' }}>
+            <button className="confirmation-modal-close" onClick={() => { setShowCompleteModal(false); setCompleteNotes(''); setCompleteJobRef(''); }} aria-label="Close">
+              <span className="confirmation-modal-close-x">&#10005;</span>
+            </button>
+            <div className="confirmation-modal-content">
+              <div className="confirmation-modal-title">Mark job as completed</div>
+              <div className="confirmation-modal-message" style={{ marginBottom: '16px' }}>
+                This closes the job in dispatch. Payment and signature are not required for admin completion.
+              </div>
+              <label className="job-details-label" style={{ display: 'block' }}>
+                Job ID / reference (optional)
+              </label>
+              <input
+                type="text"
+                className="job-details-input"
+                value={completeJobRef}
+                onChange={(e) => setCompleteJobRef(e.target.value)}
+                maxLength={64}
+                placeholder="External job reference"
+              />
+              <label className="job-details-label" style={{ display: 'block', marginTop: '12px' }}>
+                Completion notes (optional)
+              </label>
+              <textarea
+                className="cancel-reason-textarea"
+                placeholder="Notes for dispatch records"
+                value={completeNotes}
+                onChange={(e) => setCompleteNotes(e.target.value)}
+                rows={3}
+                maxLength={2000}
+              />
+              <div className="confirmation-modal-actions" style={{ marginTop: '20px' }}>
+                <button className="confirmation-modal-cancel" onClick={() => { setShowCompleteModal(false); setCompleteNotes(''); setCompleteJobRef(''); }}>
+                  Go Back
+                </button>
+                <button
+                  className="confirmation-modal-confirm"
+                  onClick={confirmCompleteJob}
+                  disabled={completing}
+                  style={{ opacity: completing ? 0.5 : 1 }}
+                >
+                  {completing ? 'Completing...' : 'Mark completed'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showHoldModal && (
         <div className="confirmation-modal-backdrop">
           <div className="confirmation-modal" style={{ maxWidth: '520px' }}>
@@ -1411,6 +1679,40 @@ function JobDetails() {
                   style={{ opacity: (!holdReason.trim() || holding) ? 0.5 : 1 }}
                 >
                   {holding ? 'Holding...' : 'Confirm hold'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRejectHoldModal && (
+        <div className="confirmation-modal-backdrop">
+          <div className="confirmation-modal" style={{ maxWidth: '520px' }}>
+            <button className="confirmation-modal-close" onClick={() => { setShowRejectHoldModal(false); setRejectHoldNote(''); }} aria-label="Close">
+              <span className="confirmation-modal-close-x">&#10005;</span>
+            </button>
+            <div className="confirmation-modal-content">
+              <div className="confirmation-modal-title">Reject hold request</div>
+              <p className="confirmation-modal-subtitle">Optional note for the technician</p>
+              <textarea
+                className="cancel-reason-textarea"
+                placeholder="Reason for rejection (optional)"
+                value={rejectHoldNote}
+                onChange={(e) => setRejectHoldNote(e.target.value)}
+                rows={3}
+              />
+              <div className="confirmation-modal-actions" style={{ marginTop: '20px' }}>
+                <button className="confirmation-modal-cancel" onClick={() => { setShowRejectHoldModal(false); setRejectHoldNote(''); }}>
+                  Cancel
+                </button>
+                <button
+                  className="confirmation-modal-confirm"
+                  onClick={confirmRejectHoldRequest}
+                  disabled={rejectingHoldRequest}
+                  style={{ opacity: rejectingHoldRequest ? 0.5 : 1 }}
+                >
+                  {rejectingHoldRequest ? 'Rejecting…' : 'Reject request'}
                 </button>
               </div>
             </div>
