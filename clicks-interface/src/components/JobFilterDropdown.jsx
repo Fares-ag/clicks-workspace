@@ -8,7 +8,10 @@ function JobFilterDropdown({ open, onClose, onApply, anchorEl }) {
   const [status, setStatus] = useState("");
   const [technician, setTechnician] = useState("");
   const dropdownRef = useRef(null);
-  const { data: techniciansData } = useGetTechniciansQuery();
+  const { data: techniciansData } = useGetTechniciansQuery(
+    { page: 1, limit: 100, search: "" },
+    { skip: !open }
+  );
   const allTechnicians = techniciansData?.technicians || [];
 
   const statusOptions = getJobStatusFilterOptions();

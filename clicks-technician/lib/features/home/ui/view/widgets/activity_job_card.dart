@@ -117,6 +117,9 @@ class ActivityJobCard extends StatelessWidget {
   }
 
   String? _affordance(String status, Map<String, dynamic> job) {
+    if (status == 'assigned') {
+      return 'Needs accept';
+    }
     if (['accepted', 'en_route', 'arrived', 'in_progress'].contains(status)) {
       return 'Active';
     }

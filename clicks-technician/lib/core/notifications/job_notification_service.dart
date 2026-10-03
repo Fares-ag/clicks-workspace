@@ -24,6 +24,10 @@ const int kJobAssignedNotifId = 42001;
 const String kPendingJobIdKey = 'pending_fcm_job_id';
 const String kAcceptedFromNotifJobIdKey = 'accepted_from_notif_job_id';
 const String kAcceptNotifFailedKey = 'accept_notif_failed_message';
+/// Job ids whose urgent alarm was dismissed (accept/cancel). Cleared when the
+/// same job is assigned again so a legitimate re-dispatch still alerts.
+const String kHandledAlarmJobIdsKey = 'handled_alarm_job_ids';
+const int _kMaxHandledAlarmJobIds = 32;
 
 /// Android Notification.FLAG_INSISTENT — sound/vibration repeats until cancel.
 const int kInsistentFlag = 4;
@@ -66,6 +70,9 @@ class JobNotificationService {
   bool _appInForeground = true;
   bool _tokenRefreshWired = false;
   bool _alarmPlaying = false;
+  String? _activeAlarmJobId;
+  final Set<String> _handledAlarmJobIds = <String>{};
+  bool _handledAlarmJobIdsLoaded = false;
 
   /// Optional UI hook after Accept action or notification tap.
   void Function(String jobId)? onJobAcceptedFromNotification;
@@ -317,9 +324,78 @@ class JobNotificationService {
     await android.createNotificationChannel(channel);
   }
 
+  Future<void> _ensureHandledAlarmJobIdsLoaded() async {
+    if (_handledAlarmJobIdsLoaded) return;
+    _handledAlarmJobIdsLoaded = true;
+    try {
+      await CacheHelper.init();
+    } catch (_) {}
+    final raw = CacheHelper.get(kHandledAlarmJobIdsKey)?.toString() ?? '';
+    if (raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        for (final id in decoded) {
+          final s = id?.toString() ?? '';
+          if (s.isNotEmpty) _handledAlarmJobIds.add(s);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistHandledAlarmJobIds() async {
+    try {
+      await CacheHelper.init();
+    } catch (_) {}
+    final ids = _handledAlarmJobIds.toList(growable: false);
+    await CacheHelper.save(kHandledAlarmJobIdsKey, jsonEncode(ids));
+  }
+
+  /// Fresh assignment — allow alarm again even if this job id was handled before.
+  Future<void> clearAlarmHandledForJob(String jobId) async {
+    if (jobId.isEmpty) return;
+    await _ensureHandledAlarmJobIdsLoaded();
+    if (!_handledAlarmJobIds.remove(jobId)) return;
+    await _persistHandledAlarmJobIds();
+  }
+
+  Future<bool> shouldStartAlarmForJob(String jobId) async {
+    if (jobId.isEmpty) return false;
+    await _ensureHandledAlarmJobIdsLoaded();
+    if (_handledAlarmJobIds.contains(jobId)) return false;
+    try {
+      await CacheHelper.init();
+    } catch (_) {}
+    final accepted =
+        CacheHelper.get(kAcceptedFromNotifJobIdKey)?.toString() ?? '';
+    if (accepted.isNotEmpty && accepted == jobId) return false;
+    return true;
+  }
+
+  Future<void> markAlarmHandledForJob(String jobId) async {
+    if (jobId.isEmpty) return;
+    await _ensureHandledAlarmJobIdsLoaded();
+    _handledAlarmJobIds.add(jobId);
+    while (_handledAlarmJobIds.length > _kMaxHandledAlarmJobIds) {
+      _handledAlarmJobIds.remove(_handledAlarmJobIds.first);
+    }
+    await _persistHandledAlarmJobIds();
+    if (_activeAlarmJobId == jobId) {
+      _activeAlarmJobId = null;
+    }
+  }
+
   /// Looping system/alarm ringtone (works while Dart isolate is alive).
-  Future<void> startInsistentAlarm() async {
-    if (kIsWeb || _alarmPlaying) return;
+  Future<void> startInsistentAlarm({String? jobId}) async {
+    if (kIsWeb) return;
+    if (jobId != null && jobId.isNotEmpty) {
+      if (!await shouldStartAlarmForJob(jobId)) {
+        _log('skip insistent alarm for handled job=$jobId');
+        return;
+      }
+      _activeAlarmJobId = jobId;
+    }
+    if (_alarmPlaying) return;
     _alarmPlaying = true;
     try {
       await FlutterRingtonePlayer().play(
@@ -329,7 +405,7 @@ class JobNotificationService {
         volume: 1.0,
         asAlarm: true,
       );
-      _log('insistent ringtone started');
+      _log('insistent ringtone started job=${jobId ?? _activeAlarmJobId ?? "?"}');
     } catch (e) {
       _alarmPlaying = false;
       _log('ringtone start failed: $e');
@@ -376,6 +452,11 @@ class JobNotificationService {
 
     final jobId = data['job_id']?.toString() ?? '';
     if (jobId.isEmpty) return;
+
+    if (!await shouldStartAlarmForJob(jobId)) {
+      _log('skip stale urgent notif job=$jobId');
+      return;
+    }
 
     try {
       await CacheHelper.init();
@@ -463,11 +544,22 @@ class JobNotificationService {
       );
     }
     // Extra looping ringtone while the app/isolate is alive.
-    await startInsistentAlarm();
+    await startInsistentAlarm(jobId: jobId);
     _log('showed insistent urgent notif job=$jobId bg=$fromBackground force=$forceShow');
   }
 
-  Future<void> cancelUrgentJobNotification() async {
+  Future<void> cancelUrgentJobNotification({String? jobId}) async {
+    var id = jobId ?? _activeAlarmJobId;
+    if (id == null || id.isEmpty) {
+      try {
+        await CacheHelper.init();
+      } catch (_) {}
+      id = CacheHelper.get(kPendingJobIdKey)?.toString();
+    }
+    if (id != null && id.isNotEmpty) {
+      await markAlarmHandledForJob(id);
+    }
+    _activeAlarmJobId = null;
     await stopInsistentAlarm();
     try {
       await _local.cancel(kJobAssignedNotifId);

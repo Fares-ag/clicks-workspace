@@ -92,3 +92,27 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+@media (max-width: 900px) {
+  .sos-inbox-container {
+    padding: var(--spacing-md);
+  }
+
+  .sos-inbox-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sos-inbox-filters {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .sos-inbox-select,
+  .sos-inbox-search,
+  .sos-refresh-btn,
+  .jobs-add-btn {
+    width: 100%;
+  }
+}

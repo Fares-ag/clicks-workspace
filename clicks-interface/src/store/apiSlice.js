@@ -75,6 +75,9 @@ async function baseQueryWithReauth(args, api, extraOptions) {
 export const apiSlice = createApi({
   reducerPath: "api",
   baseQuery: baseQueryWithReauth,
+  keepUnusedDataFor: 120,
+  refetchOnFocus: false,
+  refetchOnReconnect: false,
   tagTypes: [
     "Admin",
     "Business",
@@ -86,6 +89,7 @@ export const apiSlice = createApi({
     "Lead",
     "LiveMapTechnician",
     "NavBadges",
+    "Notifications",
     "Partner",
     "Performance",
     "Repair",
@@ -94,6 +98,7 @@ export const apiSlice = createApi({
     "Source",
     "SupportTicket",
     "Technician",
+    "TechnicianActivity",
     "TechnicianJobs",
     "TechnicianPerformance",
     "TechnicianSettlements",

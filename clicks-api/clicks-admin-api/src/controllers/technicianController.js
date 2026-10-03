@@ -6,6 +6,8 @@ const Receipt = require("../models/Receipt");
 const Vehicle = require("../../../clicks-shared/models/Vehicle");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
+const { getSlimTechnicianRoster, invalidateTechnicianRoster } = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { buildPrefixSearchFilter } = require("../../../clicks-shared/utils/searchFields");
 const { num } = require("../../../clicks-shared/utils/coerce");
@@ -59,28 +61,44 @@ function toLiveMapTechnician(t) {
 // GET /api/technicians/live-map
 async function getLiveMapTechnicians(req, res) {
   try {
-    const technicians = await Technician.find({
-      isActive: true,
-      currentStatus: { $in: ["Online", "On Job"] },
-    })
-      .select(
-        "firstName lastName phone currentStatus profilePicture currentLocation assignedVehicle lastLocationAt"
-      )
-      .populate({
-        path: "assignedVehicle",
-        select: "plateNumber make model",
-        populate: [
-          { path: "make", select: "makeName" },
-          { path: "model", select: "modelName" },
-        ],
-      })
-      // toLiveMapTechnician only reads plain fields, so full mongoose document
-      // hydration bought nothing on a route polled every 8s per open admin tab.
-      .lean();
+    const technicians = await getCachedPayload(
+      "clicks:admin:payload:live-map-techs",
+      15000,
+      async () => {
+        const roster = await getSlimTechnicianRoster();
+        const live = roster.filter(
+          (t) =>
+            t.isActive !== false &&
+            (t.currentStatus === "Online" || t.currentStatus === "On Job")
+        );
+        const vehicleIds = [
+          ...new Set(
+            live
+              .map((t) => t.assignedVehicle)
+              .filter(Boolean)
+              .map((id) => String(id))
+          ),
+        ];
+        const vehicles = vehicleIds.length
+          ? await Vehicle.find({ _id: { $in: vehicleIds } })
+              .select("plateNumber make model")
+              .populate("make", "makeName")
+              .populate("model", "modelName")
+              .lean()
+          : [];
+        const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
+        return live.map((t) =>
+          toLiveMapTechnician({
+            ...t,
+            assignedVehicle: t.assignedVehicle
+              ? vehicleById.get(String(t.assignedVehicle)) || null
+              : null,
+          })
+        );
+      }
+    );
 
-    res.json({
-      technicians: technicians.map(toLiveMapTechnician),
-    });
+    res.json({ technicians });
   } catch (err) {
     // Do not hand driver internals to the browser.
     console.error("live-map fetch failed:", err);
@@ -93,28 +111,49 @@ async function getLiveMapTechnicians(req, res) {
 // GET /api/technicians/assignment-roster — slim list for job/vehicle assignment UIs
 async function getAssignmentRoster(req, res) {
   try {
-    const technicians = await Technician.find({ isActive: true })
-      .select("firstName lastName assignedVehicle currentStatus")
-      .populate({
-        path: "assignedVehicle",
-        select: "plateNumber make model",
-        populate: [
-          { path: "make", select: "makeName" },
-          { path: "model", select: "modelName" },
-        ],
-      })
-      .sort({ firstName: 1, lastName: 1 })
-      .lean();
+    const technicians = await getCachedPayload(
+      "clicks:admin:payload:assignment-roster",
+      30000,
+      async () => {
+        const roster = await getSlimTechnicianRoster();
+        const active = roster
+          .filter((t) => t.isActive !== false)
+          .sort((a, b) => {
+            const nameA = `${a.firstName || ""} ${a.lastName || ""}`.trim();
+            const nameB = `${b.firstName || ""} ${b.lastName || ""}`.trim();
+            return nameA.localeCompare(nameB);
+          });
+        const vehicleIds = [
+          ...new Set(
+            active
+              .map((t) => t.assignedVehicle)
+              .filter(Boolean)
+              .map((id) => String(id))
+          ),
+        ];
+        const vehicles = vehicleIds.length
+          ? await Vehicle.find({ _id: { $in: vehicleIds } })
+              .select("plateNumber make model year")
+              .populate("make", "makeName name")
+              .populate("model", "modelName name")
+              .lean()
+          : [];
+        const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
+        return active.map((t) => ({
+          _id: t._id,
+          firstName: t.firstName,
+          lastName: t.lastName,
+          currentStatus: t.currentStatus,
+          applicationStatus: t.applicationStatus,
+          expertise: t.expertise || [],
+          assignedVehicle: t.assignedVehicle
+            ? vehicleById.get(String(t.assignedVehicle)) || null
+            : null,
+        }));
+      }
+    );
 
-    res.json({
-      technicians: technicians.map((t) => ({
-        _id: t._id,
-        firstName: t.firstName,
-        lastName: t.lastName,
-        currentStatus: t.currentStatus,
-        assignedVehicle: t.assignedVehicle || null,
-      })),
-    });
+    res.json({ technicians });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch assignment roster", error: err.message });
   }
@@ -148,28 +187,69 @@ async function getTechnicians(req, res) {
     if (applicationStatus) {
       query.applicationStatus = applicationStatus;
     }
+
+    const unfiltered = !rawTerm && !currentStatus && !applicationStatus;
+    if (unfiltered) {
+      const roster = await getSlimTechnicianRoster();
+      const skip = (page - 1) * limitNum;
+      const slice = roster.slice(skip, skip + limitNum);
+      const vehicleIds = [
+        ...new Set(
+          slice
+            .map((t) => t.assignedVehicle)
+            .filter(Boolean)
+            .map((id) => String(id))
+        ),
+      ];
+      const vehicles = vehicleIds.length
+        ? await Vehicle.find({ _id: { $in: vehicleIds } })
+            .select("plateNumber make model")
+            .populate("make", "makeName")
+            .populate("model", "modelName")
+            .lean()
+        : [];
+      const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
+      const technicians = slice.map((t) => ({
+        ...t,
+        assignedVehicle: t.assignedVehicle
+          ? vehicleById.get(String(t.assignedVehicle)) || t.assignedVehicle
+          : null,
+      }));
+      return res.json({
+        technicians: addSASToTechnicians(technicians),
+        total: roster.length,
+      });
+    }
     
-    const technicians = await Technician.find(query)
-      .select("firstName lastName phone applicationStatus currentStatus isActive assignedVehicle profilePicture expertise")
-      .populate({
-        path: 'assignedVehicle',
-        populate: [
-          { path: 'make', select: 'makeName' },
-          { path: 'model', select: 'modelName' }
-        ]
-      })
-      .skip((page - 1) * limitNum)
-      .limit(limitNum)
-      .lean();
-    const total = await cachedCount(Technician, query, {
-      ttlMs: 15000,
-      key: `techs:${JSON.stringify(query)}`,
+    const cacheKey = `clicks:admin:payload:tech-list:${page}:${limitNum}:${JSON.stringify(query)}`;
+    const payload = await getCachedPayload(cacheKey, 30000, async () => {
+      const techniciansPromise = Technician.find(query)
+        .select(
+          "firstName lastName phone applicationStatus currentStatus isActive assignedVehicle profilePicture expertise"
+        )
+        .populate({
+          path: "assignedVehicle",
+          select: "plateNumber make model",
+          populate: [
+            { path: "make", select: "makeName" },
+            { path: "model", select: "modelName" },
+          ],
+        })
+        .skip((page - 1) * limitNum)
+        .limit(limitNum)
+        .lean();
+      const totalPromise = cachedCount(Technician, query, {
+        ttlMs: 15000,
+        key: `techs:${JSON.stringify(query)}`,
+      });
+      const [technicians, total] = await Promise.all([techniciansPromise, totalPromise]);
+      return {
+        technicians: addSASToTechnicians(technicians),
+        total,
+      };
     });
-    
-    // Add SAS tokens to sensitive documents
-    const techniciansWithSAS = addSASToTechnicians(technicians);
-    
-    res.json({ technicians: techniciansWithSAS, total });
+
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch technicians", error: err.message });
   }
@@ -225,6 +305,7 @@ async function createTechnician(req, res) {
       currentStatus: "Offline",
       isActive: true
     });
+    invalidateTechnicianRoster();
     res.status(201).json({ technician });
   } catch (err) {
     res.status(500).json({ message: "Failed to create technician", error: err.message });
@@ -234,7 +315,9 @@ async function createTechnician(req, res) {
 // GET /api/technicians/:id
 async function getTechnicianById(req, res) {
   try {
-    const technician = await Technician.findById(req.params.id);
+    const technician = await Technician.findById(req.params.id)
+      .select("-password")
+      .lean();
     if (!technician) return res.status(404).json({ message: "Technician not found" });
     
     // Add SAS tokens to sensitive documents

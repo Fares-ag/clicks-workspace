@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/auth/admin_roles.dart';
+import '../../core/helper/assets_manager.dart';
 import '../../core/navigation/admin_nav_config.dart';
 import '../../core/services/sidebar_badge_service.dart';
 import '../../core/theme/admin_typography.dart';
@@ -48,20 +49,18 @@ class AdminSidebar extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              height: 64,
+              height: 104,
               alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               decoration: const BoxDecoration(
                 border: Border(bottom: BorderSide(color: AppColors.border)),
               ),
               child: GestureDetector(
                 onTap: () => onNavigate('/dashboard'),
-                child: SvgPicture.asset(
-                  'assets/logo/Logo.svg',
-                  height: 40,
-                  placeholderBuilder: (_) => SvgPicture.asset(
-                    'assets/icons/clicks_logo.svg',
-                    height: 40,
-                  ),
+                child: Image.asset(
+                  AssetsManager.brandLogo,
+                  height: 80,
+                  fit: BoxFit.contain,
                 ),
               ),
             ),

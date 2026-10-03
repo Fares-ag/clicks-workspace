@@ -1,5 +1,6 @@
 package com.roya.clicks_technician
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val mapsKeyChannel = "clicks_technician/maps_key"
     private val urgentAlarmChannel = "clicks_technician/urgent_alarm"
+    private val deviceChannel = "clicks_technician/device"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -23,6 +25,14 @@ class MainActivity : FlutterActivity() {
         MethodChannel(messenger, mapsKeyChannel).setMethodCallHandler { call, result ->
             if (call.method == "getGoogleMapsApiKey") {
                 result.success(readMapsApiKey())
+            } else {
+                result.notImplemented()
+            }
+        }
+
+        MethodChannel(messenger, deviceChannel).setMethodCallHandler { call, result ->
+            if (call.method == "getCapability") {
+                result.success(readDeviceCapability())
             } else {
                 result.notImplemented()
             }
@@ -43,6 +53,20 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    /** RAM in MB plus ActivityManager.isLowRamDevice. Failures return a normal device. */
+    private fun readDeviceCapability(): Map<String, Any> {
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val info = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(info)
+            val ramMb = (info.totalMem / (1024L * 1024L)).toInt()
+            val lowRam = am.isLowRamDevice || (ramMb in 1..3584)
+            mapOf("isLowEnd" to lowRam, "ramMb" to ramMb)
+        } catch (_: Exception) {
+            mapOf("isLowEnd" to false, "ramMb" to 0)
         }
     }
 

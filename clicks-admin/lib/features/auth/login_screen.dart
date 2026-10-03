@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-
 import '../../core/components/primary_button.dart';
+import '../../core/helper/assets_manager.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/admin_typography.dart';
 import '../../core/theme/app_colors.dart';
@@ -117,10 +116,13 @@ class _LoginForm extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SvgPicture.asset(
-                'assets/logo/Logo.svg',
-                height: 32,
+              Align(
                 alignment: Alignment.centerLeft,
+                child: Image.asset(
+                  AssetsManager.brandLogo,
+                  height: 96,
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(height: 52),
               Text('Log In', style: AdminTypography.pageTitle.copyWith(fontSize: 36)),

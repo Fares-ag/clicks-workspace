@@ -1,6 +1,7 @@
 import React from "react";
 import { useSelector } from "react-redux";
 import { getEffectiveRole } from "../utils/authRole";
+import AdminNotificationBell from "./AdminNotificationBell.jsx";
 import "./AdminTopBar.css";
 
 const AdminTopBar = ({ onToggleSidebar }) => {
@@ -32,11 +33,12 @@ const AdminTopBar = ({ onToggleSidebar }) => {
         </button>
       </div>
       <div className="topbar-right">
-        {user && user.profilePicture ? (
-          <img className="admin-avatar" src={user.profilePicture} alt="Profile" />
-        ) : (
-          <span className="admin-avatar" />
-        )}
+        <AdminNotificationBell />
+        <img
+          className={`admin-avatar${user?.profilePicture || user?.profileImage ? "" : " admin-avatar--placeholder"}`}
+          src={user?.profilePicture || user?.profileImage || "/icons/user.svg"}
+          alt="Profile"
+        />
         <span className="admin-name">{adminName}</span>
         {role && <span className="admin-role">{role}</span>}
         <img className="arrow-down-icon" src="/icons/arrow-down.svg" alt="Menu" />

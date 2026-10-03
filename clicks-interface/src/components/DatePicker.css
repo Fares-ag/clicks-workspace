@@ -209,6 +209,6 @@
 }
 
 .datepicker-btn-apply:hover {
-  background-color: var(--color-primary-hover, #7A1919);
-  border-color: var(--color-primary-hover, #7A1919);
+  background-color: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
 }

@@ -11,12 +11,6 @@ const TechnicianPerformanceSchema = new mongoose.Schema(
     rejectedJobs: { type: Number, default: 0 },
     cashBalance: { type: Number, default: 0 },
     weeklyOnlineHours: { type: Number, default: 0 },
-    earningsData: [
-      {
-        date: { type: Date },
-        amount: { type: Number }
-      }
-    ]
   },
   { _id: false }
 );

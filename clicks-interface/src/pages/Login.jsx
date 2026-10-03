@@ -3,6 +3,7 @@ import { useDispatch } from "react-redux";
 import { useLoginMutation } from "../store/authApi";
 import { setCredentials } from "../store/authSlice";
 import { useNavigate } from "react-router-dom";
+import { prefetchCriticalAdminData } from "../utils/prefetchAdmin";
 import "./Login.css";
 
 function Login() {
@@ -48,6 +49,7 @@ function Login() {
           },
         })
       );
+      prefetchCriticalAdminData(dispatch);
       navigate("/dashboard");
     } catch (err) {
       setError("Invalid email or password. Please try again.");
@@ -60,11 +62,9 @@ function Login() {
     <div className="login-root">
       <div className="login-left">
         <img
-          src="/logo/Logo.svg"
-          alt="Clicks Logo"
+          src="/logo/SanadLogo.png"
+          alt="Sanad"
           className="login-logo"
-          width={206}
-          height={32}
         />
         <div className="login-title">Log In</div>
         <div className="login-subtitle">

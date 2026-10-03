@@ -5,6 +5,7 @@ import { logout } from "../store/authSlice";
 import { useLogoutMutation } from "../store/authApi";
 import { filterNavItemsForRole, useAdminRole } from "../utils/adminRoles";
 import { useGetNavBadgesQuery } from "../store/dashboardApi";
+import { usePageVisible } from "../hooks/usePageVisible";
 import { jobApi } from "../store/jobApi";
 import { leadApi } from "../store/leadApi";
 import { sosApi } from "../store/sosApi";
@@ -100,6 +101,11 @@ const navItems = [
     icon: "/icons/li-heart-handshake.svg",
     to: "/support-tickets",
   },
+  {
+    label: "Technician Logs",
+    icon: "/icons/performance.svg",
+    to: "/technician-logs",
+  },
 ];
 
 function AdminSidebar({ isOpen = true, onNavigate }) {
@@ -113,8 +119,11 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
     return filterNavItemsForRole(navItems, role);
   }, [role]);
 
+  const pageVisible = usePageVisible();
   const { data: navBadges } = useGetNavBadgesQuery(undefined, {
-    pollingInterval: 15000,
+    // Socket events already invalidate NavBadges; this is a visibility-aware
+    // safety net for counts that change without a socket event.
+    pollingInterval: pageVisible ? 45000 : 0,
   });
   const sosCount = navBadges?.sos ?? 0;
   const serviceCount = navBadges?.serviceRequests ?? 0;
@@ -149,7 +158,7 @@ function AdminSidebar({ isOpen = true, onNavigate }) {
     <aside className={`admin-sidebar${isOpen ? "" : " sidebar-collapsed"}`}>
       <div className="sidebar-logo">
         <NavLink to="/dashboard" onClick={onNavigate}>
-          <img src="/logo/Logo.svg" alt="Clicks Logo" className="logo-img" />
+          <img src="/logo/SanadLogo.png" alt="Sanad" className="logo-img" />
         </NavLink>
       </div>
       <nav className="sidebar-nav">

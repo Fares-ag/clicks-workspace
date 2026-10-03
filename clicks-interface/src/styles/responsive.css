@@ -69,6 +69,88 @@
   .confirmation-modal {
     width: min(580px, calc(100vw - 32px)) !important;
   }
+
+  /* HTML tables → card rows */
+  .responsive-table thead {
+    display: none;
+  }
+
+  .responsive-table tbody tr {
+    display: block;
+    margin-bottom: var(--spacing-md);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--spacing-md);
+    background: var(--color-bg-white);
+  }
+
+  .responsive-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: none;
+    text-align: right;
+  }
+
+  .responsive-table td::before {
+    content: attr(data-label);
+    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-caption);
+    color: var(--color-text-secondary);
+    text-align: left;
+    flex-shrink: 0;
+    min-width: 88px;
+  }
+
+  .responsive-table td[data-label=""]::before {
+    content: none;
+  }
+
+  .responsive-table td[data-label="Actions"] .partner-header-actions,
+  .responsive-table td[data-label="Actions"] .biz-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .responsive-table td[data-label="Actions"] button {
+    width: 100%;
+  }
+
+  .fin-table {
+    min-width: 0 !important;
+  }
+
+  /* Page filter bars */
+  .sos-inbox-filters,
+  .jobs-header-actions,
+  .performance-header-row,
+  .partner-header-actions,
+  .sources-header-actions,
+  .fin-controls {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .sos-inbox-search,
+  .sos-inbox-select,
+  .fin-controls input,
+  .fin-controls select,
+  .fin-field,
+  .sources-search {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .admin-page {
+    padding: 12px !important;
+  }
 }
 
 @media (max-width: 768px) {
@@ -146,6 +228,14 @@
 
   .arrow-down-icon {
     display: none;
+  }
+
+  .admin-notification-item-body {
+    display: none;
+  }
+
+  .admin-notification-bell {
+    margin-right: 8px;
   }
 
   /* Detail grids / forms that use fixed 2-col layouts */

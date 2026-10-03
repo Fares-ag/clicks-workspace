@@ -15,7 +15,7 @@ class ProductRules {
 
   /// Incoming job popup is accept-only; no reject CTA.
   /// Active job has no Cancel/Reject bail-out — admin cancels if needed.
-  /// Deferral path is admin Put on hold; technician sees read-only on_hold status.
+  /// Deferral path: technician requests hold; dispatch approves before on_hold.
   static const bool allowRejectOnIncomingJob = false;
 
   /// Canonical socket event for a newly assigned job (tech-api emits this).

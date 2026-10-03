@@ -8,8 +8,11 @@ flutter pub get
 flutter build apk --release `
   --dart-define=ENV=production `
   --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY `
+  --dart-define=FIREBASE_ANDROID_API_KEY=YOUR_FIREBASE_ANDROID_KEY `
   --dart-define=SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
 ```
+
+`FIREBASE_ANDROID_API_KEY` is **required**: `lib/firebase_options.dart` reads it via `--dart-define`. A build without it initializes Firebase with an empty API key, the notification service disables itself, and the app never registers an FCM token — no background job alerts (found in device QA on 2026-09-04). Use the `current_key` value from `android/app/google-services.json`; `scripts/build-apk-production.ps1` reads it automatically.
 
 Replace `SENTRY_DSN` with your project DSN from [sentry.io](https://sentry.io). Omit `--dart-define=SENTRY_DSN=...` entirely for local/staging builds — crash reporting stays disabled (no-op).
 

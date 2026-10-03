@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
 import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
+import "../../components/ConfirmationModal.css";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import "./JobDetails.css";
 import { jobTypeLabel, matchesJobTypeExpertise } from "../../constants/jobTypes";
@@ -1595,7 +1596,7 @@ function JobDetails() {
             <button className="confirmation-modal-close" onClick={() => { setShowCompleteModal(false); setCompleteNotes(''); setCompleteJobRef(''); }} aria-label="Close">
               <span className="confirmation-modal-close-x">&#10005;</span>
             </button>
-            <div className="confirmation-modal-content">
+            <div className="confirmation-modal-content confirmation-modal-content--form">
               <div className="confirmation-modal-title">Mark job as completed</div>
               <div className="confirmation-modal-message" style={{ marginBottom: '16px' }}>
                 This closes the job in dispatch. Payment and signature are not required for admin completion.
@@ -1646,7 +1647,7 @@ function JobDetails() {
             <button className="confirmation-modal-close" onClick={() => { setShowHoldModal(false); setHoldReason(''); setHoldReturnDate(''); }} aria-label="Close">
               <span className="confirmation-modal-close-x">&#10005;</span>
             </button>
-            <div className="confirmation-modal-content">
+            <div className="confirmation-modal-content confirmation-modal-content--form">
               <div className="confirmation-modal-title">Put job on hold</div>
               <div className="confirmation-modal-message" style={{ marginBottom: '16px' }}>
                 Enter a reason. Dispatch and the technician will see this on the job.

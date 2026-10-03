@@ -6,13 +6,165 @@
   padding: var(--spacing-lg);
 }
 
+@media (max-width: 900px) {
+  .jobs-container,
+  .technicians-container {
+    overflow: visible;
+    padding: 12px;
+  }
+
+  .jobs-header-row,
+  .technicians-header-row {
+    padding-bottom: 10px;
+    gap: 10px;
+  }
+
+  .jobs-add-btn {
+    width: 100%;
+  }
+
+  .job-actions--card {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .job-actions--card .job-action-btn,
+  .job-actions--card .job-whatsapp-btn {
+    flex: 1;
+    justify-content: center;
+    width: auto;
+    height: auto;
+    min-height: 36px;
+    padding: 8px 10px;
+  }
+
+  .job-action-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+}
+
 .jobs-header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: var(--spacing-lg);
+  padding-bottom: 12px;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.jobs-stats-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.jobs-stat-chip {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 16px;
+  min-width: 132px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+  font: inherit;
+  text-align: left;
+}
+
+.jobs-stat-chip:hover {
+  border-color: #d0d5dd;
+  background: var(--color-bg-page);
+}
+
+.jobs-stat-chip--active {
+  border-color: var(--color-primary);
+  background: #fdf2f4;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.jobs-stat-chip--warn {
+  border-color: var(--color-pending);
+  background: #fffaeb;
+}
+
+.jobs-stat-chip--revenue {
+  border-color: #039855;
+  background: #ecfdf3;
+}
+
+.jobs-stat-chip--revenue.jobs-stat-chip--active {
+  border-color: #027a48;
+  background: #d1fadf;
+  box-shadow: 0 0 0 1px #027a48;
+}
+
+.jobs-stat-chip--loading {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.jobs-stat-chip-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.jobs-stat-chip-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+  color: var(--color-text-primary);
+}
+
+.jobs-stat-trend {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.jobs-stat-trend.up {
+  color: #039855;
+}
+
+.jobs-stat-trend.down {
+  color: #d92d20;
+}
+
+@media (max-width: 900px) {
+  .jobs-stats-strip {
+    padding-bottom: 12px;
+    margin-left: -4px;
+    margin-right: -4px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .jobs-stat-chip {
+    min-width: 120px;
+    padding: 10px 14px;
+  }
+
+  .jobs-stat-chip-value {
+    font-size: 20px;
+    line-height: 26px;
+  }
 }
 
 .jobs-header-actions {
@@ -266,6 +418,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: center;
 }
 
 .job-whatsapp-btn {
@@ -281,6 +434,7 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 

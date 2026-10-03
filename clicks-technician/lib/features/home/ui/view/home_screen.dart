@@ -1,4 +1,3 @@
-import 'package:clicks_technician/core/config/job_fulfill_status.dart';
 import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/helper/assets_manager.dart';
 import 'package:clicks_technician/core/permissions/background_location_disclosure.dart';
@@ -6,10 +5,10 @@ import 'package:clicks_technician/core/permissions/permissions_setup_sheet.dart'
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
-import 'package:clicks_technician/features/home/ui/view/active_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/add_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/home_hero_image.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/notifications_popup.dart';
+import 'package:clicks_technician/features/home/ui/view/widgets/pending_assignments_banner.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/slide_status_toggle.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -45,26 +44,29 @@ class HomeScreen extends StatelessWidget {
         }
 
         final cubit = context.read<HomeCubit>();
-        final showActiveJobScreen = cubit.activeJob != null &&
-            JobFulfillStatus.isBlocking(
-              cubit.jobStatus,
-              paymentStatus:
-                  cubit.activeJob?['payment_status']?.toString(),
-            );
-
-        if (showActiveJobScreen) {
-          return ActiveJobScreen(cubit: cubit);
-        }
-
-        return _IdleHeroHome(cubit: cubit);
+        final media = MediaQuery.sizeOf(context);
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final cacheW = (media.width * dpr).round().clamp(1, 1440);
+        final cacheH = (media.height * dpr).round().clamp(1, 2560);
+        return _IdleHeroHome(
+          cubit: cubit,
+          cacheWidth: cacheW,
+          cacheHeight: cacheH,
+        );
       },
     );
   }
 }
 
 class _IdleHeroHome extends StatelessWidget {
-  const _IdleHeroHome({required this.cubit});
+  const _IdleHeroHome({
+    required this.cubit,
+    required this.cacheWidth,
+    required this.cacheHeight,
+  });
   final HomeCubit cubit;
+  final int cacheWidth;
+  final int cacheHeight;
 
   String _balanceLabel() {
     final v = cubit.balanceQar;
@@ -159,11 +161,15 @@ class _IdleHeroHome extends StatelessWidget {
                   url: cubit.homeHeroUrl!,
                   fallbackAsset: AssetsManager.homeHeroTech,
                   fit: BoxFit.cover,
+                  cacheWidth: cacheWidth,
+                  cacheHeight: cacheHeight,
                 )
               else
                 Image.asset(
                   AssetsManager.homeHeroTech,
                   fit: BoxFit.cover,
+                  cacheWidth: cacheWidth,
+                  cacheHeight: cacheHeight,
                   errorBuilder: (_, __, ___) => Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
@@ -180,62 +186,41 @@ class _IdleHeroHome extends StatelessWidget {
                 bottom: 120.h,
                 child: cubit.canShowAddJob
                     ? Material(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => AddJobScreen(cubit: cubit),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(999),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 14.w,
-                        vertical: 10.h,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.add, color: Colors.white, size: 20.sp),
-                          SizedBox(width: 6.w),
-                          Text(
-                            'Add job',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14.sp,
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(999),
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => AddJobScreen(cubit: cubit),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(999),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 14.w,
+                              vertical: 10.h,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.add, color: Colors.white, size: 20.sp),
+                                SizedBox(width: 6.w),
+                                Text(
+                                  'Add job',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14.sp,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    ),
-                  )
-                    : cubit.heldJobsCount > 0
-                        ? Material(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(999),
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 14.w,
-                                vertical: 10.h,
-                              ),
-                              child: Text(
-                                cubit.heldJobsCount == 1
-                                    ? '1 job on hold'
-                                    : '${cubit.heldJobsCount} jobs on hold',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14.sp,
-                                ),
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
               ),
               Positioned(
                 right: 16.w,
@@ -319,6 +304,15 @@ class _IdleHeroHome extends StatelessWidget {
                           onFix: () => PermissionsSetupSheet.showIfNeeded(context),
                         ),
                       ),
+                    // Multi-job: assignments that arrived while busy on another
+                    // job. When activeJob itself is assigned, MainShell already
+                    // shows the incoming banner/modal instead.
+                    if (cubit.hasIncomingAssignedJob &&
+                        cubit.jobStatus != 'assigned')
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 0),
+                        child: PendingAssignmentsBanner(cubit: cubit),
+                      ),
                     const Spacer(),
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 28.w),
@@ -329,6 +323,19 @@ class _IdleHeroHome extends StatelessWidget {
                         onCompleted: () => _onSlideComplete(context),
                       ),
                     ),
+                    if (cubit.offlineToggleBlockedReason != null) ...[
+                      SizedBox(height: 8.h),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 28.w),
+                        child: Text(
+                          cubit.offlineToggleBlockedReason!,
+                          textAlign: TextAlign.center,
+                          style: TextStyles.font12RegularGrey.copyWith(
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ),
+                    ],
                     SizedBox(height: 10.h),
                     Text(
                       cubit.socketConnected

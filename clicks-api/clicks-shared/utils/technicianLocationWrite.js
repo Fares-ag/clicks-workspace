@@ -163,10 +163,13 @@ async function applyTechnicianLocationWrite({
   const lastLocationAt = resolveFixTime(fixTime, now) || new Date();
 
   if (!state) {
-    await Technician.findByIdAndUpdate(id, {
-      "currentLocation.coordinates": [lng, lat],
-      lastLocationAt,
-    });
+    await Technician.updateOne(
+      { _id: id },
+      {
+        "currentLocation.coordinates": [lng, lat],
+        lastLocationAt,
+      }
+    );
     stateByTechId.set(id, {
       lat,
       lng,
@@ -195,7 +198,7 @@ async function applyTechnicianLocationWrite({
       return { ok: false, skipped: true, reason: "heartbeat_throttle", lat, lng };
     }
     state.lastHeartbeatAt = now;
-    await Technician.findByIdAndUpdate(id, { lastLocationAt });
+    await Technician.updateOne({ _id: id }, { lastLocationAt });
     if (typeof onAdminBroadcast === "function") {
       onAdminBroadcast(id, lat, lng, lastLocationAt);
     }
@@ -217,10 +220,13 @@ async function applyTechnicianLocationWrite({
     return { ok: false, skipped: true, reason: "throttle", lat, lng };
   }
 
-  await Technician.findByIdAndUpdate(id, {
-    "currentLocation.coordinates": [lng, lat],
-    lastLocationAt,
-  });
+  await Technician.updateOne(
+    { _id: id },
+    {
+      "currentLocation.coordinates": [lng, lat],
+      lastLocationAt,
+    }
+  );
   state.lat = lat;
   state.lng = lng;
   state.lastWriteAt = now;

@@ -6,18 +6,13 @@ const Vehicle = require("clicks-shared/models/Vehicle");
 const VehicleInsurance = require("clicks-shared/models/VehicleInsurance");
 const {
   COMPLETED,
-  revenueForDayWindow,
-  totalCompletedRevenue,
 } = require("clicks-shared/utils/dashboardRevenue");
 const { cachedCount } = require("clicks-shared/utils/cachedCount");
+const { getCachedPayload } = require("clicks-shared/utils/payloadCache");
 const {
-  computeDashboardAggregates,
   getDashboardStatsDoc,
-  refreshDashboardStats,
 } = require("../services/statsRefresher");
-const { getTopJobSources, getTopJobSubSources } = require("../services/dashboardSourceStats");
 const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
-const { isHiddenSourceName } = require("clicks-shared/utils/systemSources");
 const { ONGOING_JOB_STATUSES } = require("clicks-shared/constants/jobStatuses");
 const Lead = require("clicks-shared/models/Lead");
 const ServiceRequest = require("clicks-shared/models/ServiceRequest");
@@ -47,6 +42,14 @@ function completionDateExpr() {
   return { $ifNull: ["$completed_at", "$updatedAt"] };
 }
 
+function completedInWindowMatch(startDate) {
+  // Prefer the { job_status, completed_at } index. $expr cannot use it.
+  return {
+    job_status: { $in: COMPLETED },
+    completed_at: { $gte: startDate },
+  };
+}
+
 function timeframeWindow(timeframe) {
   const startDate = new Date();
   let dateFormat = "%Y-%m-%d";
@@ -72,25 +75,36 @@ function timeframeWindow(timeframe) {
   return { startDate, dateFormat };
 }
 
+const NAV_BADGES_TTL_MS = 20000;
+const SUMMARY_TTL_MS = 30000;
+const SERIES_TTL_MS = 60000;
+const TECH_PERF_TTL_MS = 60000;
+
 // GET /api/dashboard/nav-badges — single payload for sidebar badge counts
 async function getNavBadges(req, res) {
   try {
-    const [sosPending, sosInCall, servicePending, openLeads] = await Promise.all([
-      cachedCount(SOSRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sos_pending" }),
-      cachedCount(SOSRequest, { status: "in_call" }, { ttlMs: 15000, key: "nav_sos_in_call" }),
-      cachedCount(ServiceRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sr_pending" }),
-      cachedCount(
-        Lead,
-        { status: { $in: OPEN_LEAD_STATUSES } },
-        { ttlMs: 30000, key: "nav_leads_open" }
-      ),
-    ]);
-
-    res.json({
-      sos: sosPending + sosInCall,
-      serviceRequests: servicePending,
-      openLeads,
-    });
+    const payload = await getCachedPayload(
+      "clicks:admin:payload:nav-badges",
+      NAV_BADGES_TTL_MS,
+      async () => {
+        const [sosPending, sosInCall, servicePending, openLeads] = await Promise.all([
+          cachedCount(SOSRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sos_pending" }),
+          cachedCount(SOSRequest, { status: "in_call" }, { ttlMs: 15000, key: "nav_sos_in_call" }),
+          cachedCount(ServiceRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sr_pending" }),
+          cachedCount(
+            Lead,
+            { status: { $in: OPEN_LEAD_STATUSES } },
+            { ttlMs: 30000, key: "nav_leads_open" }
+          ),
+        ]);
+        return {
+          sos: sosPending + sosInCall,
+          serviceRequests: servicePending,
+          openLeads,
+        };
+      }
+    );
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch nav badges", error: err.message });
   }
@@ -99,30 +113,31 @@ async function getNavBadges(req, res) {
 // GET /api/dashboard/summary — ops + KPI snapshot for the admin Dashboard
 async function getDashboardSummary(req, res) {
   try {
+    const payload = await getCachedPayload(
+      "clicks:admin:payload:summary",
+      SUMMARY_TTL_MS,
+      buildDashboardSummary
+    );
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({
+      message: "Failed to fetch dashboard summary",
+      error: err.message,
+    });
+  }
+}
+
+async function buildDashboardSummary() {
     const todayStart = startOfDay();
     const todayEnd = endOfDay();
     const yesterdayStart = startOfDay(new Date(Date.now() - 86400000));
     const yesterdayEnd = endOfDay(new Date(Date.now() - 86400000));
 
+    // Never run full-collection revenue/source aggregations on the request path.
+    // statsRefresher materializes them in the background.
     const statsDoc = await getDashboardStatsDoc();
-    const statsStaleMs = 5 * 60 * 1000;
-    let materialized = statsDoc?.value;
-    let statsComputedAt = statsDoc?.computed_at;
-
-    if (
-      !materialized?.earnings ||
-      !statsComputedAt ||
-      Date.now() - new Date(statsComputedAt).getTime() > statsStaleMs
-    ) {
-      materialized = await computeDashboardAggregates();
-      statsComputedAt = new Date();
-      const PlatformStats = require("clicks-shared/models/PlatformStats");
-      await PlatformStats.findOneAndUpdate(
-        { key: "dashboard_summary" },
-        { $set: { value: materialized, computed_at: statsComputedAt } },
-        { upsert: true }
-      );
-    }
+    const materialized = statsDoc?.value || {};
+    const statsComputedAt = statsDoc?.computed_at;
 
     const [
       jobsTotal,
@@ -204,17 +219,17 @@ async function getDashboardSummary(req, res) {
         .populate("customer_id", "first_name last_name phone_number")
         .select("status createdAt location customer_id")
         .lean(),
-      Vehicle.countDocuments({}),
-      Customer.countDocuments({}),
-      VehicleInsurance.countDocuments({}),
+      cachedCount(Vehicle, {}, { ttlMs: 30000, key: "fleet_vehicles" }),
+      cachedCount(Customer, {}, { ttlMs: 30000, key: "fleet_clients" }),
+      cachedCount(VehicleInsurance, {}, { ttlMs: 30000, key: "fleet_insured" }),
     ]);
 
     const topSourcesRaw = Array.isArray(materialized?.topSources)
-        ? materialized.topSources
-        : await getTopJobSources(5);
+      ? materialized.topSources
+      : [];
     const topSubSourcesRaw = Array.isArray(materialized?.topSubSources)
-        ? materialized.topSubSources
-        : await getTopJobSubSources(5);
+      ? materialized.topSubSources
+      : [];
 
     const topSources = topSourcesRaw.map((row) => ({
       ...row,
@@ -246,7 +261,7 @@ async function getDashboardSummary(req, res) {
       };
     });
 
-    res.json({
+    const payload = {
       generatedAt: new Date().toISOString(),
       stats_computed_at: statsComputedAt ? new Date(statsComputedAt).toISOString() : null,
       jobs: {
@@ -294,55 +309,48 @@ async function getDashboardSummary(req, res) {
         top: topSources,
         subSources: topSubSources,
       },
-    });
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to fetch dashboard summary",
-      error: err.message,
-    });
-  }
+    };
+    return payload;
 }
 
 // GET /api/dashboard/earnings?timeframe=12months|30days|7days|24hours
 async function getEarningsData(req, res) {
   try {
     const { timeframe = "12months" } = req.query;
-    const { startDate, dateFormat } = timeframeWindow(timeframe);
-
-    // Completed jobs bucketed by completion date (not createdAt)
-    const earningsData = await Job.aggregate([
-      {
-        $match: {
-          job_status: { $in: COMPLETED },
-          $expr: { $gte: [completionDateExpr(), startDate] },
+    const payload = await getCachedPayload(
+      `clicks:admin:payload:earnings:${timeframe}`,
+      SERIES_TTL_MS,
+      async () => {
+      const { startDate, dateFormat } = timeframeWindow(timeframe);
+      const earningsData = await Job.aggregate([
+        {
+          $match: completedInWindowMatch(startDate),
         },
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: { format: dateFormat, date: completionDateExpr() },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: dateFormat, date: completionDateExpr() },
+            },
+            totalEarnings: { $sum: { $ifNull: ["$price", 0] } },
+            jobCount: { $sum: 1 },
           },
-          totalEarnings: { $sum: { $ifNull: ["$price", 0] } },
-          jobCount: { $sum: 1 },
         },
-      },
-      { $sort: { _id: 1 } },
-    ]);
-
-    const formattedData = earningsData.map((item) => ({
-      date: item._id,
-      earnings: item.totalEarnings,
-      jobs: item.jobCount,
-    }));
-
-    const totalEarnings = formattedData.reduce((sum, item) => sum + item.earnings, 0);
-
-    res.json({
-      timeframe,
-      data: formattedData,
-      totalEarnings,
-      currency: "QAR",
+        { $sort: { _id: 1 } },
+      ]);
+      const formattedData = earningsData.map((item) => ({
+        date: item._id,
+        earnings: item.totalEarnings,
+        jobs: item.jobCount,
+      }));
+      const totalEarnings = formattedData.reduce((sum, item) => sum + item.earnings, 0);
+      return {
+        timeframe,
+        data: formattedData,
+        totalEarnings,
+        currency: "QAR",
+      };
     });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch earnings data", error: err.message });
   }
@@ -352,58 +360,58 @@ async function getEarningsData(req, res) {
 async function getJobCompletionData(req, res) {
   try {
     const { timeframe = "12months" } = req.query;
-    const { startDate, dateFormat } = timeframeWindow(timeframe);
-
-    // Completions only — grouped by completed_at (fallback updatedAt)
-    const jobData = await Job.aggregate([
-      {
-        $match: {
-          job_status: { $in: COMPLETED },
-          $expr: { $gte: [completionDateExpr(), startDate] },
+    const payload = await getCachedPayload(
+      `clicks:admin:payload:jobs:${timeframe}`,
+      SERIES_TTL_MS,
+      async () => {
+      const { startDate, dateFormat } = timeframeWindow(timeframe);
+      const jobData = await Job.aggregate([
+        {
+          $match: completedInWindowMatch(startDate),
         },
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: { format: dateFormat, date: completionDateExpr() },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: dateFormat, date: completionDateExpr() },
+            },
+            totalJobs: { $sum: 1 },
           },
-          totalJobs: { $sum: 1 },
         },
-      },
-      { $sort: { _id: 1 } },
-    ]);
-
-    const formattedData = jobData.map((item) => ({
-      date: item._id,
-      jobs: item.totalJobs,
-    }));
-
-    res.json({
-      timeframe,
-      data: formattedData,
+        { $sort: { _id: 1 } },
+      ]);
+      return {
+        timeframe,
+        data: jobData.map((item) => ({
+          date: item._id,
+          jobs: item.totalJobs,
+        })),
+      };
     });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch job completion data", error: err.message });
   }
 }
 
 // GET /api/dashboard/technician-performance
-let techPerfCache = null;
-const TECH_PERF_TTL_MS = 30000;
-
 async function getTechnicianPerformance(req, res) {
   try {
-    if (techPerfCache && techPerfCache.expiresAt > Date.now()) {
-      return res.json(techPerfCache.value);
-    }
-
+    const payload = await getCachedPayload(
+      "clicks:admin:payload:tech-performance",
+      TECH_PERF_TTL_MS,
+      async () => {
     const technicians = await Technician.find({ isActive: true })
       .select("_id firstName")
       .lean();
     const techById = new Map(technicians.map((t) => [String(t._id), t.firstName]));
+    const techIds = technicians.map((t) => t._id);
 
     const grouped = await Job.aggregate([
-      { $match: { assignedTechnician: { $ne: null } } },
+      {
+        $match: techIds.length
+          ? { assignedTechnician: { $in: techIds } }
+          : { assignedTechnician: { $ne: null } },
+      },
       {
         $group: {
           _id: { tech: "$assignedTechnician", status: "$job_status" },
@@ -435,8 +443,9 @@ async function getTechnicianPerformance(req, res) {
 
     performanceData.sort((a, b) => b.completed - a.completed || b.total - a.total);
 
-    const payload = { data: performanceData.slice(0, 6) };
-    techPerfCache = { value: payload, expiresAt: Date.now() + TECH_PERF_TTL_MS };
+    return { data: performanceData.slice(0, 6) };
+      }
+    );
     res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch technician performance data", error: err.message });

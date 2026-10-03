@@ -50,6 +50,9 @@ async function shutdown(signal) {
       await mongoose.disconnect();
     }
 
+    const { closeRedis } = require("../../clicks-shared/utils/redisClient");
+    await closeRedis();
+
     clearTimeout(hardExit);
     process.exit(0);
   } catch (err) {
@@ -73,6 +76,10 @@ mongoose
     });
     const { startStatsRefresher } = require("./services/statsRefresher");
     statsRefresherHandle = startStatsRefresher();
+    const { warmAdminLookups } = require("../../clicks-shared/utils/adminLookups");
+    warmAdminLookups().catch((err) => {
+      console.error("admin lookup warm failed:", err.message);
+    });
     server = app.listen(PORT, () => {
       console.log(`Clicks API running on port ${PORT}`);
     });

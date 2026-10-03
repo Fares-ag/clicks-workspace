@@ -53,19 +53,25 @@ class ActionErrors {
       return 'Customer signature is required. Tap "Collect customer signature" and save it before completing.';
     }
 
-    if (lower.contains('ask dispatch to put your current job on hold before creating another')) {
-      return 'Ask dispatch to put your current job on hold before adding another.';
-    }
-
-    if (lower.contains('put your current job on hold before creating another')) {
-      return 'Ask dispatch to put your current job on hold before adding another.';
-    }
-
     if (lower == 'hold reason is required') {
       return 'Enter a reason for putting this job on hold.';
     }
 
+    if (lower.contains('hold request is already pending')) {
+      return 'A hold request is already pending for this job.';
+    }
+
+    if (lower.contains('cannot go offline while you have an active job')) {
+      return 'Finish or accept pending jobs before going offline.';
+    }
+
     if (lower.startsWith('cannot put job on hold from status:')) {
+      final status = primary.split(':').last.trim();
+      final label = JobStatusLabels.labelFor(status);
+      return 'This job cannot be put on hold from "$label".';
+    }
+
+    if (lower.startsWith('cannot request hold from status:')) {
       final status = primary.split(':').last.trim();
       final label = JobStatusLabels.labelFor(status);
       return 'This job cannot be put on hold from "$label".';

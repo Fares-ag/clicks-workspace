@@ -15,7 +15,10 @@ import 'package:intl/intl.dart';
 
 /// Figma Earnings — welcome header, total card, mini stats, chart, performance.
 class EarningsTab extends StatefulWidget {
-  const EarningsTab({super.key});
+  const EarningsTab({super.key, this.visible = false});
+
+  /// [MainShell] IndexedStack builds all tabs at once — only fetch when shown.
+  final bool visible;
 
   @override
   State<EarningsTab> createState() => _EarningsTabState();
@@ -24,14 +27,23 @@ class EarningsTab extends StatefulWidget {
 class _EarningsTabState extends State<EarningsTab> {
   static const _dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  bool _loading = true;
+  bool _loading = false;
+  bool _loadedOnce = false;
   String? _error;
   Map<String, dynamic> _perf = {};
 
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.visible) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant EarningsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible && !oldWidget.visible && !_loadedOnce) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -52,7 +64,12 @@ class _EarningsTabState extends State<EarningsTab> {
     } catch (_) {
       _error = 'Failed to load earnings';
     }
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _loadedOnce = true;
+      });
+    }
   }
 
   num _n(String key) {

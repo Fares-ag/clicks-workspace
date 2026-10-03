@@ -1,5 +1,6 @@
 const Job = require("../models/Job");
 const mongoose = require("mongoose");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
 
 const NEARBY_LIMIT = 50;
 const HOTSPOT_TOP = 5;
@@ -278,70 +279,85 @@ async function getJobHeatmap(req, res) {
       },
     ];
 
-    const [aggregated, dotJobs, hotspotCells, statsFacet] = await Promise.all([
-      Job.aggregate(pointsPipeline),
-      dotPipeline ? Job.aggregate(dotPipeline) : Promise.resolve([]),
-      Job.aggregate(hotspotPipeline),
-      Job.aggregate(statsPipeline),
-    ]);
+    const cacheKey = `clicks:admin:payload:heatmap:${JSON.stringify({
+      north: req.query.north,
+      south: req.query.south,
+      east: req.query.east,
+      west: req.query.west,
+      zoom: req.query.zoom,
+      hourFrom: req.query.hourFrom,
+      hourTo: req.query.hourTo,
+      status: req.query.status,
+      from: req.query.from,
+      to: req.query.to,
+    })}`;
+    const payload = await getCachedPayload(cacheKey, 20000, async () => {
+      const [aggregated, dotJobs, hotspotCells, statsFacet] = await Promise.all([
+        Job.aggregate(pointsPipeline),
+        dotPipeline ? Job.aggregate(dotPipeline) : Promise.resolve([]),
+        Job.aggregate(hotspotPipeline),
+        Job.aggregate(statsPipeline),
+      ]);
 
-    const statsBlock = statsFacet[0] || {};
-    const plotted = statsBlock.plotted?.[0]?.n ?? 0;
-    const missingCoordinates = statsBlock.missing?.[0]?.n ?? 0;
-    const dateBounds = statsBlock.dates ?? [];
+      const statsBlock = statsFacet[0] || {};
+      const plotted = statsBlock.plotted?.[0]?.n ?? 0;
+      const missingCoordinates = statsBlock.missing?.[0]?.n ?? 0;
+      const dateBounds = statsBlock.dates ?? [];
 
-    const points = aggregated.map((cell) => ({
-      lat: cell.lat,
-      lng: cell.lng,
-      weight: cell.weight,
-    }));
-
-    const dots = dotJobs.map((job) => ({
-      _id: job._id,
-      lat: job.lat,
-      lng: job.lng,
-      clientName: job.clientName,
-      issue: job.issue,
-      dateTime: job.dateTime,
-      job_status: job.job_status,
-      jobType: job.jobType,
-    }));
-
-    const hotspots = hotspotCells.map((cell) => {
-      const cellSize = gridSize * 2;
-      const minLat = cell.gx * cellSize;
-      const minLng = cell.gy * cellSize;
-      return {
+      const points = aggregated.map((cell) => ({
         lat: cell.lat,
         lng: cell.lng,
-        count: cell.count,
-        bounds: {
-          south: minLat,
-          west: minLng,
-          north: minLat + cellSize,
-          east: minLng + cellSize,
+        weight: cell.weight,
+      }));
+
+      const dots = dotJobs.map((job) => ({
+        _id: job._id,
+        lat: job.lat,
+        lng: job.lng,
+        clientName: job.clientName,
+        issue: job.issue,
+        dateTime: job.dateTime,
+        job_status: job.job_status,
+        jobType: job.jobType,
+      }));
+
+      const hotspots = hotspotCells.map((cell) => {
+        const cellSize = gridSize * 2;
+        const minLat = cell.gx * cellSize;
+        const minLng = cell.gy * cellSize;
+        return {
+          lat: cell.lat,
+          lng: cell.lng,
+          count: cell.count,
+          bounds: {
+            south: minLat,
+            west: minLng,
+            north: minLat + cellSize,
+            east: minLng + cellSize,
+          },
+        };
+      });
+
+      return {
+        points,
+        dots,
+        hotspots,
+        stats: {
+          totalMatched: plotted + missingCoordinates,
+          plotted,
+          missingCoordinates,
+          visibleCells: points.length,
+          visibleDots: dots.length,
+          gridSize,
+          dateMin: dateBounds[0]?.dateMin?.toISOString?.() ?? null,
+          dateMax: dateBounds[0]?.dateMax?.toISOString?.() ?? null,
+          hourFrom: parseHour(req.query.hourFrom),
+          hourTo: parseHour(req.query.hourTo),
+          timezone: HEATMAP_TZ,
         },
       };
     });
-
-    res.json({
-      points,
-      dots,
-      hotspots,
-      stats: {
-        totalMatched: plotted + missingCoordinates,
-        plotted,
-        missingCoordinates,
-        visibleCells: points.length,
-        visibleDots: dots.length,
-        gridSize,
-        dateMin: dateBounds[0]?.dateMin?.toISOString?.() ?? null,
-        dateMax: dateBounds[0]?.dateMax?.toISOString?.() ?? null,
-        hourFrom: parseHour(req.query.hourFrom),
-        hourTo: parseHour(req.query.hourTo),
-        timezone: HEATMAP_TZ,
-      },
-    });
+    res.json(payload);
   } catch (err) {
     console.error("getJobHeatmap failed:", err);
     res.status(500).json({ message: "Failed to fetch heatmap data", error: err.message });

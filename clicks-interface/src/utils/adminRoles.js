@@ -23,6 +23,8 @@ export const FULL_ADMIN_ONLY_PREFIXES = [
   "/vehicle-makes",
   "/vehicle-models",
   "/calls",
+  // Login attempts, IPs and GPS pings — security data, not dispatch data.
+  "/technician-logs",
 ];
 
 /** Route prefixes allowed for ops roles (Job Dispatcher, etc.). */

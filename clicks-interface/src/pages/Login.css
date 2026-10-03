@@ -24,8 +24,10 @@
 .login-logo {
   margin-top: 70px;
   margin-bottom: 52px;
-  width: 116px;
-  height: 32px;
+  width: auto;
+  max-width: min(360px, 100%);
+  height: 96px;
+  object-fit: contain;
 }
 
 .login-title {

@@ -1,0 +1,12 @@
+.hold-request-header-tag {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.hold-request-reason {
+  margin-top: 12px;
+}
+
+.hold-request-reason .sos-info-value {
+  white-space: pre-wrap;
+}

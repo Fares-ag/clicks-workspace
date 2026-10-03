@@ -27,6 +27,29 @@ Registered users ≠ concurrency. Size for peak active SOS + GPS writes, not 200
 5. URI only in server `.env` — never commit.
 6. Rotate any password pasted in chat/history.
 
+## Technician activity log (retention & volume)
+
+The technician app writes an append-only trail to `technicianactivitylogs`
+(logins including failed attempts, availability, job steps, device and location
+events). The admin portal reads it at **Technician Logs** (full admins only).
+
+Knobs — set on the **customer-tech API** service:
+
+| Env var | Default | What it does |
+|---------|---------|--------------|
+| `TECHNICIAN_ACTIVITY_LOG_TTL_DAYS` | `180` | TTL index on `at`. `0` keeps rows forever (watch disk). |
+| `TECHNICIAN_ACTIVITY_LOG_LOCATION` | `true` | `false` stops recording GPS pings entirely. |
+| `TECHNICIAN_ACTIVITY_LOCATION_MIN_INTERVAL_MS` | `300000` (5 min) | Throttle per technician for `location.updated`. Lower = finer trail, more rows. |
+
+Volume: every event is one small document. Job/auth events are a handful per
+technician per day; location is the only high-rate source, which is why it is
+throttled in-process rather than written on every fix (the app pings every few
+seconds while online). At the 5-minute default a technician online 10h/day adds
+roughly 120 location rows/day.
+
+Changing the TTL only affects new index builds — drop and recreate the `at_1`
+TTL index on an existing collection if you change the retention window.
+
 ## Object storage & email
 
 Current code still supports Azure Blob / Communication Email via env vars. You may keep those accounts **or** swap providers later — not required to use an Azure VM. Soft launch can proceed with SMSala + Atlas while Blob/Email are configured.
@@ -46,19 +69,20 @@ Wired in `clicks-customer-tech-api/src/services/smsService.js`.
 
 Restrict SMSala Allowed IP to the **VPS egress IP** (do not leave `0.0.0.0`).
 
-## Redis Socket.IO (growth)
+## Redis (growth)
 
-Opt-in in customer-tech-api: set `REDIS_URL` (e.g. `redis://127.0.0.1:6379`).
+Opt-in via `REDIS_URL` (e.g. `redis://127.0.0.1:6379`). Shared client: `clicks-shared/utils/redisClient.js`.
 
-- Empty / unset → memory adapter (soft launch).
-- Set → `@socket.io/redis-adapter` for multi-process emit fanout.
-- **Do not** set `TECH_API_INSTANCES > 1` until `REDIS_URL` is live.
+- Empty / unset → in-process (soft launch). Socket.IO uses the memory adapter; dashboard counts use a process `Map`.
+- Set on **customer-tech-api** → `@socket.io/redis-adapter` for multi-process emit fanout, plus shared auth/OTP rate limits.
+- Set on **admin-api** (same URL) → shared dashboard count cache and login rate limits across instances. `/api/health` returns 503 if Redis is configured but unreachable.
+- **Do not** set `TECH_API_INSTANCES > 1` until `REDIS_URL` is live on customer-tech-api.
 - Nginx must use **sticky sessions** (`ip_hash` or equivalent) for the tech API WebSocket path — in-process socket id maps in `sosSocketService` are not yet shared via Redis.
 
 ```bash
 # On VPS (example)
 sudo apt install redis-server   # or managed Redis
-# In clicks-customer-tech-api/.env:
+# In clicks-customer-tech-api/.env and clicks-admin-api/.env:
 REDIS_URL=redis://127.0.0.1:6379
 ```
 

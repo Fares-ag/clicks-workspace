@@ -54,7 +54,7 @@
 }
 
 .partner-add-btn {
-  background: var(--color-primary, #981f1f);
+  background: var(--color-primary);
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -222,9 +222,9 @@
 }
 
 .partner-form-actions button[type="submit"] {
-  background: #981f1f;
+  background: var(--color-primary);
   color: #fff;
-  border-color: #981f1f;
+  border-color: var(--color-primary);
 }
 
 .partner-error {
@@ -271,7 +271,7 @@
 
 .partner-progress-fill {
   height: 100%;
-  background: #981f1f;
+  background: var(--color-primary);
   border-radius: 999px;
 }
 

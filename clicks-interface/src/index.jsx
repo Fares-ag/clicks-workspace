@@ -6,7 +6,6 @@ import { Provider } from "react-redux";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import store from "./store/store";
-import "antd/dist/reset.css";
 import "./styles/theme.css";
 import "./styles/global.css";
 import "./styles/admin-page.css";

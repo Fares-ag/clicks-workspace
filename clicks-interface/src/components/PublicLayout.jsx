@@ -8,7 +8,7 @@ function PublicLayout({ children }) {
       <header className="public-header">
         <div className="public-header-inner">
           <Link to="/" className="public-logo-link">
-            <img src="/logo/Logo.svg" alt="Clicks Logo" className="public-logo" />
+            <img src="/logo/SanadLogo.png" alt="Sanad" className="public-logo" />
           </Link>
           <nav className="public-nav">
             <Link to="/privacy-policy" className="public-nav-link">Privacy Policy</Link>

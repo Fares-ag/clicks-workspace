@@ -62,13 +62,13 @@ const COLOR_FS = `
 
   vec3 heatGradient(float t) {
     t = clamp(t, 0.0, 1.0);
-    // Clicks brand: pale rose → primary-lighter → primary-light → primary → primary-hover.
+    // Sanad navy: pale slate → lighter → light → primary → hover.
     float band = floor(t * 5.0);
-    if (band < 1.0) return vec3(0.988, 0.918, 0.918); // #FCEAEA — few
-    if (band < 2.0) return vec3(0.902, 0.702, 0.702); // #E6B3B3 — some
-    if (band < 3.0) return vec3(0.698, 0.200, 0.200); // #B23333 — moderate
-    if (band < 4.0) return vec3(0.596, 0.122, 0.122); // #981F1F — many
-    return vec3(0.478, 0.098, 0.098);                   // #7A1919 — hotspot
+    if (band < 1.0) return vec3(0.910, 0.933, 0.949); // #E8EEF2 — few
+    if (band < 2.0) return vec3(0.773, 0.831, 0.863); // #C5D4DC — some
+    if (band < 3.0) return vec3(0.102, 0.290, 0.388); // #1A4A63 — moderate
+    if (band < 4.0) return vec3(0.039, 0.149, 0.208); // #0A2635 — many
+    return vec3(0.024, 0.094, 0.125);                   // #061820 — hotspot
   }
 
   void main() {

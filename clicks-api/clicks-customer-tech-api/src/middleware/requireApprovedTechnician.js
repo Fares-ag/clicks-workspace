@@ -1,6 +1,27 @@
 const { Technician } = require("../../../clicks-shared/models");
 const { objectId } = require("../../../clicks-shared/utils/coerce");
 
+const APPROVAL_TTL_MS = 15000;
+const approvalCache = new Map();
+
+function approvalCacheGet(id) {
+  const hit = approvalCache.get(id);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    approvalCache.delete(id);
+    return null;
+  }
+  return hit;
+}
+
+function approvalCacheSet(id, value) {
+  if (approvalCache.size > 500) {
+    const first = approvalCache.keys().next().value;
+    approvalCache.delete(first);
+  }
+  approvalCache.set(id, { ...value, expiresAt: Date.now() + APPROVAL_TTL_MS });
+}
+
 /**
  * Re-check the technician's account state on every privileged request.
  *
@@ -19,21 +40,39 @@ const requireApprovedTechnician = async (req, res, next) => {
     if (!techId) {
       return res.status(401).json({ error: "Invalid token" });
     }
+    const cacheId = String(techId);
+    const cached = approvalCacheGet(cacheId);
+    if (cached) {
+      if (!cached.ok) {
+        return res.status(cached.status).json(cached.body);
+      }
+      return next();
+    }
     const technician = await Technician.findById(techId).select(
       "applicationStatus isActive"
     );
     if (!technician) {
+      approvalCacheSet(cacheId, {
+        ok: false,
+        status: 401,
+        body: { error: "Technician not found" },
+      });
       return res.status(401).json({ error: "Technician not found" });
     }
     if (technician.isActive === false) {
-      return res.status(403).json({ error: "This account has been deactivated" });
+      const body = { error: "This account has been deactivated" };
+      approvalCacheSet(cacheId, { ok: false, status: 403, body });
+      return res.status(403).json(body);
     }
     if (technician.applicationStatus !== "Approved") {
-      return res.status(403).json({
+      const body = {
         error: "Your application has not been approved yet",
         applicationStatus: technician.applicationStatus,
-      });
+      };
+      approvalCacheSet(cacheId, { ok: false, status: 403, body });
+      return res.status(403).json(body);
     }
+    approvalCacheSet(cacheId, { ok: true });
   } catch (err) {
     return res.status(500).json({ error: "Authorization check failed" });
   }

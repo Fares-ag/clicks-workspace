@@ -226,6 +226,21 @@ async function rejectAssignedJob(techToken, jobId) {
   });
 }
 
+// Since 31079ae both APIs store `location` as the normalized "lat, lng" string
+// (formatGeoPointAsLocationString — "for display and storage") after resolving
+// coordinates, so a Maps/Waze URL input is not kept verbatim. Accept either the
+// raw input or the normalized coordinate string.
+function locationMatches(actual, expectedInput, expectedCoords) {
+  const got = String(actual || "").trim();
+  if (got === String(expectedInput).trim()) return true;
+  if (Array.isArray(expectedCoords) && expectedCoords.length === 2) {
+    const [lng, lat] = expectedCoords;
+    const normalized = `${lat}, ${lng}`;
+    if (got === normalized) return true;
+  }
+  return false;
+}
+
 async function assertTechReceivesLocation(techToken, jobId, expectedCoords, locationPreserved) {
   const session = await getTechSession(techToken);
   step("tech session fetch", session.status === 200, `status=${session.status}`);
@@ -254,7 +269,7 @@ async function assertTechReceivesLocation(techToken, jobId, expectedCoords, loca
   if (locationPreserved != null) {
     step(
       `tech job ${jobId} location preserved`,
-      String(job.location || "").trim() === String(locationPreserved).trim(),
+      locationMatches(job.location, locationPreserved, expectedCoords),
       (job.location || "").slice(0, 80)
     );
   }
@@ -314,7 +329,7 @@ async function assertJobCoords(adminToken, jobId, expectedCoords, locationPreser
   if (locationPreserved != null) {
     step(
       `job ${jobId} location preserved`,
-      String(job?.location || "").trim() === String(locationPreserved).trim(),
+      locationMatches(job.location, locationPreserved, expectedCoords),
       (job?.location || "").slice(0, 80)
     );
   }
@@ -457,7 +472,7 @@ async function runApiQa() {
         issue: "QA tech location link test",
         location: techLocation,
         dateTime: new Date().toISOString(),
-        jobType: "Flat tire",
+        jobType: "Flat Tire",
         price: 160,
       },
     });
@@ -489,7 +504,7 @@ async function runApiQa() {
         issue: "QA business portal location test",
         location: bizLocation,
         dateTime: new Date().toISOString(),
-        jobType: "Flat tire",
+        jobType: "Flat Tire",
         price: 140,
       },
     });

@@ -59,6 +59,12 @@ router.get("/:id/total", customerOrApprovedTechnician, jobController.calculateTo
 router.post("/:id/complete", approvedTechnician, jobController.markCompleted);
 router.post("/:id/cancel", approvedTechnician, jobController.cancelJobByTechnician);
 router.post("/:id/payment", approvedTechnician, jobController.confirmPayment);
+router.post("/:id/hold-request", approvedTechnician, jobController.requestHold);
+router.delete(
+  "/:id/hold-request",
+  approvedTechnician,
+  jobController.cancelHoldRequestHandler
+);
 
 router.get("/technicians/nearby", customerOrApprovedTechnician, jobController.findNearbyTechnicians);
 

@@ -1,10 +1,13 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useGetJobsQuery } from "../../store/jobApi";
+import { useGetDashboardSummaryQuery } from "../../store/dashboardApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useAdminRole } from "../../utils/adminRoles";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import JobFilterDropdown from "../../components/JobFilterDropdown.jsx";
+import JobStatsStrip from "../../components/JobStatsStrip.jsx";
 import EditJobModal from "../../components/EditJobModal.jsx";
 import JobStatusPill from "../../components/JobStatusPill.jsx";
 import { isBusinessPortalJob, isTechnicianCreatedJob, formatJobSourceLabel } from "../../utils/jobOrigin.js";
@@ -103,9 +106,21 @@ function AssignedTechnicianCell({ job, navigate }) {
 function JobActions({ onView }) {
   return (
     <div className="job-actions">
-      <button className="job-action-btn" onClick={onView}>
+      <button className="job-action-btn" type="button" onClick={onView} aria-label="View job">
         <img src="/icons/eye.svg" alt="View" />
       </button>
+    </div>
+  );
+}
+
+function JobCardActions({ onView, job }) {
+  return (
+    <div className="job-actions job-actions--card">
+      <button className="job-action-btn" type="button" onClick={onView} aria-label="View job">
+        <img src="/icons/eye.svg" alt="" />
+        <span className="job-action-label">View</span>
+      </button>
+      <WhatsAppShareCell job={job} />
     </div>
   );
 }
@@ -170,6 +185,7 @@ function WhatsAppShareCell({ job }) {
 function Jobs() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isFullAdmin } = useAdminRole();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState(() => {
     const params = new URLSearchParams(location.search);
@@ -179,18 +195,42 @@ function Jobs() {
   const filterButtonRef = useRef(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ status: "" });
+  const [activeStatFilter, setActiveStatFilter] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState(null);
 
-  const { data, isLoading, isFetching, refetch } = useGetJobsQuery({
-    page,
-    limit: 40,
-    search: debouncedSearch,
-    status: filters.status || undefined,
-    technician: filters.technician || undefined,
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+  } = useGetDashboardSummaryQuery(undefined, {
+    pollingInterval: 0,
+    refetchOnFocus: false,
   });
+
+  const jobQueryParams = useMemo(() => {
+    const params = {
+      page,
+      limit: 40,
+      search: debouncedSearch,
+      technician: filters.technician || undefined,
+    };
+
+    if (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") {
+      params.completedToday = true;
+    } else if (activeStatFilter === "ongoing") {
+      params.status = "ongoing";
+    } else if (activeStatFilter) {
+      params.status = activeStatFilter;
+    } else if (filters.status) {
+      params.status = filters.status;
+    }
+
+    return params;
+  }, [page, debouncedSearch, filters.technician, filters.status, activeStatFilter]);
+
+  const { data, isLoading, isFetching, refetch } = useGetJobsQuery(jobQueryParams);
   const jobs = data?.jobs || [];
   const total = data?.total || 0;
 
@@ -224,12 +264,13 @@ function Jobs() {
     refetch();
   };
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: "Job ID",
       key: "jobId", 
       dataIndex: "jobId",
       width: "10%",
+      mobile: { featured: true, order: 1 },
       render: (row) => (
         <span className="job-id-cell">
           {getJobDisplayId(row)}
@@ -241,6 +282,7 @@ function Jobs() {
       key: "clientInfo",
       dataIndex: "clientInfo",
       width: "15%",
+      mobile: { order: 2 },
       render: (row) => (
         <ClientInfoCell job={row} />
       )
@@ -262,6 +304,7 @@ function Jobs() {
       key: "location",
       dataIndex: "location",
       width: "13%",
+      mobile: { order: 4 },
       render: (row) => (
         <span className="job-location-cell">
           {formatJobLocationDisplay(row)}
@@ -284,6 +327,7 @@ function Jobs() {
       key: "assignedTechnician",
       dataIndex: "assignedTechnician",
       width: "15%",
+      mobile: { order: 3 },
       render: (row) => (
         <AssignedTechnicianCell
           job={row}
@@ -307,6 +351,7 @@ function Jobs() {
       key: "status",
       dataIndex: "status",
       width: "11%",
+      mobile: { featured: true, order: 0 },
       render: (row) => (
         <JobStatusPill status={row.job_status || row.status} />
       )
@@ -315,31 +360,45 @@ function Jobs() {
       title: "WhatsApp",
       key: "whatsapp",
       dataIndex: "whatsapp",
-      width: "10%",
+      width: "88px",
+      mobile: { hide: true },
       render: (row) => <WhatsAppShareCell job={row} />,
     },
     {
       title: "Action",
       key: "action",
       dataIndex: "action",
-      width: "8%",
+      width: "72px",
+      mobile: { order: 99 },
       render: (row) => (
-        <JobActions
+        <JobActions onView={() => navigate(`/jobs/${row._id}`)} />
+      ),
+      mobileRender: (row) => (
+        <JobCardActions
+          job={row}
           onView={() => navigate(`/jobs/${row._id}`)}
         />
-      )
+      ),
     }
-  ];
+  ], [navigate]);
+
+  const handleSearch = useCallback((value) => {
+    setSearchInput(value);
+    setPage(1);
+  }, []);
 
   const handleFilterApply = (newFilters) => {
     setFilters(newFilters);
+    setActiveStatFilter(null);
+    setPage(1);
     setFilterOpen(false);
   };
 
-  const handleSearch = (value) => {
-    setSearchInput(value);
+  const handleStatFilterChange = useCallback((filter) => {
+    setActiveStatFilter(filter);
+    setFilters({ status: "", technician: filters.technician || "" });
     setPage(1);
-  };
+  }, [filters.technician]);
 
   return (
     <div className="jobs-container">
@@ -353,6 +412,13 @@ function Jobs() {
           </button>
         </div>
       </div>
+      <JobStatsStrip
+        summary={summary}
+        loading={summaryLoading}
+        activeFilter={activeStatFilter}
+        onFilterChange={handleStatFilterChange}
+        showRevenue={isFullAdmin}
+      />
       <DataTable
         columns={columns}
         data={jobs}
@@ -376,6 +442,7 @@ function Jobs() {
           onChange: (newPage) => setPage(newPage)
         }}
         title="Jobs"
+        hideTitle
       />
 
       <EditJobModal

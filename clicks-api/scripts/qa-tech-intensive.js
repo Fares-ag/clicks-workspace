@@ -144,6 +144,9 @@ async function preflightCleanup(techToken) {
     const id = job._id;
     const status = job.job_status;
     if (!id) continue;
+    // Only touch jobs QA tooling created ("QA ..." client names) — the
+    // production account can carry real dispatch jobs.
+    if (!/^QA\b/i.test(String(job.clientName || ""))) continue;
 
     if (status === "in_progress") {
       if (job.payment_status !== "paid") {
@@ -215,6 +218,7 @@ function checkFrontendWiring() {
     complete: path.join(root, "features/home/ui/view/complete_job_sheet.dart"),
     earnings: path.join(root, "features/home/ui/view/earnings_tab.dart"),
     addJob: path.join(root, "features/home/ui/view/add_job_screen.dart"),
+    jobTypes: path.join(root, "core/constants/job_types.dart"),
     disclosure: path.join(root, "core/permissions/background_location_disclosure.dart"),
   };
 
@@ -230,6 +234,7 @@ function checkFrontendWiring() {
   const complete = fs.readFileSync(files.complete, "utf8");
   const earnings = fs.readFileSync(files.earnings, "utf8");
   const addJob = fs.readFileSync(files.addJob, "utf8");
+  const jobTypesDart = fs.readFileSync(files.jobTypes, "utf8");
   const disclosure = fs.readFileSync(files.disclosure, "utf8");
 
   step("UI Collect Payment CTA", active.includes("Collect Payment"));
@@ -238,7 +243,16 @@ function checkFrontendWiring() {
   step("cubit keeps job after payment", /onPaymentConfirmed[\s\S]*payment_status[\s\S]*paid/.test(cubit) || cubit.includes("payment_status"));
   step("complete sheet signature-only when missing", complete.includes("Collect customer signature"));
   step("earnings chart LayoutBuilder sizing", earnings.includes("LayoutBuilder"));
-  step("add job RSA types present", JOB_TYPES.every((t) => addJob.includes(t)));
+  // add_job_screen.dart builds its dropdown from kJobTypes in
+  // core/constants/job_types.dart (kept in sync with clicks-shared JOB_TYPES),
+  // so check the catalog file rather than expecting inline string literals.
+  const jobTypeSource = addJob.includes("kJobTypes") ? jobTypesDart : addJob;
+  const missingTypes = JOB_TYPES.filter((t) => !jobTypeSource.includes(`'${t}'`) && !jobTypeSource.includes(t));
+  step(
+    "add job RSA types present",
+    missingTypes.length === 0,
+    missingTypes.length ? `missing: ${missingTypes.join(", ")}` : `${JOB_TYPES.length} types via ${addJob.includes("kJobTypes") ? "kJobTypes" : "inline"}`
+  );
   step("background location disclosure present", disclosure.includes("background") || disclosure.includes("Always"));
 }
 

@@ -80,7 +80,7 @@ function Businesses() {
         ) : businesses.length === 0 ? (
           <div className="biz-empty">No businesses found</div>
         ) : (
-          <table className="biz-table">
+          <table className="biz-table responsive-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -94,23 +94,23 @@ function Businesses() {
             <tbody>
               {businesses.map((b) => (
                 <tr key={b._id} onClick={() => navigate(`/businesses/${b._id}`)}>
-                  <td>
+                  <td data-label="Name">
                     <div className="biz-name">{b.name}</div>
                   </td>
-                  <td>
+                  <td data-label="Contact">
                     <div>{b.phone || "—"}</div>
                     <div className="biz-muted">{b.email || ""}</div>
                   </td>
-                  <td>{formatCut(b)}</td>
-                  <td>{b.userCount ?? "—"}</td>
-                  <td>
+                  <td data-label="Cut">{formatCut(b)}</td>
+                  <td data-label="Users">{b.userCount ?? "—"}</td>
+                  <td data-label="Status">
                     <span
                       className={`biz-badge ${b.isActive === false ? "inactive" : "active"}`}
                     >
                       {b.isActive === false ? "Inactive" : "Active"}
                     </span>
                   </td>
-                  <td className="biz-muted">{formatDate(b.createdAt)}</td>
+                  <td data-label="Created" className="biz-muted">{formatDate(b.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

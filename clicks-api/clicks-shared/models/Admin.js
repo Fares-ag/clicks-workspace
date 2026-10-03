@@ -20,6 +20,8 @@ const AdminSchema = new mongoose.Schema(
     profilePicture: { type: String },
     password: { type: String, required: true, select: false },
     isActive: { type: Boolean, default: true },
+    /** Increment to invalidate all outstanding JWTs for this admin. */
+    authTokenVersion: { type: Number, default: 0 },
     fcm_token: { type: String, default: null },
   },
   { timestamps: true }

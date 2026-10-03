@@ -49,6 +49,7 @@ class EndPoints {
   static String completeJob(String id) => "/api/jobs/$id/complete";
   static String cancelJob(String id) => "/api/jobs/$id/cancel";
   static String confirmPayment(String id) => "/api/jobs/$id/payment";
+  static String requestHold(String id) => "/api/jobs/$id/hold-request";
   static String addRepair(String id) => "/api/jobs/$id/repairs";
   static String jobTotal(String id) => "/api/jobs/$id/total";
   static String receiptByJob(String id) => "/api/receipts/job/$id";

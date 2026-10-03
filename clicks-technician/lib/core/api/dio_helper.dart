@@ -1,5 +1,9 @@
-import 'package:dio/dio.dart';
+import 'dart:io' show Platform;
 
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import '../config/app_config.dart';
 import '../helper/action_errors.dart';
 import '../helper/cache_helper.dart';
 import 'end_points/end_points.dart';
@@ -21,6 +25,10 @@ class DioHelper {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          // Recorded against every action in the admin Technician Logs tab, so
+          // dispatch can tell which build and platform an event came from.
+          'x-app-version': AppConfig.appVersion,
+          'x-app-platform': _platformName(),
         },
       ),
     );
@@ -43,6 +51,13 @@ class DioHelper {
         },
       ),
     );
+  }
+
+  static String _platformName() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return Platform.operatingSystem;
   }
 
   static Options _authOptions(bool auth, {String? contentType}) {

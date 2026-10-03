@@ -137,6 +137,9 @@ async function preflightCleanup(techToken) {
     const id = job._id;
     const status = job.job_status;
     if (!id) continue;
+    // Only touch jobs QA tooling created ("QA ..." client names) — the
+    // production account can carry real dispatch jobs.
+    if (!/^QA\b/i.test(String(job.clientName || ""))) continue;
 
     if (status === "in_progress") {
       if (job.payment_status !== "paid") {

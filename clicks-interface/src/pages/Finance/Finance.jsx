@@ -311,7 +311,7 @@ function Finance() {
               : "No non-audited jobs match these filters"}
           </div>
         ) : (
-          <table className="fin-table">
+          <table className="fin-table responsive-table">
             <thead>
               <tr>
                 <th>Job ID</th>
@@ -334,10 +334,10 @@ function Finance() {
                     onClick={() => navigate(`/jobs/${job._id}`)}
                     title="Open job details"
                   >
-                    <td>
+                    <td data-label="Job ID">
                       <span className="fin-job-id">{getJobDisplayId(job)}</span>
                     </td>
-                    <td>
+                    <td data-label="Client">
                       <div className="fin-client-name">
                         {job.clientName || "-"}
                       </div>
@@ -345,26 +345,27 @@ function Finance() {
                         {job.clientMobileNumber || ""}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Payment">
                       <span className="fin-pill method">
                         {paymentMethodLabel(job)}
                       </span>
                     </td>
-                    <td>{formatCompletedAt(job)}</td>
-                    <td className="fin-num">
+                    <td data-label="Completed">{formatCompletedAt(job)}</td>
+                    <td className="fin-num" data-label="Revenue">
                       {jobMoney(job, job.finance_revenue)}
                     </td>
-                    <td className="fin-num">
+                    <td className="fin-num" data-label="Cost">
                       {jobMoney(job, job.finance_cost_total)}
                     </td>
                     <td
                       className={`fin-num fin-net ${netProfitClass(
                         job.finance_net_profit
                       )}`}
+                      data-label="Net profit"
                     >
                       {jobMoney(job, job.finance_net_profit)}
                     </td>
-                    <td>
+                    <td data-label="Audit">
                       <span
                         className={`fin-pill ${audited ? "audited" : "pending"}`}
                       >

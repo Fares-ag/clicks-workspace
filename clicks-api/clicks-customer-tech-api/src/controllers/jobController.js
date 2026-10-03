@@ -19,16 +19,34 @@ const { captureException } = require("../../../clicks-shared/middleware/sentry")
 const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
 const { num } = require("../../../clicks-shared/utils/coerce");
 const {
+  recordTechnicianActivity,
+} = require("../../../clicks-shared/services/technicianActivityLog");
+const {
   TECH_SESSION_ACTIVE_STATUSES,
   TECH_BUSY_JOB_STATUSES,
   JOB_STATUS_PRIORITY,
 } = require("../../../clicks-shared/constants/jobStatuses");
-const { resolveTechnicianStatusAfterJob } = require("../../../clicks-shared/services/jobHold");
+const {
+  resolveTechnicianStatusAfterJob,
+  requestJobHold,
+  cancelHoldRequest,
+} = require("../../../clicks-shared/services/jobHold");
 const {
   MOBILE_JOB_LIST_SELECT,
   MOBILE_JOB_LIST_POPULATE,
   paginateQuery,
 } = require("../../../clicks-shared/utils/mobileJobList");
+const {
+  getCachedPayload,
+  deletePayloadCacheKey,
+} = require("../../../clicks-shared/utils/payloadCache");
+
+function invalidateTechSessionCache(technicianId) {
+  if (!technicianId) return;
+  deletePayloadCacheKey(`clicks:tech:payload:session:${technicianId}`).catch(
+    () => {}
+  );
+}
 const {
   completionCasMissError,
   isCompletionCasMiss,
@@ -46,8 +64,17 @@ const jobPopulateForTech = [
       { path: "vehicle_type", select: "typeName" },
     ],
   },
-  { path: "source" },
+  { path: "source", select: "mainSourceName" },
 ];
+
+/** Session/active queue: job docs already carry vehicleMake/Model — skip nested vehicle DB hops. */
+const sessionJobPopulate = [
+  { path: "customer_id", select: "first_name last_name phone_number email" },
+  { path: "source", select: "mainSourceName" },
+];
+
+const SESSION_JOB_SELECT =
+  "job_reference clientName clientMobileNumber clientEmail customer_id customer_vehicle_id vehicleMake vehicleModel vehicleYear licensePlate issue location locationCoordinates dateTime jobType assignedTechnician price source subSource job_status payment_status payment_method assigned_at accepted_at en_route_at arrived_at started_at completed_at hold_request hold_reason hold_status previous_status started_latitude started_longitude rating businessName customerSignatureUrl customerSignedAt customerSignatureInvalidatedAt completion_notes createdAt updatedAt";
 
 function resolveJobLatLng(job) {
   const coords = job?.locationCoordinates?.coordinates;
@@ -131,7 +158,7 @@ const getJobs = async (req, res) => {
     const { page, limit, skip } = paginateQuery(req.query.page, req.query.limit);
     const sort = req.user.role === "technician" ? { createdAt: -1 } : { dateTime: -1 };
 
-    const jobs = await Job.find(filter)
+    const jobsQuery = Job.find(filter)
       .select(MOBILE_JOB_LIST_SELECT)
       .populate(MOBILE_JOB_LIST_POPULATE)
       .sort(sort)
@@ -140,9 +167,11 @@ const getJobs = async (req, res) => {
       .lean();
 
     let total = null;
-    if (page === 1) {
-      total = await Job.countDocuments(filter);
-    }
+    const [jobs, totalCount] = await Promise.all([
+      jobsQuery,
+      page === 1 ? Job.countDocuments(filter) : Promise.resolve(null),
+    ]);
+    if (page === 1) total = totalCount;
 
     res.json({
       jobs,
@@ -227,6 +256,22 @@ const updateJobStatus = async (req, res) => {
           technician: technicianTrackingPayload(job.assignedTechnician),
         });
       }
+    }
+
+    if (req.user.role === "technician") {
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: job_status === "en_route" ? "job.en_route" : "job.status_changed",
+        message:
+          job_status === "en_route"
+            ? "Started driving to the job"
+            : `Changed job status to ${job_status}`,
+        statusCode: 200,
+        jobId: job._id,
+        jobReference: job.job_reference,
+        metadata: { job_status },
+      });
     }
 
     res.json({ message: "Job status updated", job_status: job.job_status });
@@ -411,11 +456,33 @@ const markCompleted = async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
     if (job.payment_status !== "paid") {
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: "job.complete_blocked",
+        outcome: "blocked",
+        message: "Complete blocked — payment not collected",
+        statusCode: 400,
+        jobId: job._id,
+        jobReference: job.job_reference,
+        metadata: { reason: "payment_missing" },
+      });
       return res.status(400).json({
         error: "Payment must be collected before completing the job",
       });
     }
     if (!job.customerSignatureUrl || !job.customerSignedAt) {
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: "job.complete_blocked",
+        outcome: "blocked",
+        message: "Complete blocked — customer signature missing",
+        statusCode: 400,
+        jobId: job._id,
+        jobReference: job.job_reference,
+        metadata: { reason: "signature_missing" },
+      });
       return res.status(400).json({
         error: "Customer signature is required before completing the job",
       });
@@ -423,6 +490,16 @@ const markCompleted = async (req, res) => {
     const jobReference =
       typeof req.body?.job_reference === "string" ? req.body.job_reference.trim() : "";
     if (job.job_status === "in_progress" && !jobReference) {
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: "job.complete_blocked",
+        outcome: "blocked",
+        message: "Complete blocked — Job ID not entered",
+        statusCode: 400,
+        jobId: job._id,
+        metadata: { reason: "job_reference_missing" },
+      });
       return res.status(400).json({
         error: "Job ID is required to complete the job",
       });
@@ -505,38 +582,59 @@ const markCompleted = async (req, res) => {
       }
     }
 
-    // Tech returns Online only after complete (payment no longer ends the job),
-    // and only when no other job of theirs is still active.
-    if (updated.assignedTechnician) {
-      const nextStatus = await resolveTechnicianStatusAfterJob(
-        updated.assignedTechnician,
-        updated._id
-      );
-      await setTechnicianStatus(updated.assignedTechnician, nextStatus);
-      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-      if (typeof notifyPresence === "function") {
-        await notifyPresence(updated.assignedTechnician, nextStatus);
-      }
-    }
+    invalidateTechSessionCache(updated.assignedTechnician);
 
-    if (updated.customer_id) {
-      try {
-        const notify = req.app.get("notifyCustomerJobEvent");
-        if (typeof notify === "function") {
-          await notify(updated.customer_id.toString(), "jobCompleted", {
-            job_id: updated._id.toString(),
-            job_status: "completed",
-            payment_status: updated.payment_status,
-          });
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.completed",
+      message: "Completed the job",
+      statusCode: 200,
+      jobId: updated._id,
+      jobReference: updated.job_reference,
+      metadata: {
+        completed_at: updated.completed_at,
+        payment_status: updated.payment_status,
+        payment_method: updated.payment_method,
+        completion_notes: completionSet.completion_notes,
+      },
+    });
+
+    const assignedTechnician = updated.assignedTechnician;
+    const customerId = updated.customer_id;
+    const completedJobId = updated._id.toString();
+    const paymentStatus = updated.payment_status;
+    setImmediate(() => {
+      (async () => {
+        if (assignedTechnician) {
+          const nextStatus = await resolveTechnicianStatusAfterJob(
+            assignedTechnician,
+            updated._id
+          );
+          await setTechnicianStatus(assignedTechnician, nextStatus);
+          const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+          if (typeof notifyPresence === "function") {
+            await notifyPresence(assignedTechnician, nextStatus);
+          }
         }
-      } catch (notifyErr) {
-        console.error("Customer jobCompleted notify failed:", notifyErr.message);
-        captureException(notifyErr, {
-          job_id: updated._id.toString(),
+        if (customerId) {
+          const notify = req.app.get("notifyCustomerJobEvent");
+          if (typeof notify === "function") {
+            await notify(customerId.toString(), "jobCompleted", {
+              job_id: completedJobId,
+              job_status: "completed",
+              payment_status: paymentStatus,
+            });
+          }
+        }
+      })().catch((err) => {
+        console.error("markCompleted async side effects:", err.message);
+        captureException(err, {
+          job_id: completedJobId,
           event: "jobCompleted",
         });
-      }
-    }
+      });
+    });
 
     res.json({
       message: "Job marked as completed",
@@ -577,6 +675,17 @@ const markArrived = async (req, res) => {
       }
     }
 
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.arrived",
+      message: "Marked arrival at the job location",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: { arrived_at: job.arrived_at },
+    });
+
     res.json({ message: "Technician arrived", job_status: job.job_status });
   } catch (err) {
     res.status(500).json({ error: "Mark arrived failed", details: err.message });
@@ -594,19 +703,6 @@ const startJob = async (req, res) => {
     if (job.job_status !== "arrived") {
       return res.status(400).json({
         error: `Cannot start job from status: ${job.job_status}`,
-      });
-    }
-
-    const otherInProgress = await Job.findOne({
-      assignedTechnician: req.user.id,
-      job_status: "in_progress",
-      _id: { $ne: job._id },
-    }).select("_id");
-    if (otherInProgress) {
-      return res.status(400).json({
-        error:
-          "Finish your current in-progress job before starting another",
-        blocking_job_id: otherInProgress._id,
       });
     }
 
@@ -635,6 +731,19 @@ const startJob = async (req, res) => {
 
       distanceMeters = Math.round(distanceBetween(techPoint, jobPoint));
       if (distanceMeters > maxMeters) {
+        recordTechnicianActivity({
+          req,
+          technicianId: req.user.id,
+          event: "job.start_blocked",
+          outcome: "blocked",
+          message: `Start blocked — ${distanceMeters}m from the job (limit ${maxMeters}m)`,
+          statusCode: 400,
+          jobId: job._id,
+          jobReference: job.job_reference,
+          latitude: techPoint.lat ?? techPoint.latitude,
+          longitude: techPoint.lng ?? techPoint.longitude,
+          metadata: { distanceMeters, maxMeters, reason: "too_far" },
+        });
         return res.status(400).json({
           error: `You must be within ${maxMeters}m of the job location to start`,
           distanceMeters,
@@ -658,6 +767,24 @@ const startJob = async (req, res) => {
         });
       }
     }
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.started",
+      message:
+        distanceMeters != null
+          ? `Started the job (${distanceMeters}m from site)`
+          : "Started their own job (GPS check skipped)",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        distanceMeters,
+        gpsSkipped: distanceMeters == null,
+        started_at: job.started_at,
+      },
+    });
 
     res.json({
       message: "Job started",
@@ -698,6 +825,22 @@ const addRepairProcedure = async (req, res) => {
       receipt_image_url,
     });
     await repair.save();
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.repair_added",
+      message: `Added repair: ${repair.description || repair.name || "item"}`,
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        description: repair.description,
+        price: repair.price,
+        cost: repair.cost,
+        quantity: repair.quantity,
+      },
+    });
+
     res.json({ message: "Repair procedure added", repair });
   } catch (err) {
     res.status(500).json({ error: "Add repair procedure failed", details: err.message });
@@ -863,6 +1006,17 @@ const cancelJobByTechnician = async (req, res) => {
       }
     }
 
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.cancelled",
+      message: "Cancelled the job",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: { reason },
+    });
+
     res.json({
       message: "Job cancelled",
       job_status: job.job_status,
@@ -908,6 +1062,23 @@ const confirmPayment = async (req, res) => {
       job.payment_method = "cash";
     }
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.payment_collected",
+      message: `Collected payment (${job.payment_method})`,
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        payment_method: job.payment_method,
+        paid_at: job.paid_at,
+        price: job.price,
+        notes: typeof notes === "string" ? notes.slice(0, 200) : undefined,
+      },
+    });
 
     // P1-04: use the same pricing formula as calculateTotal so receipt matches what tech saw
     const repairs = await RepairProcedure.find({ job_id: id });
@@ -1123,42 +1294,53 @@ const getTechnicianActiveJob = async (req, res) => {
 const getTechnicianSession = async (req, res) => {
   try {
     const technician_id = req.user.id;
-    
-    // Get technician info
-    const technician = await Technician.findById(technician_id)
-      .select('firstName lastName currentStatus isActive applicationStatus phone');
-    
-    // All fulfill-path jobs + completed but unpaid (queue for multi-job)
-    const activeJobsRaw = await Job.find({
-      assignedTechnician: technician_id,
-      $or: [
-        {
-          job_status: {
-            $in: TECH_SESSION_ACTIVE_STATUSES,
-          },
-        },
-        { job_status: "completed", payment_status: { $ne: "paid" } },
-      ],
-    })
-    .populate(jobPopulateForTech)
-    .sort({ createdAt: -1 });
 
-    const active_jobs = sortActiveJobs(activeJobsRaw);
-    const activeJob = active_jobs[0] || null;
-    
-    res.json({
-      technician: {
-        id: technician?._id,
-        name: technician ? `${technician.firstName} ${technician.lastName}` : null,
-        status: technician?.currentStatus,
-        is_active: technician?.isActive,
-        applicationStatus: technician?.applicationStatus,
-        phone: technician?.phone,
-      },
-      active_job: activeJob,
-      active_jobs,
-      has_active_job: !!activeJob
-    });
+    const payload = await getCachedPayload(
+      `clicks:tech:payload:session:${technician_id}`,
+      12000,
+      async () => {
+        const [technician, activeJobsRaw] = await Promise.all([
+          Technician.findById(technician_id)
+            .select("firstName lastName currentStatus isActive applicationStatus phone")
+            .lean(),
+          Job.find({
+            assignedTechnician: technician_id,
+            $or: [
+              {
+                job_status: {
+                  $in: TECH_SESSION_ACTIVE_STATUSES,
+                },
+              },
+              { job_status: "completed", payment_status: { $ne: "paid" } },
+            ],
+          })
+            .select(SESSION_JOB_SELECT)
+            .populate(sessionJobPopulate)
+            .sort({ createdAt: -1 })
+            .limit(25)
+            .lean(),
+        ]);
+
+        const active_jobs = sortActiveJobs(activeJobsRaw);
+        const activeJob = active_jobs[0] || null;
+
+        return {
+          technician: {
+            id: technician?._id,
+            name: technician ? `${technician.firstName} ${technician.lastName}` : null,
+            status: technician?.currentStatus,
+            is_active: technician?.isActive,
+            applicationStatus: technician?.applicationStatus,
+            phone: technician?.phone,
+          },
+          active_job: activeJob,
+          active_jobs,
+          has_active_job: !!activeJob,
+        };
+      }
+    );
+
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: "Fetch technician session failed", details: err.message });
   }
@@ -1168,19 +1350,17 @@ const getTechnicianSession = async (req, res) => {
 const getActivityDetail = async (req, res) => {
   try {
     const { id } = req.params;
-    const job = await Job.findById(id).populate(jobPopulateForTech);
+    const [job, repairs, receipt] = await Promise.all([
+      Job.findById(id).populate(jobPopulateForTech).lean(),
+      RepairProcedure.find({ job_id: id }).sort({ created_at: 1 }).lean(),
+      Receipt.findOne({ job_id: id }).sort({ issued_at: -1 }).lean(),
+    ]);
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const repairs = await RepairProcedure.find({ job_id: id }).sort({
-      created_at: 1,
-    });
     const pricing = computeJobPricing(job, repairs);
-    const receipt = await Receipt.findOne({ job_id: id }).sort({
-      issued_at: -1,
-    });
 
     res.json({
       job,
@@ -1283,6 +1463,23 @@ const updateJobDetails = async (req, res) => {
       signatureCleared = clearCustomerSignature(job);
     }
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.details_updated",
+      message: signatureCleared
+        ? "Edited job details (signature cleared)"
+        : "Edited job details",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        fields: Object.keys(req.body || {}),
+        signatureCleared,
+      },
+    });
 
     res.json({
       message: "Job details updated",
@@ -1323,6 +1520,18 @@ const uploadCustomerSignature = async (req, res) => {
     job.customerSignedAt = new Date();
     job.customerSignatureInvalidatedAt = null;
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.signature_captured",
+      message: "Captured the customer signature",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: { customerSignedAt: job.customerSignedAt },
+    });
 
     res.json({
       message: "Signature saved",
@@ -1347,6 +1556,91 @@ async function applyTechnicianPresence(req, technicianId, excludeJobId, forceOnJ
   return nextStatus;
 }
 
+const requestHold = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await requestJobHold(job, {
+      reason: req.body?.reason,
+      technicianId: req.user.id,
+    });
+
+    const notify = req.app.get("notifyAdminHoldRequest");
+    if (typeof notify === "function") {
+      notify({
+        job_id: String(job._id),
+        technician_id: String(req.user.id),
+        reason: job.hold_request?.reason,
+        clientName: job.clientName,
+      });
+    }
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.hold_requested",
+      message: `Requested a hold: ${job.hold_request?.reason || "no reason given"}`,
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        reason: job.hold_request?.reason,
+        job_status: job.job_status,
+      },
+    });
+
+    const populated = await Job.findById(job._id).populate(jobPopulateForTech);
+    res.json({
+      message: "Hold request submitted",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Failed to submit hold request",
+    });
+  }
+};
+
+const cancelHoldRequestHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await cancelHoldRequest(job, { technicianId: req.user.id });
+
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.hold_request_cancelled",
+      message: "Cancelled their hold request",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+    });
+
+    const populated = await Job.findById(job._id).populate(jobPopulateForTech);
+    res.json({
+      message: "Hold request cancelled",
+      job: populated,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Failed to cancel hold request",
+    });
+  }
+};
+
 module.exports = {
   getJobs,
   getCustomerJobs,
@@ -1369,4 +1663,6 @@ module.exports = {
   getTechnicianActiveJob,
   getTechnicianSession,
   getActivityDetail,
+  requestHold,
+  cancelHoldRequestHandler,
 };

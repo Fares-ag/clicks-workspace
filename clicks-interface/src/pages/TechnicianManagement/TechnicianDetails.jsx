@@ -218,7 +218,16 @@ export default function TechnicianDetails() {
         {/* Header with Title and Status */}
         <div className="tech-details-header">
           <h2 className="tech-details-title">Technician Details</h2>
-          <StatusPill status={technician.currentStatus} />
+          <div className="tech-details-header-actions">
+            <button
+              type="button"
+              className="tech-details-logs-btn"
+              onClick={() => navigate(`/technician-logs?technician=${id}`)}
+            >
+              View activity log
+            </button>
+            <StatusPill status={technician.currentStatus} />
+          </div>
         </div>
 
         {/* Section 1 */}
@@ -530,7 +539,7 @@ export default function TechnicianDetails() {
                         href={row.receiptUrl} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        style={{ color: '#981F1F', textDecoration: 'underline' }}
+                        style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}
                       >
                         View Receipt
                       </a>

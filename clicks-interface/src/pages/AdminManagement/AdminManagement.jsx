@@ -92,6 +92,7 @@ function AdminManagement() {
       key: "profilePhoto",
       dataIndex: "profilePhoto",
       width: "127px",
+      mobile: { featured: true, order: 0 },
       render: (row) => (
         <div className="admin-profile-photo-cell">
           <img
@@ -107,6 +108,7 @@ function AdminManagement() {
       key: "name",
       dataIndex: "name",
       width: "flex",
+      mobile: { featured: true, order: 1 },
       render: (row) => (
         <span className="admin-name-text">
           {`${row.firstName} ${row.lastName}`}

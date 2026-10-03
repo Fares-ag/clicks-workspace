@@ -89,6 +89,9 @@ class _SignaturePadSheetState extends State<SignaturePadSheet> {
                 child: RepaintBoundary(
                   key: _repaintKey,
                   child: GestureDetector(
+                    onPanStart: (d) {
+                      setState(() => _points.add(d.localPosition));
+                    },
                     onPanUpdate: (d) {
                       setState(() => _points.add(d.localPosition));
                     },

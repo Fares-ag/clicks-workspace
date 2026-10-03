@@ -51,7 +51,13 @@ async function login(req, res) {
     const valid = comparePassword(password, admin.password);
     if (!valid) return res.status(401).json({ message: "Invalid credentials" });
 
-    const payload = { id: admin._id, role: admin.role, email: admin.email };
+    const authTokenVersion = Number(admin.authTokenVersion) || 0;
+    const payload = {
+      id: admin._id,
+      role: admin.role,
+      email: admin.email,
+      authTokenVersion,
+    };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
@@ -257,7 +263,9 @@ async function refreshToken(req, res) {
     // refreshed. Previously this copied `user.role` straight off the old
     // token, so a demoted or deactivated admin kept minting valid access
     // tokens carrying their former role for the full 7-day refresh window.
-    const admin = await Admin.findById(decoded.id).select("_id role isActive email");
+    const admin = await Admin.findById(decoded.id).select(
+      "_id role isActive email authTokenVersion"
+    );
     if (!admin) {
       return res.status(401).json({ message: "Account no longer exists" });
     }
@@ -265,10 +273,17 @@ async function refreshToken(req, res) {
       return res.status(403).json({ message: "Account is deactivated" });
     }
 
+    const tokenVer = Number(decoded.authTokenVersion) || 0;
+    const currentVer = Number(admin.authTokenVersion) || 0;
+    if (tokenVer !== currentVer) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
     const accessToken = generateAccessToken({
       id: String(admin._id),
       role: admin.role,
       email: admin.email,
+      authTokenVersion: currentVer,
     });
     return res.json({ accessToken });
   } catch (err) {

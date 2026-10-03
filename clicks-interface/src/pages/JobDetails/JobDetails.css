@@ -1361,6 +1361,36 @@
   border: 1px solid #FECACA;
 }
 
+/* Form-style confirmation modals (complete job, hold, etc.) */
+.confirmation-modal-content--form {
+  align-items: stretch;
+  text-align: left;
+}
+
+.confirmation-modal-content--form .confirmation-modal-title {
+  text-align: left;
+  max-width: none;
+  margin-top: 0;
+  font-size: 24px;
+}
+
+.confirmation-modal-content--form .confirmation-modal-message {
+  text-align: left;
+  max-width: none;
+}
+
+.confirmation-modal-content--form .confirmation-modal-actions {
+  max-width: none;
+}
+
+.confirmation-modal-content--form .job-details-label,
+.confirmation-modal-content--form .job-details-input,
+.confirmation-modal-content--form .cancel-reason-textarea {
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
+}
+
 /* Cancel Reason Options */
 .cancel-reason-options {
   display: flex;

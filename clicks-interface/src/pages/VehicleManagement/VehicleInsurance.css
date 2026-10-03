@@ -197,7 +197,7 @@
 }
 
 /* Bordered table styling - Override DataTable styles when hasBorders is true */
-.vehicle-insurance-container .data-table.bordered .data-table-body .data-table-row .data-table-cell {
+.vehicle-insurance-container .data-table.bordered .table-row .table-cell {
   border: 1px solid #E5E7EB;
   border-collapse: collapse;
   padding-top: 16px;
@@ -205,12 +205,12 @@
   min-height: 72px;
 }
 
-.vehicle-insurance-container .data-table.bordered .data-table-header .data-table-header-cell {
+.vehicle-insurance-container .data-table.bordered .table-header-row .table-header-cell {
   border: 1px solid #E5E7EB;
   border-collapse: collapse;
   background: var(--color-bg-page);
 }
 
-.vehicle-insurance-container .data-table.bordered .data-table-body .data-table-row:hover .data-table-cell {
+.vehicle-insurance-container .data-table.bordered .table-row:hover .table-cell {
   background: #F8FAFC;
 }

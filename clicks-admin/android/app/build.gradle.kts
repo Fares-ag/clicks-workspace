@@ -12,10 +12,20 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.reader(Charsets.UTF_8).use { keystoreProperties.load(it) }
 }
 
+val localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties()
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.reader(Charsets.UTF_8).use { localProperties.load(it) }
+}
+val mapsApiKey: String = localProperties.getProperty("GOOGLE_MAPS_API_KEY", "")
+
 // Fail closed: release artifacts must be signed with the upload keystore. Without
 // key.properties Gradle would otherwise fall back to the public Android debug key.
-gradle.taskGraph.whenReady { graph ->
-    if (!keystorePropertiesFile.exists() && graph.allTasks.any { it.name.contains("Release") }) {
+if (!keystorePropertiesFile.exists()) {
+    val releaseRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true)
+    }
+    if (releaseRequested) {
         throw GradleException(
             "android/key.properties missing - refusing to build a release artifact without the upload keystore"
         )
@@ -24,10 +34,11 @@ gradle.taskGraph.whenReady { graph ->
 
 android {
     namespace = "com.roya.clicks_admin"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -55,7 +66,7 @@ android {
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
             (project.findProperty("GOOGLE_MAPS_API_KEY") as String?)
                 ?: System.getenv("GOOGLE_MAPS_API_KEY")
-                ?: ""
+                ?: mapsApiKey
     }
 
     buildTypes {
@@ -77,4 +88,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

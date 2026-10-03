@@ -6,6 +6,7 @@ import 'app_root.dart';
 
 import 'core/api/dio_helper.dart';
 import 'core/config/app_config.dart';
+import 'core/config/device_capability.dart';
 import 'core/di/di.dart';
 import 'core/helper/app_context.dart';
 import 'core/helper/cache_helper.dart';
@@ -40,6 +41,7 @@ Future<void> _bootstrap() async {
   );
 
   await CacheHelper.init();
+  await DeviceCapability.ensureLoaded();
   DioHelper.init();
   DioHelper.onUnauthorized = () {
     final nav = AppContext.navigatorKey.currentState;

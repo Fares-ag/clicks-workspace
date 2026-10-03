@@ -95,6 +95,20 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // This screen is pushed as its own route (openActiveJobScreen), so no
+    // parent BlocConsumer rebuilds it any more. Subscribe to the cubit here or
+    // every action (Start En Route, Arrived, Start Job, payment, complete)
+    // succeeds on the API but the sheet keeps showing the previous status.
+    return BlocConsumer<HomeCubit, HomeState>(
+      bloc: cubit,
+      listener: (context, state) {
+        if (state is HomeLoaded) _collapseIfEnRoute();
+      },
+      builder: (context, _) => _buildScreen(context),
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
     final status = cubit.jobStatus;
     final title = switch (status) {
       'arrived' => 'You have Arrived!',
@@ -127,6 +141,26 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
               padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
               child: Row(
                 children: [
+                  if (Navigator.canPop(context))
+                    InkWell(
+                      onTap: () => Navigator.of(context).pop(),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: EdgeInsets.all(10.w),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.08),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                        child: Icon(Icons.arrow_back_rounded, size: 20.sp),
+                      ),
+                    ),
+                  if (Navigator.canPop(context)) SizedBox(width: 8.w),
                   Container(
                     padding:
                         EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
@@ -240,6 +274,8 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
                     _PriceHeader(cubit: cubit),
                     SizedBox(height: 14.h),
                     _Actions(cubit: cubit),
+                    SizedBox(height: 10.h),
+                    _HoldRequestPanel(cubit: cubit),
                     if (compactEnRoute) ...[
                       SizedBox(height: 10.h),
                       Text(
@@ -803,6 +839,198 @@ class _LocationBlock extends StatelessWidget {
   }
 }
 
+class _HoldRequestPanel extends StatefulWidget {
+  const _HoldRequestPanel({required this.cubit});
+
+  final HomeCubit cubit;
+
+  @override
+  State<_HoldRequestPanel> createState() => _HoldRequestPanelState();
+}
+
+class _HoldRequestPanelState extends State<_HoldRequestPanel> {
+  bool _submitting = false;
+
+  HomeCubit get cubit => widget.cubit;
+
+  Future<void> _submitRequest() async {
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Request hold'),
+          content: TextField(
+            controller: reasonCtrl,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              hintText: 'Why should this job be put on hold?',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = reasonCtrl.text.trim();
+                if (text.isEmpty) return;
+                Navigator.pop(ctx, text);
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+    reasonCtrl.dispose();
+    if (reason == null || reason.isEmpty || !mounted) return;
+
+    setState(() => _submitting = true);
+    final ok = await cubit.requestJobHold(reason);
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (ok) {
+      AppSnackBars.successSnackBar('Hold request sent to dispatch');
+    } else {
+      AppSnackBars.errorSnackBar(
+        cubit.lastActionError ?? 'Could not submit hold request',
+      );
+    }
+  }
+
+  Future<void> _cancelRequest() async {
+    setState(() => _submitting = true);
+    final ok = await cubit.cancelHoldRequest();
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    if (ok) {
+      AppSnackBars.successSnackBar('Hold request cancelled');
+    } else {
+      AppSnackBars.errorSnackBar(
+        cubit.lastActionError ?? 'Could not cancel hold request',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (cubit.jobStatus == 'on_hold') {
+      final reason = cubit.activeJob?['hold_reason']?.toString() ?? '';
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(12.w),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(10.r),
+          border: Border.all(color: const Color(0xFFFDB022)),
+        ),
+        child: Text(
+          reason.isEmpty
+              ? 'This job is on hold. Contact dispatch to resume.'
+              : 'On hold: $reason',
+          style: TextStyles.font12RegularGrey.copyWith(
+            color: const Color(0xFFB54708),
+          ),
+        ),
+      );
+    }
+
+    final holdStatus = cubit.holdRequestStatus;
+    if (holdStatus == 'pending') {
+      final reason = cubit.holdRequest?['reason']?.toString() ?? '';
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(12.w),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFF8FF),
+          borderRadius: BorderRadius.circular(10.r),
+          border: Border.all(color: const Color(0xFF84CAFF)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Hold requested — waiting for dispatch approval',
+              style: TextStyles.font12RegularGrey.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF175CD3),
+              ),
+            ),
+            if (reason.isNotEmpty) ...[
+              SizedBox(height: 6.h),
+              Text(reason, style: TextStyles.font12RegularGrey),
+            ],
+            SizedBox(height: 8.h),
+            TextButton(
+              onPressed: _submitting ? null : _cancelRequest,
+              child: const Text('Cancel request'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (holdStatus == 'rejected') {
+      final note = cubit.holdRequest?['decision_note']?.toString() ?? '';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(12.w),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3F2),
+              borderRadius: BorderRadius.circular(10.r),
+              border: Border.all(color: const Color(0xFFFDA29B)),
+            ),
+            child: Text(
+              note.isEmpty
+                  ? 'Dispatch declined your hold request.'
+                  : 'Hold request declined: $note',
+              style: TextStyles.font12RegularGrey.copyWith(
+                color: const Color(0xFFB42318),
+              ),
+            ),
+          ),
+          if (cubit.canRequestHold) ...[
+            SizedBox(height: 8.h),
+            AppButton(
+              isLoading: _submitting,
+              onPressed: _submitting ? null : _submitRequest,
+              label: 'Request hold again',
+              margin: 0,
+              width: double.infinity,
+              bgColor: Colors.white,
+              textColor: ColorsManager.mainColor,
+              borderColor: ColorsManager.mainColor,
+              height: 44.h,
+              radius: 10.r,
+            ),
+          ],
+        ],
+      );
+    }
+
+    if (!cubit.canRequestHold) return const SizedBox.shrink();
+
+    return AppButton(
+      isLoading: _submitting,
+      onPressed: _submitting ? null : _submitRequest,
+      label: 'Request hold',
+      margin: 0,
+      width: double.infinity,
+      bgColor: Colors.white,
+      textColor: ColorsManager.mainColor,
+      borderColor: ColorsManager.mainColor,
+      height: 44.h,
+      radius: 10.r,
+    );
+  }
+}
+
 class _InfoCard extends StatelessWidget {
   const _InfoCard({
     required this.title,
@@ -968,6 +1196,12 @@ class _Actions extends StatelessWidget {
       case 'completed':
         return Text(
           'Job completed',
+          style: TextStyles.font14RegularGrey,
+          textAlign: TextAlign.center,
+        );
+      case 'on_hold':
+        return Text(
+          'On hold — contact dispatch to resume',
           style: TextStyles.font14RegularGrey,
           textAlign: TextAlign.center,
         );

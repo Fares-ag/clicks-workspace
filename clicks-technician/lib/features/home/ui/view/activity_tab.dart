@@ -11,7 +11,10 @@ import 'package:intl/intl.dart';
 
 /// Activities listing — Figma card layout, calendar filter, pagination.
 class ActivityTab extends StatefulWidget {
-  const ActivityTab({super.key});
+  const ActivityTab({super.key, this.visible = false});
+
+  /// When false the tab stays mounted but ignores session/GPS ticks.
+  final bool visible;
 
   @override
   State<ActivityTab> createState() => _ActivityTabState();
@@ -22,6 +25,7 @@ class _ActivityTabState extends State<ActivityTab> {
   int _page = 0;
   DateTime? _filterDay;
   late DateTime _month;
+  _ActivityStatusFilter _statusFilter = _ActivityStatusFilter.active;
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -68,7 +72,25 @@ class _ActivityTabState extends State<ActivityTab> {
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  void _openCalendar(List<Map<String, dynamic>> allJobs) {
+  String _jobStatus(Map<String, dynamic> job) =>
+      (job['job_status'] ?? job['status'] ?? '').toString();
+
+  bool _matchesStatusFilter(Map<String, dynamic> job) {
+    final status = _jobStatus(job);
+    switch (_statusFilter) {
+      case _ActivityStatusFilter.active:
+        return status != 'completed';
+      case _ActivityStatusFilter.completed:
+        return status == 'completed';
+    }
+  }
+
+  List<Map<String, dynamic>> _filterByStatus(
+    List<Map<String, dynamic>> jobs,
+  ) =>
+      jobs.where(_matchesStatusFilter).toList();
+
+  void _openCalendar(List<Map<String, dynamic>> statusFilteredJobs) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -77,7 +99,7 @@ class _ActivityTabState extends State<ActivityTab> {
       ),
       builder: (ctx) => ActivityCalendarSheet(
         initialMonth: _month,
-        markedDays: _daysWithJobs(allJobs),
+        markedDays: _daysWithJobs(statusFilteredJobs),
         selectedDay: _filterDay,
         onMonthChanged: (m) => setState(() => _month = m),
         onDaySelected: (day) => setState(() {
@@ -101,11 +123,13 @@ class _ActivityTabState extends State<ActivityTab> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: BlocBuilder<HomeCubit, HomeState>(
+          buildWhen: (_, __) => widget.visible,
           builder: (context, state) {
             final cubit = context.read<HomeCubit>();
             final allJobs = List<Map<String, dynamic>>.from(cubit.jobHistory);
+            final statusFilteredJobs = _filterByStatus(allJobs);
 
-            var jobs = allJobs.where((j) {
+            var jobs = statusFilteredJobs.where((j) {
               final local = _jobDate(j);
               if (local == null) return false;
               if (_filterDay != null) return _sameDay(local, _filterDay!);
@@ -125,9 +149,13 @@ class _ActivityTabState extends State<ActivityTab> {
 
             final emptyLabel = allJobs.isEmpty
                 ? 'No activities yet.'
-                : _filterDay != null
-                    ? 'No jobs on ${DateFormat('d MMM').format(_filterDay!)}'
-                    : 'No jobs in ${DateFormat('MMMM yyyy').format(_month)}';
+                : statusFilteredJobs.isEmpty
+                    ? (_statusFilter == _ActivityStatusFilter.completed
+                        ? 'No completed jobs yet.'
+                        : 'No active jobs right now.')
+                    : _filterDay != null
+                        ? 'No jobs on ${DateFormat('d MMM').format(_filterDay!)}'
+                        : 'No jobs in ${DateFormat('MMMM yyyy').format(_month)}';
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -147,10 +175,20 @@ class _ActivityTabState extends State<ActivityTab> {
                         ),
                       ),
                       _CalendarHeaderButton(
-                        onPressed: () => _openCalendar(allJobs),
+                        onPressed: () => _openCalendar(statusFilteredJobs),
                         active: _filterDay != null,
                       ),
                     ],
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 8.h),
+                  child: _ActivityStatusFilterBar(
+                    selected: _statusFilter,
+                    onChanged: (filter) => setState(() {
+                      _statusFilter = filter;
+                      _page = 0;
+                    }),
                   ),
                 ),
                 if (_filterDay != null)
@@ -231,6 +269,77 @@ class _ActivityTabState extends State<ActivityTab> {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+enum _ActivityStatusFilter { active, completed }
+
+class _ActivityStatusFilterBar extends StatelessWidget {
+  const _ActivityStatusFilterBar({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final _ActivityStatusFilter selected;
+  final ValueChanged<_ActivityStatusFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _FilterChip(
+          label: 'Active',
+          selected: selected == _ActivityStatusFilter.active,
+          onTap: () => onChanged(_ActivityStatusFilter.active),
+        ),
+        SizedBox(width: 8.w),
+        _FilterChip(
+          label: 'Completed',
+          selected: selected == _ActivityStatusFilter.completed,
+          onTap: () => onChanged(_ActivityStatusFilter.completed),
+        ),
+      ],
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? ColorsManager.mainColor : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(99.r),
+        side: BorderSide(
+          color: selected ? ColorsManager.mainColor : ColorsManager.border,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(99.r),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
+          child: Text(
+            label,
+            style: TextStyles.font12RegularGrey.copyWith(
+              color: selected ? Colors.white : ColorsManager.greyColor,
+              fontWeight: FontWeight.w600,
+              fontSize: 13.sp,
+            ),
+          ),
         ),
       ),
     );

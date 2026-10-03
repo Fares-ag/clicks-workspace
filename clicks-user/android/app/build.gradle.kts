@@ -31,8 +31,11 @@ if (keyPropertiesFile.exists()) {
 
 // Fail closed: release artifacts must be signed with the upload keystore. Without
 // key.properties Gradle would otherwise fall back to the public Android debug key.
-gradle.taskGraph.whenReady { graph ->
-    if (!keyPropertiesFile.exists() && graph.allTasks.any { it.name.contains("Release") }) {
+if (!keyPropertiesFile.exists()) {
+    val releaseRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true)
+    }
+    if (releaseRequested) {
         throw GradleException(
             "android/key.properties missing - refusing to build a release artifact without the upload keystore"
         )
@@ -41,7 +44,7 @@ gradle.taskGraph.whenReady { graph ->
 
 android {
     namespace = "com.roya.clicks_user"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

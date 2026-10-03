@@ -79,10 +79,21 @@ function createAdminApp() {
     res.json({ status: "ok" });
   });
 
-  app.get("/api/health", (_req, res) => {
+  app.get("/api/health", async (_req, res) => {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({ status: "degraded", db: "down" });
     }
+
+    const { isRedisConfigured, pingRedis } = require("../../clicks-shared/utils/redisClient");
+    if (isRedisConfigured()) {
+      try {
+        await pingRedis(1000);
+        return res.json({ status: "ok", db: "up", redis: "up" });
+      } catch {
+        return res.status(503).json({ status: "degraded", redis: "down" });
+      }
+    }
+
     res.json({ status: "ok", db: "up" });
   });
 
@@ -117,6 +128,7 @@ function createAdminApp() {
   app.use("/api/jobs", jobRoutes);
   app.use("/api/leads", require("./routes/leads"));
   app.use("/api/dashboard", dashboardRoutes);
+  app.use("/api/notifications", require("./routes/notifications"));
   app.use("/api/faqs", faqRoutes);
   app.use("/api/privacy-policy", privacyPolicyRoutes);
   app.use("/api/terms-and-conditions", termsAndConditionsRoutes);
@@ -129,6 +141,7 @@ function createAdminApp() {
   app.use("/api/finance", require("./routes/financePortal"));
   app.use("/api/finance-users", require("./routes/financeUsers"));
   app.use("/api/finance-overview", require("./routes/financeOverview"));
+  app.use("/api/technician-activity", require("./routes/technicianActivity"));
   app.use("/api/partners", require("./routes/partners"));
   app.use("/api/partner", require("./routes/partnerPortal"));
 

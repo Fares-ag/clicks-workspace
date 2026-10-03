@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:clicks_technician/core/config/device_capability.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/core/notifications/job_notification_service.dart';
@@ -8,6 +9,7 @@ import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
 import 'package:clicks_technician/features/home/ui/view/activity_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/earnings_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/home_screen.dart';
+import 'package:clicks_technician/features/home/ui/view/open_active_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/settings_tab.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/incoming_job_modal.dart';
 import 'package:clicks_technician/features/home/ui/view/widgets/incoming_job_top_banner.dart';
@@ -25,7 +27,9 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _index = 0;
+  final Set<int> _visited = {0};
   String? _lastJobStatus;
+  bool _hadIncomingAssignedJob = false;
   bool _showIncomingDetails = false;
 
   @override
@@ -53,8 +57,16 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     );
     if (state == AppLifecycleState.resumed) {
       context.read<HomeCubit>().onAppResumed();
-      // Re-check location after returning from Settings.
       context.read<HomeCubit>().recheckLocationPermission();
+    }
+  }
+
+  Future<void> _acceptAndOpenJob(HomeCubit cubit) async {
+    final ok = await cubit.acceptJob();
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _showIncomingDetails = false);
+      await openActiveJobScreen(context, cubit);
     }
   }
 
@@ -64,31 +76,17 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       listener: (context, state) {
         final cubit = context.read<HomeCubit>();
         final status = cubit.jobStatus;
-        // Activities → Continue job: switch to Home tab.
-        if (cubit.pendingNavigateHome) {
-          setState(() {
-            _index = 0;
-            _showIncomingDetails = false;
-          });
-          cubit.clearPendingNavigateHome();
-        }
-        // After Accept, jump to Home so the map / job flow is visible.
-        if (_lastJobStatus == 'assigned' &&
-            status.isNotEmpty &&
-            status != 'assigned' &&
-            cubit.activeJob != null) {
-          setState(() {
-            _index = 0;
-            _showIncomingDetails = false;
-          });
-        }
         if (status != 'assigned' && _showIncomingDetails) {
           setState(() => _showIncomingDetails = false);
         }
         if (_lastJobStatus == 'assigned' && status != 'assigned') {
-          // ignore: discarded_futures
           JobNotificationService.instance.cancelUrgentJobNotification();
         }
+        final incomingAssigned = cubit.hasIncomingAssignedJob;
+        if (_hadIncomingAssignedJob && !incomingAssigned) {
+          JobNotificationService.instance.cancelUrgentJobNotification();
+        }
+        _hadIncomingAssignedJob = incomingAssigned;
         _lastJobStatus = status.isEmpty ? null : status;
       },
       builder: (context, state) {
@@ -96,8 +94,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
         final status = cubit.jobStatus;
         final showIncoming =
             cubit.activeJob != null && status == 'assigned';
-        final onPhotoHome = cubit.activeJob == null || status == 'assigned';
-        final photoHome = _index == 0 && onPhotoHome;
+        final photoHome = _index == 0;
         final idleIcon = photoHome ? Colors.white : ColorsManager.greyColor;
 
         return Stack(
@@ -107,14 +104,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   photoHome ? const Color(0xFF320A0A) : Colors.white,
               body: IndexedStack(
                 index: _index,
-                children: const [
-                  HomeScreen(),
-                  ActivityTab(),
-                  EarningsTab(),
-                  SettingsTab(),
+                children: [
+                  const HomeScreen(),
+                  _visited.contains(1)
+                      ? ActivityTab(visible: _index == 1)
+                      : const SizedBox.shrink(),
+                  _visited.contains(2)
+                      ? EarningsTab(visible: _index == 2)
+                      : const SizedBox.shrink(),
+                  _visited.contains(3)
+                      ? SettingsTab(visible: _index == 3)
+                      : const SizedBox.shrink(),
                 ],
               ),
-              bottomNavigationBar: photoHome
+              bottomNavigationBar: photoHome && !DeviceCapability.isLowEnd
                   ? ClipRect(
                       child: BackdropFilter(
                         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
@@ -127,17 +130,25 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                               width: 1.5,
                             ),
                           ),
-                          child: _navRow(context, photoHome, idleIcon),
+                          child: _navRow(context, photoHome, idleIcon, cubit),
                         ),
                       ),
                     )
                   : Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border(
-                            top: BorderSide(color: ColorsManager.border)),
+                        color: photoHome
+                            ? const Color(0xFF5C1515)
+                            : Colors.white,
+                        border: photoHome
+                            ? Border.all(
+                                color: const Color(0x28EFEFEF),
+                                width: 1.5,
+                              )
+                            : Border(
+                                top: BorderSide(color: ColorsManager.border),
+                              ),
                       ),
-                      child: _navRow(context, photoHome, idleIcon),
+                      child: _navRow(context, photoHome, idleIcon, cubit),
                     ),
             ),
             if (showIncoming)
@@ -148,11 +159,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                 child: IncomingJobTopBanner(
                   cubit: cubit,
                   onExpand: () => setState(() => _showIncomingDetails = true),
+                  onAccept: () => _acceptAndOpenJob(cubit),
                 ),
               ),
             if (showIncoming && _showIncomingDetails)
               Positioned.fill(
-                child: IncomingJobModal(cubit: cubit),
+                child: IncomingJobModal(
+                  cubit: cubit,
+                  onAccept: () => _acceptAndOpenJob(cubit),
+                ),
               ),
           ],
         );
@@ -160,7 +175,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     );
   }
 
-  Widget _navRow(BuildContext context, bool photoHome, Color idleIcon) {
+  Widget _navRow(
+    BuildContext context,
+    bool photoHome,
+    Color idleIcon,
+    HomeCubit cubit,
+  ) {
     return SafeArea(
       top: false,
       child: Padding(
@@ -184,8 +204,13 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               photoHome: photoHome,
               idleColor: idleIcon,
               onTap: () {
-                setState(() => _index = 1);
-                context.read<HomeCubit>().fetchHistory();
+                setState(() {
+                  _visited.add(1);
+                  _index = 1;
+                });
+                if (cubit.jobHistory.isEmpty) {
+                  cubit.fetchHistory();
+                }
               },
             ),
             _NavItem(
@@ -196,8 +221,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               photoHome: photoHome,
               idleColor: idleIcon,
               onTap: () {
-                setState(() => _index = 2);
-                context.read<HomeCubit>().fetchHomeMeta();
+                setState(() {
+                  _visited.add(2);
+                  _index = 2;
+                });
+                cubit.fetchHomeMeta(force: true);
               },
             ),
             _NavItem(
@@ -207,7 +235,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               selected: _index == 3,
               photoHome: photoHome,
               idleColor: idleIcon,
-              onTap: () => setState(() => _index = 3),
+              onTap: () => setState(() {
+                _visited.add(3);
+                _index = 3;
+              }),
             ),
           ],
         ),

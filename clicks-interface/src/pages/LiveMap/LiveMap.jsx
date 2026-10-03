@@ -6,6 +6,7 @@ import {
   InfoWindow,
 } from "@react-google-maps/api";
 import { useGetLiveMapTechniciansQuery } from "../../store/technicianApi";
+import { usePageVisible } from "../../hooks/usePageVisible";
 import { Link, useNavigate } from "react-router-dom";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import {
@@ -94,6 +95,21 @@ function getMarkerLabel(tech) {
   return undefined;
 }
 
+const TechMapMarker = React.memo(function TechMapMarker({ tech, onSelect }) {
+  const stale = isTechLocationStale(tech);
+  const onJob = tech.currentStatus === "On Job";
+  return (
+    <Marker
+      position={{ lat: tech.location.latitude, lng: tech.location.longitude }}
+      opacity={stale ? 0.45 : 1}
+      icon={getMarkerIcon(tech)}
+      label={getMarkerLabel(tech)}
+      onClick={() => onSelect(String(tech._id))}
+      title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${stale ? " (stale location)" : ""}`}
+    />
+  );
+});
+
 // Qatar center
 const MAP_CENTER = { lat: 25.276987, lng: 51.520008 };
 const MAP_ZOOM = 11;
@@ -165,6 +181,7 @@ function LiveMap() {
   const apiIdsRef = useRef(new Set());
   const sawRestRef = useRef(false);
   const { socket, connected: socketConnected } = useAdminSocket() || {};
+  const pageVisible = usePageVisible();
   const [socketDownSince, setSocketDownSince] = useState(null);
 
   // ==================== STATE ====================
@@ -199,7 +216,7 @@ function LiveMap() {
     isFetching,
     refetch,
   } = useGetLiveMapTechniciansQuery(undefined, {
-    pollingInterval: restPollFallback ? REST_POLL_MS : 0,
+    pollingInterval: restPollFallback && pageVisible ? REST_POLL_MS : 0,
   });
 
   // ==================== GOOGLE MAPS LOADER ====================
@@ -249,6 +266,45 @@ function LiveMap() {
     return () => clearInterval(id);
   }, []);
 
+  const pendingLocationPatchesRef = useRef(new Map());
+  const locationFlushRafRef = useRef(0);
+
+  const flushLocationPatches = useCallback(() => {
+    locationFlushRafRef.current = 0;
+    const pending = pendingLocationPatchesRef.current;
+    if (pending.size === 0) return;
+    pendingLocationPatchesRef.current = new Map();
+    setTechnicians((prev) => {
+      const indexById = new Map(prev.map((t, i) => [String(t._id), i]));
+      let next = prev;
+      for (const [id, patch] of pending) {
+        const idx = indexById.get(id);
+        if (idx === undefined) continue;
+        if (next === prev) next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+      }
+      return next;
+    });
+  }, []);
+
+  const queueLocationPatch = useCallback(
+    (data) => {
+      if (!data?.technician_id) return;
+      pendingLocationPatchesRef.current.set(
+        String(data.technician_id),
+        buildLocationPatch(data)
+      );
+      if (!locationFlushRafRef.current) {
+        locationFlushRafRef.current = requestAnimationFrame(flushLocationPatches);
+      }
+    },
+    [flushLocationPatches]
+  );
+
+  const handleSelectTech = useCallback((id) => {
+    setSelectedTechId(id);
+  }, []);
+
   // ==================== SHARED SOCKET (AdminLayout) ====================
   useEffect(() => {
     if (!socket) return undefined;
@@ -258,32 +314,13 @@ function LiveMap() {
     const onLocationBatch = (payload) => {
       const updates = payload?.updates;
       if (!Array.isArray(updates)) return;
-      setTechnicians((prev) => {
-        const indexById = new Map(prev.map((t, i) => [String(t._id), i]));
-        let next = prev;
-        for (const data of updates) {
-          if (!data) continue;
-          const idx = indexById.get(String(data.technician_id));
-          // Unknown technician: a location event carries no name, phone or
-          // vehicle, so upserting one here painted a nameless "Technician"
-          // ghost that outlived the real record. Let the REST poll or
-          // technicianOnline introduce them properly instead.
-          if (idx === undefined) continue;
-          if (next === prev) next = [...prev];
-          next[idx] = { ...next[idx], ...buildLocationPatch(data) };
-        }
-        return next;
-      });
+      for (const data of updates) {
+        queueLocationPatch(data);
+      }
     };
 
     const onLocationUpdate = (data) => {
-      if (!data) return;
-      const id = String(data.technician_id);
-      setTechnicians((prev) => {
-        if (!prev.some((t) => String(t._id) === id)) return prev;
-        const patch = buildLocationPatch(data);
-        return prev.map((t) => (String(t._id) === id ? { ...t, ...patch } : t));
-      });
+      queueLocationPatch(data);
     };
 
     const onLocationStale = (data) => {
@@ -364,8 +401,12 @@ function LiveMap() {
       socket.off("technicianLocationStale", onLocationStale);
       socket.off("technicianOnline", onTechnicianOnline);
       socket.off("technicianOffline", onTechnicianOffline);
+      if (locationFlushRafRef.current) {
+        cancelAnimationFrame(locationFlushRafRef.current);
+        locationFlushRafRef.current = 0;
+      }
     };
-  }, [socket]);
+  }, [socket, queueLocationPatch]);
 
   // ==================== CLOSE PANEL ON OUTSIDE CLICK ====================
   useEffect(() => {
@@ -638,19 +679,11 @@ function LiveMap() {
               routinely exceeds ~50 (see @react-google-maps/api MarkerClustererF). */}
           {filteredTechnicians.map((tech) => {
             if (!hasUsableLocation(tech)) return null;
-
-            const stale = isTechLocationStale(tech);
-            const onJob = tech.currentStatus === "On Job";
-
             return (
-              <Marker
+              <TechMapMarker
                 key={tech._id}
-                position={{ lat: tech.location.latitude, lng: tech.location.longitude }}
-                opacity={stale ? 0.45 : 1}
-                icon={getMarkerIcon(tech)}
-                label={getMarkerLabel(tech)}
-                onClick={() => setSelectedTechId(String(tech._id))}
-                title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${stale ? " (stale location)" : ""}`}
+                tech={tech}
+                onSelect={handleSelectTech}
               />
             );
           })}

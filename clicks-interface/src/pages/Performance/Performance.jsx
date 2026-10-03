@@ -62,6 +62,7 @@ function Performance() {
       key: "name",
       dataIndex: "name",
       width: "15%",
+      mobile: { featured: true, order: 0 },
       render: (row) => (
         <PerformanceNameCell technician={row} navigate={navigate} />
       )

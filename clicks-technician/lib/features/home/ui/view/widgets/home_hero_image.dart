@@ -10,11 +10,15 @@ class HomeHeroImage extends StatelessWidget {
     required this.url,
     required this.fallbackAsset,
     this.fit = BoxFit.cover,
+    this.cacheWidth,
+    this.cacheHeight,
   });
 
   final String url;
   final String fallbackAsset;
   final BoxFit fit;
+  final int? cacheWidth;
+  final int? cacheHeight;
 
   static String _baseUrl(String raw) {
     if (raw.startsWith('data:')) {
@@ -46,10 +50,14 @@ class HomeHeroImage extends StatelessWidget {
         bytes,
         key: ValueKey(url),
         fit: fit,
+        cacheWidth: cacheWidth,
+        cacheHeight: cacheHeight,
         gaplessPlayback: true,
         errorBuilder: (_, __, ___) => Image.asset(
           fallbackAsset,
           fit: fit,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
         ),
       );
     }
@@ -59,10 +67,14 @@ class HomeHeroImage extends StatelessWidget {
         url,
         key: ValueKey(url),
         fit: fit,
+        cacheWidth: cacheWidth,
+        cacheHeight: cacheHeight,
         gaplessPlayback: true,
         errorBuilder: (_, __, ___) => Image.asset(
           fallbackAsset,
           fit: fit,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
         ),
       );
     }
@@ -70,6 +82,8 @@ class HomeHeroImage extends StatelessWidget {
     return Image.asset(
       fallbackAsset,
       fit: fit,
+      cacheWidth: cacheWidth,
+      cacheHeight: cacheHeight,
     );
   }
 }

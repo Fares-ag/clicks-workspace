@@ -62,10 +62,10 @@ export const RADIUS_OPTIONS = [0.5, 1, 2];
 /** Brand-aligned concentration bands (theme.css primary scale). */
 export const HEAT_CONCENTRATION_LEVELS = [
   { label: "Few", color: "#FCEAEA", hint: "Sparse" },
-  { label: "Some", color: "#E6B3B3", cssVar: "--color-primary-lighter", hint: "Low" },
-  { label: "Moderate", color: "#B23333", cssVar: "--color-primary-light", hint: "Medium" },
-  { label: "Many", color: "#981F1F", cssVar: "--color-primary", hint: "High" },
-  { label: "Hotspot", color: "#7A1919", cssVar: "--color-primary-hover", hint: "Very high" },
+  { label: "Some", color: "#C5D4DC", cssVar: "--color-primary-lighter", hint: "Low" },
+  { label: "Moderate", color: "#1A4A63", cssVar: "--color-primary-light", hint: "Medium" },
+  { label: "Many", color: "#0A2635", cssVar: "--color-primary", hint: "High" },
+  { label: "Hotspot", color: "#061820", cssVar: "--color-primary-hover", hint: "Very high" },
 ];
 
 

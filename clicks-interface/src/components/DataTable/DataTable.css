@@ -28,6 +28,15 @@
   gap: var(--spacing-md);
 }
 
+.table-header--compact {
+  padding-top: 0;
+  margin-bottom: 8px;
+}
+
+.table-header--compact .table-controls {
+  width: 100%;
+}
+
 .table-title {
   font-family: var(--font-main);
   font-size: var(--font-size-heading);
@@ -114,15 +123,32 @@
   flex-direction: column;
 }
 
+.table-content--mobile {
+  overflow-x: visible;
+}
+
 .table-row {
   display: flex;
   align-items: center;
-  min-height: 72px;
-  height: 72px;
+  min-height: 56px;
   border-bottom: var(--border-width) solid var(--color-border);
   width: 100%;
   background: var(--color-bg-white);
   transition: background 0.12s;
+}
+
+.table-row:not(.table-header-row) {
+  height: auto;
+  min-height: 56px;
+}
+
+.table-row--desktop {
+  width: 100%;
+}
+
+.table-row--desktop .table-cell {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .table-row:hover:not(.table-header-row) {
@@ -148,12 +174,12 @@
   line-height: 18px;
   color: var(--color-text-secondary);
   background: transparent;
-  padding: 12px 24px;
+  padding: 10px 12px 10px 16px;
 }
 
 .table-cell {
-  justify-content: left;
-  padding: 12px 16px 12px 24px;
+  justify-content: flex-start;
+  padding: 8px 12px 8px 16px;
   font-family: var(--font-main);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-regular);
@@ -323,43 +349,181 @@
   padding: 0 4px;
 }
 
-@media (max-width: 768px) {
+/* ==================== MOBILE CARD LAYOUT (≤900px) ==================== */
+
+.table-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+.table-card {
+  background: var(--color-bg-white);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.table-card-featured {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-page);
+}
+
+.table-card-featured-item {
+  min-width: 0;
+}
+
+.table-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 12px 8px;
+}
+
+.table-card-field {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border-light, #f2f4f7);
+  min-width: 0;
+}
+
+.table-card-field:last-child {
+  border-bottom: none;
+}
+
+.table-card-label {
+  flex: 0 0 38%;
+  max-width: 42%;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  line-height: 16px;
+}
+
+.table-card-value {
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  line-height: 18px;
+  word-break: break-word;
+  min-width: 0;
+  text-align: right;
+}
+
+.table-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-page);
+}
+
+.table-card-action-item {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.table-card-action-item button,
+.table-card-action-item .sos-action-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.table-card-action-item .job-actions--card {
+  width: 100%;
+}
+
+.table-card-action-item .job-actions--card .job-action-btn,
+.table-card-action-item .job-actions--card .job-whatsapp-btn {
+  width: auto;
+}
+
+@media (max-width: 900px) {
+  .data-table-outer {
+    overflow-x: visible;
+  }
+
+  .data-table {
+    overflow: visible;
+    border-radius: var(--border-radius-md);
+  }
+
   .table-header {
-    flex-direction: column;
-    align-items: stretch;
-    padding: var(--spacing-md) var(--spacing-md) 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px 0;
+    margin-bottom: 8px;
+  }
+
+  .table-header:not(:has(.table-title)) {
+    padding-top: 0;
   }
 
   .table-controls {
     width: 100%;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
 
   .search-bar {
-    width: 100%;
+    width: auto;
     min-width: 0;
-    flex: 1 1 180px;
+    flex: 1 1 auto;
+    height: 40px;
   }
 
   .filter-btn {
     flex: 0 0 auto;
-  }
-
-  .table-header-cell,
-  .table-cell {
+    width: auto;
+    height: 40px;
     padding-left: 12px;
     padding-right: 12px;
   }
 
   .table-pagination-section {
     height: auto;
-    min-height: 64px;
+    min-height: 56px;
     justify-content: center;
-    padding: 12px;
+    padding: 8px;
   }
 
   .table-pagination {
     justify-content: center;
     flex-wrap: wrap;
+  }
+
+  /* Compact nested job/tech cell content inside cards */
+  .table-card-value .job-client-cell,
+  .table-card-value .job-datetime-cell,
+  .table-card-value .job-tech-cell,
+  .table-card-value .sos-customer-cell {
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  .table-card-value .job-tech-cell {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .table-header-cell,
+  .table-cell {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }

@@ -139,7 +139,11 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
 
     final lead = _lead!;
     final status = lead['status']?.toString() ?? '';
-    final canConvert = ['new', 'contacted', 'qualified'].contains(status);
+    // Mirrors CONVERTIBLE_LEAD_STATUSES on the API: lost leads may be
+    // converted (customer came back); converted leads never convert twice.
+    final canConvert =
+        ['new', 'contacted', 'qualified', 'lost'].contains(status);
+    final lostReason = lead['lost_reason']?.toString() ?? '';
 
     return AdminPageContent(
       children: [
@@ -182,13 +186,19 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                 value: lead['internalNotes']?.toString() ?? '—',
                 icon: Icons.notes_outlined,
               ),
+              if (status == 'lost' && lostReason.isNotEmpty)
+                AdminInfoItem(
+                  label: 'Lost reason',
+                  value: lostReason,
+                  icon: Icons.block_outlined,
+                ),
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.md),
         if (canConvert)
           PrimaryButton(
-            label: 'Convert to job',
+            label: status == 'lost' ? 'Convert to job (reopen)' : 'Convert to job',
             loading: _working,
             onPressed: () => Navigator.of(context).pushNamed(
               Routes.leadConvertPath(widget.leadId),

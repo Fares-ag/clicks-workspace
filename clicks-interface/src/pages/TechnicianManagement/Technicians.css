@@ -268,3 +268,15 @@
   width: 20px;
   height: 20px;
 }
+
+@media (max-width: 900px) {
+  .technicians-container {
+    overflow: visible;
+  }
+
+  .tech-vehicle-dropdown,
+  .tech-vehicle-dropdown-menu {
+    width: 100%;
+    max-width: 100%;
+  }
+}

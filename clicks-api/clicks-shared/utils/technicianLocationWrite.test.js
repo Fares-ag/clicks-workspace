@@ -41,7 +41,10 @@ function createMockTechnician(initial) {
       };
     },
     async findByIdAndUpdate(id, update) {
-      const key = String(id);
+      return this.updateOne({ _id: id }, update);
+    },
+    async updateOne(filter, update) {
+      const key = String(filter._id);
       const doc = docs.get(key) || {
         currentLocation: undefined,
         lastLocationAt: null,
@@ -56,7 +59,7 @@ function createMockTechnician(initial) {
         doc.lastLocationAt = update.lastLocationAt;
       }
       docs.set(key, doc);
-      return doc;
+      return { acknowledged: true };
     },
     get(id) {
       return docs.get(String(id));

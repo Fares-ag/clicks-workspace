@@ -2,9 +2,12 @@ import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 
 /// Admin mobile app — same backends as [clicks-interface] (web admin).
 ///
-/// Production (matches Vercel `VITE_*` env):
-/// - REST: https://admin-api.clicks.qa/api
-/// - Socket: https://tech-api.clicks.qa/admin
+/// Production (live Railway — same backends QA scripts use):
+/// - REST: https://clicks-admin-api-production.up.railway.app/api
+/// - Socket: https://clicks-tech-api-production.up.railway.app/admin
+///
+/// Custom domains (`admin-api.clicks.qa`) can be used via `--dart-define=API_BASE_URL=...`
+/// when DNS is configured.
 ///
 /// Staging (matches STAGING_DEPLOY.md):
 /// - REST: https://stg-admin-api.clicks.qa/api
@@ -19,8 +22,10 @@ class AppConfig {
   static bool get isProduction => env == 'production';
 
   // Production — same hosts as clicks-interface VERCEL.md
-  static const String _productionAdminApi = 'https://admin-api.clicks.qa';
-  static const String _productionTechApi = 'https://tech-api.clicks.qa';
+  static const String _productionAdminApi =
+      'https://clicks-admin-api-production.up.railway.app';
+  static const String _productionTechApi =
+      'https://clicks-tech-api-production.up.railway.app';
 
   // Staging — same hosts as clicks-interface / STAGING_DEPLOY.md
   static const String _stagingAdminApi = 'https://stg-admin-api.clicks.qa';

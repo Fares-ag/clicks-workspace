@@ -6,6 +6,7 @@ import "./sosApi";
 import "./serviceRequestApi";
 import "./leadApi";
 import "./financeApi";
+import "./notificationApi";
 
 // TODO: follow-up: move to httpOnly cookies — do not persist tokens in localStorage long-term.
 // Load auth state from localStorage
@@ -41,9 +42,14 @@ const store = configureStore({
   }
 });
 
-// Subscribe to store changes and persist auth state
+// Persist auth only when the auth slice identity changes — RTK Query cache
+// updates used to rewrite localStorage on every list/poll tick.
+let prevAuth = store.getState().auth;
 store.subscribe(() => {
-  saveAuthState(store.getState().auth);
+  const auth = store.getState().auth;
+  if (auth === prevAuth) return;
+  prevAuth = auth;
+  saveAuthState(auth);
 });
 
 export default store;

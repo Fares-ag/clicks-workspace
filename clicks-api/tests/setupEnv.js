@@ -15,6 +15,8 @@ process.env.SANITIZE_REJECT = "true";
 process.env.JOB_START_MAX_METERS = "200";
 process.env.SMS_PROVIDER = "console";
 process.env.CORS_ORIGINS = "http://localhost:3000";
+// Soft-launch default: tests must not inherit a developer REDIS_URL.
+delete process.env.REDIS_URL;
 
 // One mongoose instance for db helper + clicks-shared models (sibling packages).
 const testNodeModules = path.join(__dirname, "..", "node_modules");

@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/config/device_capability.dart';
 import '../../../../core/config/job_fulfill_status.dart';
 import '../../../../core/config/location_tracking.dart';
 import '../../../../core/api/dio_helper.dart';
@@ -75,11 +76,14 @@ class HomeCubit extends Cubit<HomeState> {
   /// Raw job JSON — REST session or `newJobAssigned` socket payload.
   Map<String, dynamic>? activeJob;
 
+  /// Job the technician explicitly opened (Accept, Activity → Continue, Add
+  /// job). The server's `active_job` is its own priority pick (in_progress
+  /// beats accepted), so without this the 25s session poll swapped the
+  /// ActiveJobScreen to another job. Cleared when that job leaves the queue.
+  String? _focusedJobId;
+
   /// All fulfill-path / unpaid jobs from session (multi-job queue).
   List<Map<String, dynamic>> activeJobs = [];
-
-  /// When true, [MainShell] should switch to the Home tab (Continue job).
-  bool pendingNavigateHome = false;
 
   /// Client-side start proximity hint (meters). Server enforces the real limit.
   static const double startMaxMeters = 200;
@@ -93,6 +97,7 @@ class HomeCubit extends Cubit<HomeState> {
   /// Bumped on every history load so a newer reset can discard the response of
   /// an older in-flight append instead of interleaving the two.
   int _historyRequestToken = 0;
+  DateTime? _lastHomeMetaAt;
 
   void _emitLoaded() {
     if (isClosed) return;
@@ -105,10 +110,14 @@ class HomeCubit extends Cubit<HomeState> {
     _wireNotificationCallbacks();
     _connectSocket();
     await fetchSession();
-    await _reconcileNotificationAcceptState();
-    await Future.wait([fetchHistory(), fetchHomeMeta()]);
-    // Register FCM after session so JWT is present.
+    // Notification accept reconciliation can trigger a second session fetch —
+    // do not block the first Home paint on it.
     // ignore: discarded_futures
+    _reconcileNotificationAcceptState();
+    // History loads when the Activity tab opens; earnings when Earnings opens.
+    // Home balance/meta only (parallel, cached 45s on client).
+    // ignore: discarded_futures
+    fetchHomeMeta();
     JobNotificationService.instance.registerTokenWithBackend();
   }
 
@@ -185,44 +194,58 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   /// Balance pill + notification unread (non-blocking for fulfill path).
-  Future<void> fetchHomeMeta() async {
-    try {
-      final dash = await DioHelper.getData(url: EndPoints.dashboard);
-      if (dash.statusCode == 200) {
-        final perf = dash.data['performance'];
-        if (perf is Map) {
-          final v = perf['totalEarnings'] ?? perf['cashBalance'];
-          if (v is num) {
-            balanceQar = v.toDouble();
-          } else {
-            balanceQar = double.tryParse(v?.toString() ?? '');
-          }
-          final hero = perf['homeHeroUrl']?.toString();
-          if (hero != null && hero.isNotEmpty) homeHeroUrl = hero;
+  Future<void> fetchHomeMeta({bool force = false}) async {
+    if (!force &&
+        _lastHomeMetaAt != null &&
+        DateTime.now().difference(_lastHomeMetaAt!) <
+            const Duration(seconds: 45)) {
+      return;
+    }
+    Future<Response?> safeGet(String url) async {
+      try {
+        return await DioHelper.getData(url: url);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final results = await Future.wait([
+      safeGet(EndPoints.dashboard),
+      safeGet(EndPoints.profile),
+      safeGet(EndPoints.technicianNotificationsUnread),
+    ]);
+
+    final dash = results[0];
+    if (dash != null && dash.statusCode == 200) {
+      final perf = dash.data['performance'];
+      if (perf is Map) {
+        final v = perf['totalEarnings'] ?? perf['cashBalance'];
+        if (v is num) {
+          balanceQar = v.toDouble();
+        } else {
+          balanceQar = double.tryParse(v?.toString() ?? '');
         }
+        final hero = perf['homeHeroUrl']?.toString();
+        if (hero != null && hero.isNotEmpty) homeHeroUrl = hero;
       }
-    } catch (_) {}
+    }
 
-    try {
-      final profile = await DioHelper.getData(url: EndPoints.profile);
-      if (profile.statusCode == 200) {
-        final t = profile.data['technician'] ?? profile.data;
-        if (t is Map) {
-          final hero = t['homeHeroUrl']?.toString();
-          if (hero != null && hero.isNotEmpty) homeHeroUrl = hero;
-        }
+    final profile = results[1];
+    if (profile != null && profile.statusCode == 200) {
+      final t = profile.data['technician'] ?? profile.data;
+      if (t is Map) {
+        final hero = t['homeHeroUrl']?.toString();
+        if (hero != null && hero.isNotEmpty) homeHeroUrl = hero;
       }
-    } catch (_) {}
+    }
 
-    try {
-      final unread =
-          await DioHelper.getData(url: EndPoints.technicianNotificationsUnread);
-      if (unread.statusCode == 200) {
-        final c = unread.data['count'];
-        unreadNotifications = c is num ? c.toInt() : int.tryParse('$c') ?? 0;
-      }
-    } catch (_) {}
+    final unread = results[2];
+    if (unread != null && unread.statusCode == 200) {
+      final c = unread.data['count'];
+      unreadNotifications = c is num ? c.toInt() : int.tryParse('$c') ?? 0;
+    }
 
+    _lastHomeMetaAt = DateTime.now();
     _emitLoaded();
   }
 
@@ -249,6 +272,14 @@ class HomeCubit extends Cubit<HomeState> {
       final incomingId =
           (incoming['_id'] ?? incoming['job_id'])?.toString();
 
+      final incomingStatus =
+          (incoming['job_status'] ?? incoming['status'] ?? 'assigned')
+              .toString();
+      // Never drop an assignment: keep the queue in sync even while busy on
+      // another job so it surfaces via the Home pending-assignments banner
+      // and Activity → Accept job.
+      _upsertQueuedJob(incoming);
+
       if (activeJob != null) {
         final currentId = jobId;
         final currentStatus = jobStatus;
@@ -257,23 +288,24 @@ class HomeCubit extends Cubit<HomeState> {
             currentStatus == 'assigned') {
           activeJob = incoming;
         } else if (_isFulfillPathStatus(currentStatus)) {
-          return;
-        } else if (currentStatus.isEmpty || currentStatus == 'assigned') {
-          activeJob = incoming;
+          // Mid-fulfill on another job — do not swap activeJob; the new
+          // assignment waits in [activeJobs] (see pendingAssignedJobs).
         } else {
-          return;
+          activeJob = incoming;
+          _focusedJobId = incomingId;
         }
       } else {
         activeJob = incoming;
+        _focusedJobId = incomingId;
       }
-      final incomingStatus =
-          (incoming['job_status'] ?? incoming['status'] ?? 'assigned')
-              .toString();
-      if (incomingStatus == 'assigned' && !isLoadingAction) {
+      if (incomingStatus == 'assigned' && !isLoadingAction && incomingId != null) {
+        // Fresh assignment — clear any prior handled flag so re-dispatch alerts.
+        // ignore: discarded_futures
+        JobNotificationService.instance.clearAlarmHandledForJob(incomingId);
         // Keep beeping until Accept — start alarm even if FCM was missed.
         // ignore: discarded_futures
-        JobNotificationService.instance.startInsistentAlarm();
-      } else if (incomingStatus != 'assigned') {
+        JobNotificationService.instance.startInsistentAlarm(jobId: incomingId);
+      } else if (incomingStatus != 'assigned' && !hasIncomingAssignedJob) {
         // ignore: discarded_futures
         JobNotificationService.instance.cancelUrgentJobNotification();
       }
@@ -295,6 +327,7 @@ class HomeCubit extends Cubit<HomeState> {
           ?.toString();
       if (status == 'completed') {
         activeJob = null;
+        _focusedJobId = null;
         fetchHistory();
       } else if (activeJob != null) {
         activeJob!['payment_status'] = 'paid';
@@ -309,6 +342,7 @@ class HomeCubit extends Cubit<HomeState> {
 
     _socketService.onJobCancelled = (data) {
       activeJob = null;
+      _focusedJobId = null;
       // ignore: discarded_futures
       JobNotificationService.instance.cancelUrgentJobNotification();
       fetchSession();
@@ -318,6 +352,7 @@ class HomeCubit extends Cubit<HomeState> {
 
     _socketService.onJobReassigned = (data) {
       activeJob = null;
+      _focusedJobId = null;
       // ignore: discarded_futures
       JobNotificationService.instance.cancelUrgentJobNotification();
       fetchSession();
@@ -372,12 +407,20 @@ class HomeCubit extends Cubit<HomeState> {
         }
         final job = data['active_job'];
         if (!isLoadingAction) {
-          if (job is Map) {
-            activeJob = Map<String, dynamic>.from(job);
-          } else if (activeJobs.isNotEmpty) {
-            activeJob = Map<String, dynamic>.from(activeJobs.first);
+          // Keep the job the technician opened on screen; only fall back to
+          // the server's priority pick when no focused job is active any more.
+          final focused = _findQueuedJob(_focusedJobId);
+          if (focused != null) {
+            activeJob = Map<String, dynamic>.from(focused);
           } else {
-            activeJob = null;
+            _focusedJobId = null;
+            if (job is Map) {
+              activeJob = Map<String, dynamic>.from(job);
+            } else if (activeJobs.isNotEmpty) {
+              activeJob = Map<String, dynamic>.from(activeJobs.first);
+            } else {
+              activeJob = null;
+            }
           }
         }
         sessionLoadFailed = false;
@@ -399,19 +442,16 @@ class HomeCubit extends Cubit<HomeState> {
     _emitLoaded();
     _syncLocationTracking();
     _syncSessionPoll();
+    if (!hasIncomingAssignedJob) {
+      // Session refresh is authoritative — stop alarm when nothing is waiting.
+      // ignore: discarded_futures
+      JobNotificationService.instance.cancelUrgentJobNotification();
+    }
   }
 
-  /// Focus a job from the queue (Activities Continue) and jump to Home.
+  /// Focus a job from the queue (Activities Continue).
   Future<bool> continueJob(String jobId) async {
-    final ok = await focusJob(jobId);
-    if (!ok) return false;
-    pendingNavigateHome = true;
-    _emitLoaded();
-    return true;
-  }
-
-  void clearPendingNavigateHome() {
-    pendingNavigateHome = false;
+    return focusJob(jobId);
   }
 
   /// Set [activeJob] from the queue or by fetching the job.
@@ -426,6 +466,7 @@ class HomeCubit extends Cubit<HomeState> {
     }
     if (fromQueue != null) {
       activeJob = Map<String, dynamic>.from(fromQueue);
+      _focusedJobId = jobId;
       _emitLoaded();
       return true;
     }
@@ -435,12 +476,22 @@ class HomeCubit extends Cubit<HomeState> {
         final job = res.data['job'];
         if (job is Map) {
           activeJob = Map<String, dynamic>.from(job);
+          _focusedJobId = jobId;
           _emitLoaded();
           return true;
         }
       }
     } catch (_) {}
     return false;
+  }
+
+  /// The queue entry for [jobId], or null when it is not (or no longer) active.
+  Map<String, dynamic>? _findQueuedJob(String? jobId) {
+    if (jobId == null || jobId.isEmpty) return null;
+    for (final j in activeJobs) {
+      if ((j['_id'] ?? j['job_id'])?.toString() == jobId) return j;
+    }
+    return null;
   }
 
   /// Parse job lat/lng from locationCoordinates or location string.
@@ -578,7 +629,7 @@ class HomeCubit extends Cubit<HomeState> {
     final shouldPoll = isOnline || activeJob != null;
     if (shouldPoll && _sessionPollTimer == null) {
       _sessionPollTimer = Timer.periodic(
-        const Duration(seconds: 25),
+        const Duration(seconds: 45),
         (_) => fetchSession(),
       );
     } else if (!shouldPoll && _sessionPollTimer != null) {
@@ -588,7 +639,13 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> toggleOnlineStatus() async {
-    if (hasBlockingActiveJob) {
+    if (hasIncomingAssignedJob) {
+      emit(HomeActionError(
+        'Accept pending job assignments before going Offline',
+      ));
+      return;
+    }
+    if (hasBlockingFulfillJob) {
       emit(HomeActionError('Finish your active job before going Offline'));
       return;
     }
@@ -685,18 +742,46 @@ class HomeCubit extends Cubit<HomeState> {
     });
   }
 
-  /// Add job is allowed when no fulfill-path jobs and no pending dispatch.
-  /// Held jobs (`on_hold`) do not block.
-  bool get canShowAddJob => !hasBlockingFulfillJob && !hasIncomingAssignedJob;
+  /// Assigned (not yet accepted) jobs waiting in the queue — surfaced on Home
+  /// via the pending-assignments banner and in Activity → Accept job.
+  List<Map<String, dynamic>> get pendingAssignedJobs => activeJobs
+      .where((j) =>
+          (j['job_status'] ?? j['status'] ?? '').toString() == 'assigned')
+      .toList();
 
-  int get heldJobsCount => activeJobs.where((j) {
-        final status = (j['job_status'] ?? j['status'] ?? '').toString();
-        return status == 'on_hold';
-      }).length;
+  /// Add job is available whenever the tech is online.
+  bool get canShowAddJob => isOnline;
+
+  Map<String, dynamic>? get holdRequest {
+    final raw = activeJob?['hold_request'];
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return null;
+  }
+
+  String? get holdRequestStatus => holdRequest?['status']?.toString();
+
+  bool get hasPendingHoldRequest => holdRequestStatus == 'pending';
+
+  bool get canRequestHold {
+    const holdable = {'accepted', 'en_route', 'arrived', 'in_progress'};
+    return holdable.contains(jobStatus) && !hasPendingHoldRequest;
+  }
 
   /// Slide toggle enabled only when no incoming/active fulfill job blocks it.
   bool get canToggleOnlineStatus =>
-      !hasBlockingActiveJob && jobStatus != 'assigned';
+      !hasBlockingFulfillJob && !hasIncomingAssignedJob;
+
+  /// Short hint shown under the slider when offline is blocked.
+  String? get offlineToggleBlockedReason {
+    if (canToggleOnlineStatus) return null;
+    if (hasIncomingAssignedJob) {
+      return 'Accept pending job assignments before going offline';
+    }
+    if (hasBlockingFulfillJob) {
+      return 'Finish your active job before going offline';
+    }
+    return null;
+  }
 
   bool _isFulfillPathStatus(String status) {
     return JobFulfillStatus.isBlocking(
@@ -792,23 +877,74 @@ class HomeCubit extends Cubit<HomeState> {
     return double.tryParse(p?.toString() ?? '');
   }
 
-  Future<void> acceptJob() async {
+  Future<bool> acceptJob() async {
     final id = jobId;
-    if (id == null) return;
+    if (id == null) return false;
     // Stop alarm immediately — do not wait for the accept API round-trip.
-    await JobNotificationService.instance.cancelUrgentJobNotification();
-    await _runJobAction(
+    await JobNotificationService.instance.cancelUrgentJobNotification(jobId: id);
+    return _runJobAction(
       () => DioHelper.postData(url: EndPoints.acceptJob(id), data: {}),
       optimisticStatus: 'accepted',
       onSuccess: () {
         activeJob!['job_status'] = 'accepted';
         activeJob!['status'] = 'accepted';
+        // The shell opens this job right after accept — pin it.
+        _focusedJobId = id;
         // ignore: discarded_futures
         CacheHelper.remove(kPendingJobIdKey);
         // ignore: discarded_futures
-        JobNotificationService.instance.cancelUrgentJobNotification();
+        JobNotificationService.instance.cancelUrgentJobNotification(jobId: id);
       },
     );
+  }
+
+  /// Accept a specific assigned job by id (Activity details / pending banner)
+  /// without swapping [activeJob] away from a job mid-fulfill.
+  Future<bool> acceptJobById(String jobId) async {
+    if (jobId.isEmpty || isLoadingAction) return false;
+    await JobNotificationService.instance.cancelUrgentJobNotification(jobId: jobId);
+    final touchThisActiveJob = this.jobId == jobId && activeJob != null;
+    return _runJobAction(
+      () => DioHelper.postData(url: EndPoints.acceptJob(jobId), data: {}),
+      optimisticStatus: touchThisActiveJob ? 'accepted' : null,
+      onSuccess: () {
+        // ignore: discarded_futures
+        CacheHelper.remove(kPendingJobIdKey);
+        final idx = activeJobs.indexWhere(
+          (j) => (j['_id'] ?? j['job_id'])?.toString() == jobId,
+        );
+        if (idx >= 0) {
+          activeJobs[idx]['job_status'] = 'accepted';
+          activeJobs[idx]['status'] = 'accepted';
+        }
+        if (touchThisActiveJob) {
+          activeJob!['job_status'] = 'accepted';
+          activeJob!['status'] = 'accepted';
+        }
+        _focusedJobId = jobId;
+        if (!hasIncomingAssignedJob) {
+          // ignore: discarded_futures
+          JobNotificationService.instance.cancelUrgentJobNotification();
+        }
+        // Sync queue in background — do not block Accept → navigate.
+        // ignore: discarded_futures
+        fetchSession();
+      },
+    );
+  }
+
+  /// Insert or merge a job payload into [activeJobs] by id.
+  void _upsertQueuedJob(Map<String, dynamic> job) {
+    final id = (job['_id'] ?? job['job_id'])?.toString();
+    if (id == null || id.isEmpty) return;
+    final idx = activeJobs.indexWhere(
+      (j) => (j['_id'] ?? j['job_id'])?.toString() == id,
+    );
+    if (idx >= 0) {
+      activeJobs[idx] = {...activeJobs[idx], ...job};
+    } else {
+      activeJobs.add(Map<String, dynamic>.from(job));
+    }
   }
 
   /// REST-first lifecycle. Do **not** also emit startEnRoute/markArrived/startJob:
@@ -1010,26 +1146,93 @@ class HomeCubit extends Cubit<HomeState> {
 
   Future<bool> createJobCard(Map<String, dynamic> body) async {
     lastActionError = null;
-    if (!canShowAddJob) {
-      lastActionError =
-          'Ask dispatch to put your current job on hold before adding another.';
-      return false;
-    }
     try {
       final res = await DioHelper.postData(
         url: EndPoints.createTechnicianJob,
         data: body,
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
+        // Add job opens the created job next — pin it so the session refresh
+        // does not surface another active job instead.
+        final created = res.data is Map ? (res.data as Map)['job'] : null;
+        final createdId =
+            created is Map ? (created['_id'] ?? created['id'])?.toString() : null;
+        if (createdId != null && createdId.isNotEmpty) {
+          _focusedJobId = createdId;
+        }
         await fetchSession();
         await fetchHistory();
-        pendingNavigateHome = true;
         _emitLoaded();
         return true;
       }
       lastActionError = DioHelper.errorMessage(res) ?? 'Failed to create job';
     } catch (e) {
       var msg = 'Failed to create job';
+      if (e is DioException && e.response != null) {
+        msg = DioHelper.errorMessage(e.response!) ?? msg;
+      }
+      lastActionError = msg;
+    }
+    return false;
+  }
+
+  void _mergeJobFromResponse(dynamic data) {
+    if (data is! Map) return;
+    final job = data['job'];
+    if (job is! Map) return;
+    final merged = Map<String, dynamic>.from(job);
+    activeJob = merged;
+    final id = (merged['_id'] ?? merged['job_id'])?.toString();
+    if (id == null || id.isEmpty) return;
+    final idx = activeJobs.indexWhere(
+      (j) => (j['_id'] ?? j['job_id'])?.toString() == id,
+    );
+    if (idx >= 0) {
+      activeJobs[idx] = merged;
+    }
+  }
+
+  Future<bool> requestJobHold(String reason) async {
+    final id = jobId;
+    if (id == null) return false;
+    lastActionError = null;
+    try {
+      final res = await DioHelper.postData(
+        url: EndPoints.requestHold(id),
+        data: {'reason': reason.trim()},
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        _mergeJobFromResponse(res.data);
+        _emitLoaded();
+        return true;
+      }
+      lastActionError =
+          DioHelper.errorMessage(res) ?? 'Failed to submit hold request';
+    } catch (e) {
+      var msg = 'Failed to submit hold request';
+      if (e is DioException && e.response != null) {
+        msg = DioHelper.errorMessage(e.response!) ?? msg;
+      }
+      lastActionError = msg;
+    }
+    return false;
+  }
+
+  Future<bool> cancelHoldRequest() async {
+    final id = jobId;
+    if (id == null) return false;
+    lastActionError = null;
+    try {
+      final res = await DioHelper.deleteData(url: EndPoints.requestHold(id));
+      if (res.statusCode == 200) {
+        _mergeJobFromResponse(res.data);
+        _emitLoaded();
+        return true;
+      }
+      lastActionError =
+          DioHelper.errorMessage(res) ?? 'Failed to cancel hold request';
+    } catch (e) {
+      var msg = 'Failed to cancel hold request';
       if (e is DioException && e.response != null) {
         msg = DioHelper.errorMessage(e.response!) ?? msg;
       }
@@ -1161,7 +1364,8 @@ class HomeCubit extends Cubit<HomeState> {
       lastActionError = 'Job ID is too long (max 64 characters).';
       return false;
     }
-    await fetchSession();
+    // Use the local job snapshot. A session refresh here can return a stale
+    // cached payload (no signature / paid flag) and block a valid complete.
     final readiness = ActionErrors.completionReadiness(jobSnapshot(id));
     if (readiness != null) {
       lastActionError = readiness;
@@ -1179,6 +1383,7 @@ class HomeCubit extends Cubit<HomeState> {
       optimisticStatus: 'completed',
       onSuccess: () {
         activeJob = null;
+        _focusedJobId = null;
         fetchHistory();
         fetchHomeMeta();
       },
@@ -1302,31 +1507,50 @@ class HomeCubit extends Cubit<HomeState> {
 
   // ─── Location stream management ─────────────────────────────────────────────
 
+  /// Last GPS profile applied to the stream. Restart when idle-online coarse
+  /// mode and on-job high accuracy need to swap.
+  bool _trackingCoarseIdle = false;
+
   /// Start or stop the GPS stream based on whether the tech should be tracked.
   /// Uses a foreground service notification on Android so the OS cannot suspend
   /// location delivery when the app is in the background.
   void _syncLocationTracking() {
     final shouldTrack = isOnline || activeJob != null;
-    if (shouldTrack && _locationStream == null) {
-      _startLocationStream();
-    } else if (!shouldTrack && _locationStream != null) {
+    final coarseIdle =
+        DeviceCapability.isLowEnd && isOnline && activeJob == null;
+    if (!shouldTrack) {
+      if (_locationStream != null) _stopLocationStream();
+      _trackingCoarseIdle = false;
+      return;
+    }
+    if (_locationStream != null && coarseIdle != _trackingCoarseIdle) {
       _stopLocationStream();
+    }
+    _trackingCoarseIdle = coarseIdle;
+    if (_locationStream == null) {
+      _startLocationStream();
     }
   }
 
   LocationSettings _buildLocationSettings() {
+    final coarseIdle = _trackingCoarseIdle;
+    final accuracy =
+        coarseIdle ? LocationAccuracy.medium : LocationAccuracy.high;
+    final distanceFilter = coarseIdle ? 15 : 5;
+    final interval = coarseIdle
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 4);
     if (kIsWeb) {
-      // Web: simple high-accuracy, no FGS.
-      return const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+      return LocationSettings(
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
       );
     }
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-        intervalDuration: const Duration(seconds: 4),
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
+        intervalDuration: interval,
         // Foreground service keeps the process alive when the app is backgrounded.
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Clicks — You\'re Online',
@@ -1342,8 +1566,8 @@ class HomeCubit extends Cubit<HomeState> {
     }
     if (Platform.isIOS) {
       return AppleSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
         activityType: ActivityType.automotiveNavigation,
         // These two keep the stream alive when the app goes to the background.
         allowBackgroundLocationUpdates: true,
@@ -1351,9 +1575,9 @@ class HomeCubit extends Cubit<HomeState> {
         showBackgroundLocationIndicator: true,
       );
     }
-    return const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
+    return LocationSettings(
+      accuracy: accuracy,
+      distanceFilter: distanceFilter,
     );
   }
 

@@ -101,7 +101,8 @@ function ConvertLead() {
   if (!lead) {
     return <div className="add-new-job-container">Lead not found</div>;
   }
-  if (!["new", "contacted", "qualified"].includes(lead.status)) {
+  // Mirrors CONVERTIBLE_LEAD_STATUSES on the API: lost leads may be converted.
+  if (!["new", "contacted", "qualified", "lost"].includes(lead.status)) {
     return (
       <div className="add-new-job-container">
         <p>This lead cannot be converted (status: {lead.status}).</p>
@@ -129,6 +130,29 @@ function ConvertLead() {
         <p><strong>{lead.clientName}</strong> — {lead.clientMobileNumber}</p>
         <p>{lead.inquiry}</p>
       </div>
+
+      {lead.status === "lost" && (
+        <div
+          className="add-new-job-card convert-lead-lost-banner"
+          role="status"
+          style={{
+            marginBottom: 16,
+            borderLeft: "4px solid #F79009",
+            background: "#FFFAEB",
+          }}
+        >
+          <p style={{ margin: 0 }}>
+            <strong>This lead was marked lost.</strong> Converting it creates a job
+            and reopens the lead.
+            {lead.lost_reason ? (
+              <>
+                {" "}
+                Previous reason: <em>{lead.lost_reason}</em>
+              </>
+            ) : null}
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="add-new-job-form">
         <div className="add-new-job-card">

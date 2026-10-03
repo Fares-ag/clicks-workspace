@@ -23,8 +23,14 @@ const {
   parseCoordinatePair,
 } = require("../../../clicks-shared/utils/technicianLocationWrite");
 const { captureException } = require("../../../clicks-shared/middleware/sentry");
+const {
+  recordTechnicianActivity,
+} = require("../../../clicks-shared/services/technicianActivityLog");
 const { durationEnv } = require("../../../clicks-shared/utils/durationEnv");
 const { sendAdminDispatchPush } = require("./fcmService");
+const {
+  recordAdminNotificationFireAndForget,
+} = require("./notificationRecordService");
 const {
   TECH_BUSY_JOB_STATUSES,
 } = require("../../../clicks-shared/constants/jobStatuses");
@@ -252,6 +258,12 @@ function initializeSOSSocket(io) {
     };
     emitToUser(customerNamespace, customerId, "sosExpired", payload);
     adminNamespace.emit("sosExpired", payload);
+    recordAdminNotificationFireAndForget({
+      type: "sos.expired",
+      title: "SOS expired",
+      body: payload.message || "An SOS request expired.",
+      data: { sos_id: payload.sos_id },
+    });
     return true;
   }
 
@@ -963,6 +975,17 @@ function initializeSOSSocket(io) {
 
         devLog(`Broadcasting SOS ${sos._id} to admin namespace`);
         adminNamespace.emit('newSOSRequest', sosData);
+        recordAdminNotificationFireAndForget({
+          type: "sos.new",
+          title: "New SOS request",
+          body: sosData.customer?.name
+            ? `SOS from ${sosData.customer.name}`
+            : "A customer submitted a new SOS request.",
+          data: {
+            sos_id: String(sos._id),
+            customer_id: String(customer_id),
+          },
+        });
         sendAdminDispatchPush("admin_sos", {
           sos_id: String(sos._id),
           customer_id: String(customer_id),
@@ -1018,6 +1041,12 @@ function initializeSOSSocket(io) {
             customer_id: String(sos.customer_id),
             cancel_reason: trimmedReason,
           });
+          recordAdminNotificationFireAndForget({
+            type: "sos.cancelled",
+            title: "SOS cancelled",
+            body: trimmedReason || "A customer cancelled their SOS request.",
+            data: { sos_id: sos._id.toString() },
+          });
         } else {
           socket.emit("error", {
             message: "SOS cannot be cancelled at this stage",
@@ -1053,6 +1082,14 @@ function initializeSOSSocket(io) {
       socket.join(userRoom(technicianId));
       socket.technicianId = technicianId;
       devLog(`Technician ${technicianId} registered with socket ${socket.id}`);
+      // The app opens this socket when it comes to the foreground, so register
+      // is the closest signal there is to "opened the app".
+      recordTechnicianActivity({
+        technicianId,
+        event: "session.app_opened",
+        message: "Opened the technician app",
+        metadata: { socket_id: socket.id, transport: socket.conn?.transport?.name },
+      });
       // The grace timer only covers a disconnect this process is still holding.
       // A longer outage, or a redeploy, already flipped them Offline in the DB.
       await restoreAutoOfflinedTechnician(technicianId);
@@ -1078,6 +1115,18 @@ function initializeSOSSocket(io) {
         });
 
         if (!result.ok) return;
+
+        // Throttled by the recorder — the app streams a fix every few seconds.
+        if (result.coordsChanged) {
+          recordTechnicianActivity({
+            technicianId: technician_id,
+            event: "location.updated",
+            message: "Location ping while online",
+            latitude: result.lat,
+            longitude: result.lng,
+            metadata: { source: "socket" },
+          });
+        }
 
         if (result.coordsChanged && job_id) {
           const job = await Job.findById(job_id);
@@ -1252,18 +1301,6 @@ function initializeSOSSocket(io) {
         // Job must be in "arrived" status
         if (job.job_status !== "arrived") {
           socket.emit("error", { message: `Cannot start job from status: ${job.job_status}` });
-          return;
-        }
-
-        const otherInProgress = await Job.findOne({
-          assignedTechnician: socket.user.id,
-          job_status: "in_progress",
-          _id: { $ne: job._id },
-        }).select("_id");
-        if (otherInProgress) {
-          socket.emit("error", {
-            message: "Finish your current in-progress job before starting another",
-          });
           return;
         }
 
@@ -1456,6 +1493,12 @@ function initializeSOSSocket(io) {
       if (socket.technicianId) {
         const technicianId = socket.technicianId;
         devLog(`Technician ${technicianId} disconnected`);
+        recordTechnicianActivity({
+          technicianId,
+          event: "session.app_closed",
+          message: "App went to background or lost connection",
+          metadata: { socket_id: socket.id },
+        });
 
         // Grace window: if the tech reconnects quickly (or their REST heartbeats keep arriving)
         // we don't want to flip them Offline. Check lastLocationAt before acting.
@@ -1730,6 +1773,16 @@ function initializeSOSSocket(io) {
       admin_id: String(admin_id || sos.claimed_by || ""),
       customer_id: String(customer_id || sos.customer_id),
     });
+    recordAdminNotificationFireAndForget({
+      type: "sos.claimed",
+      title: "SOS claimed",
+      body: "An operator claimed an SOS request.",
+      data: {
+        sos_id: String(sos_id),
+        admin_id: String(admin_id || sos.claimed_by || ""),
+        customer_id: String(customer_id || sos.customer_id),
+      },
+    });
 
     const targetCustomerId = String(customer_id || sos.customer_id);
     const sosPayload = {
@@ -1770,6 +1823,18 @@ function initializeSOSSocket(io) {
         `Broadcasting business lead ${payload?.lead_id} to admin namespace`
       );
       adminNamespace.emit("newBusinessLead", payload);
+      recordAdminNotificationFireAndForget({
+        type: "lead.new",
+        title: "New business lead",
+        body: payload.business_name
+          ? `Lead from ${payload.business_name}`
+          : "A new business lead was submitted.",
+        data: {
+          lead_id: payload.lead_id ? String(payload.lead_id) : undefined,
+          job_id: payload.job_id ? String(payload.job_id) : undefined,
+          business_id: payload.business_id ? String(payload.business_id) : undefined,
+        },
+      });
       return true;
     } catch (error) {
       console.error("Error emitting newBusinessLead to admin:", error);
@@ -1786,8 +1851,26 @@ function initializeSOSSocket(io) {
       );
       if (payload?.lead_id) {
         adminNamespace.emit("newBusinessLead", payload);
+        recordAdminNotificationFireAndForget({
+          type: "lead.new",
+          title: "New business lead",
+          body: "A new business lead was submitted.",
+          data: {
+            lead_id: String(payload.lead_id),
+            job_id: payload.job_id ? String(payload.job_id) : undefined,
+          },
+        });
       } else {
         adminNamespace.emit("newBusinessJob", payload);
+        recordAdminNotificationFireAndForget({
+          type: "job.business",
+          title: "New business job",
+          body: "A new business job was submitted.",
+          data: {
+            job_id: payload.job_id ? String(payload.job_id) : undefined,
+            lead_id: payload.lead_id ? String(payload.lead_id) : undefined,
+          },
+        });
       }
       return true;
     } catch (error) {
@@ -1804,9 +1887,50 @@ function initializeSOSSocket(io) {
         `Broadcasting technician job ${payload?.job_id} to admin namespace`
       );
       adminNamespace.emit("newTechnicianJob", payload);
+      recordAdminNotificationFireAndForget({
+        type: "job.tech_created",
+        title: "New technician job",
+        body: payload.clientName
+          ? `Job for ${payload.clientName}`
+          : "A technician created a new job.",
+        data: {
+          job_id: payload.job_id ? String(payload.job_id) : undefined,
+          technician_id: payload.technician_id
+            ? String(payload.technician_id)
+            : undefined,
+        },
+      });
       return true;
     } catch (error) {
       console.error("Error emitting newTechnicianJob to admin:", error);
+      captureException(error);
+      return false;
+    }
+  }
+
+  /** Technician hold request → admin review queue. */
+  function notifyAdminHoldRequest(payload) {
+    try {
+      devLog(
+        `Broadcasting hold request for job ${payload?.job_id} to admin namespace`
+      );
+      adminNamespace.emit("holdRequestPending", payload);
+      recordAdminNotificationFireAndForget({
+        type: "job.hold_request",
+        title: "Hold request pending",
+        body: payload.clientName
+          ? `${payload.clientName} — review hold request`
+          : "A technician requested to place a job on hold.",
+        data: {
+          job_id: payload.job_id ? String(payload.job_id) : undefined,
+          technician_id: payload.technician_id
+            ? String(payload.technician_id)
+            : undefined,
+        },
+      });
+      return true;
+    } catch (error) {
+      console.error("Error emitting holdRequestPending to admin:", error);
       captureException(error);
       return false;
     }
@@ -1818,6 +1942,20 @@ function initializeSOSSocket(io) {
         `Broadcasting service request ${payload?.id || payload?._id} to admin namespace`
       );
       adminNamespace.emit("newServiceRequest", payload);
+      recordAdminNotificationFireAndForget({
+        type: "service_request.new",
+        title: "New service request",
+        body: payload.customer?.name
+          ? `Service request from ${payload.customer.name}`
+          : "A customer submitted a new service request.",
+        data: {
+          service_request_id: String(
+            payload?.service_request_id || payload?.id || payload?._id || ""
+          ),
+          customer_id: payload.customer_id ? String(payload.customer_id) : undefined,
+          lead_id: payload.lead_id ? String(payload.lead_id) : undefined,
+        },
+      });
       sendAdminDispatchPush("admin_service_request", {
         service_request_id: String(
           payload?.service_request_id || payload?.id || payload?._id || ""
@@ -1837,6 +1975,16 @@ function initializeSOSSocket(io) {
   function notifyAdminServiceRequestCancelled(payload) {
     try {
       adminNamespace.emit("serviceRequestCancelled", payload);
+      recordAdminNotificationFireAndForget({
+        type: "service_request.cancelled",
+        title: "Service request cancelled",
+        body: "A customer cancelled a service request.",
+        data: {
+          service_request_id: String(
+            payload?.service_request_id || payload?.id || payload?._id || ""
+          ),
+        },
+      });
       return true;
     } catch (error) {
       console.error("Error emitting serviceRequestCancelled to admin:", error);
@@ -1859,6 +2007,7 @@ function initializeSOSSocket(io) {
     notifyAdminBusinessLead,
     notifyAdminBusinessJob,
     notifyAdminTechnicianJob,
+    notifyAdminHoldRequest,
     notifyAdminServiceRequest,
     notifyAdminServiceRequestCancelled,
     stopAdminLocationBatchTimer: () => clearInterval(adminLocationBatchTimer),

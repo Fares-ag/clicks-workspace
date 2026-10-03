@@ -353,6 +353,7 @@ function Technicians() {
       key: "profilePhoto",
       dataIndex: "profilePhoto",
       width: "127px",
+      mobile: { featured: true, order: 0 },
       render: (row) => (
         <div className="tech-profile-photo-cell">
           <img
@@ -368,6 +369,7 @@ function Technicians() {
       key: "name",
       dataIndex: "name",
       width: "flex",
+      mobile: { featured: true, order: 1 },
       render: (row) => (
         <span className="tech-name-text">
           {row.firstName + " " + row.lastName}
@@ -420,6 +422,7 @@ function Technicians() {
       key: "assignedVehicle",
       dataIndex: "assignedVehicle",
       width: "250px",
+      mobile: { order: 10, label: "Vehicle" },
       render: (row) => (
         <TechnicianVehicleDropdown
           technicianId={row._id}

@@ -57,7 +57,7 @@ class SentryConfig {
     final formatted = event.message?.formatted;
     if (formatted != null) {
       scrubbed = scrubbed.copyWith(
-        message: SentryMessage(formatted: _scrubString(formatted)),
+        message: SentryMessage(_scrubString(formatted)),
       );
     }
     final exceptions = event.exceptions;

@@ -176,7 +176,7 @@
 
 /* Earnings Card */
 .dashboard-earnings-card {
-  background: linear-gradient(180deg, var(--color-primary) 0%, #320A0A 100%);
+  background: linear-gradient(180deg, var(--color-primary) 0%, #041018 100%);
   border-radius: 6px;
   box-shadow: 0px 4px 8px -2px rgba(16, 24, 40, 0.1), 0px 2px 4px -2px rgba(16, 24, 40, 0.06);
   padding: 24px;
@@ -868,6 +868,27 @@
   .dashboard-bottom-left-column,
   .dashboard-job-status-card {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard-table-header {
+    display: none;
+  }
+
+  .dashboard-table-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 16px 0;
+  }
+
+  .dashboard-table-number {
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  .dashboard-table-rate {
+    justify-self: start;
   }
 }
 

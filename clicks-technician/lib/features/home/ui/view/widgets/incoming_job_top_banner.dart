@@ -12,10 +12,12 @@ class IncomingJobTopBanner extends StatelessWidget {
     super.key,
     required this.cubit,
     required this.onExpand,
+    this.onAccept,
   });
 
   final HomeCubit cubit;
   final VoidCallback onExpand;
+  final Future<void> Function()? onAccept;
 
   @override
   Widget build(BuildContext context) {
@@ -112,7 +114,13 @@ class IncomingJobTopBanner extends StatelessWidget {
                           child: AppButton(
                             onPressed: cubit.isLoadingAction
                                 ? null
-                                : () => cubit.acceptJob(),
+                                : () async {
+                                    if (onAccept != null) {
+                                      await onAccept!();
+                                    } else {
+                                      await cubit.acceptJob();
+                                    }
+                                  },
                             label: 'notif.job_assigned.accept'.tr(),
                             isLoading: cubit.isLoadingAction,
                             fontSize: 12.sp,

@@ -9,38 +9,29 @@
  * sockets. Until those move to a shared store, multi-instance deployments still
  * need sticky sessions (nginx ip_hash), or instances will force-Offline each
  * other's reconnecting technicians.
+ *
+ * Pub/sub clients come from clicks-shared/utils/redisClient.js so cache GET/SET
+ * and the adapter share one connection pool (pub is reused; sub is a duplicate).
  */
+const {
+  isRedisConfigured,
+  getRedisClient,
+  duplicateRedisClient,
+  pingRedis: pingSharedRedis,
+} = require("../../../clicks-shared/utils/redisClient");
+
 let adapterState = { adapter: "memory", pubClient: null };
 
-/** Bounded wait for the Redis handshake at boot. */
-const ADAPTER_CONNECT_TIMEOUT_MS = Number(
-  process.env.REDIS_CONNECT_TIMEOUT_MS || 10000
-);
-
 function getSocketAdapterType() {
-  return process.env.REDIS_URL && String(process.env.REDIS_URL).trim() ? "redis" : "memory";
+  return isRedisConfigured() ? "redis" : "memory";
 }
 
 async function pingRedis(timeoutMs = 1000) {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl || !String(redisUrl).trim()) return;
-
-  const client = adapterState.pubClient;
-  if (!client) {
-    throw new Error("redis client not initialized");
-  }
-
-  await Promise.race([
-    client.ping(),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("redis ping timeout")), timeoutMs)
-    ),
-  ]);
+  await pingSharedRedis(timeoutMs);
 }
 
 async function attachSocketAdapter(io) {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl || !String(redisUrl).trim()) {
+  if (!isRedisConfigured()) {
     adapterState = { adapter: "memory", pubClient: null };
     console.log(
       JSON.stringify({
@@ -53,49 +44,12 @@ async function attachSocketAdapter(io) {
   }
 
   const { createAdapter } = require("@socket.io/redis-adapter");
-  const { createClient } = require("redis");
 
-  const pubClient = createClient({ url: redisUrl });
-  const subClient = pubClient.duplicate();
+  // REDIS_URL being set means multi-instance. Fail loudly instead of
+  // silently degrading to the memory adapter, which would split presence.
+  const pubClient = await getRedisClient({ required: true });
+  const subClient = await duplicateRedisClient();
 
-  pubClient.on("error", (err) => {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        msg: "redis_pub_error",
-        error: err.message,
-      })
-    );
-  });
-  subClient.on("error", (err) => {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        msg: "redis_sub_error",
-        error: err.message,
-      })
-    );
-  });
-
-  // node-redis retries internally, so an unreachable host leaves connect()
-  // pending indefinitely. Awaiting it bare meant the process never listened,
-  // never crashed and never reported — it just looked deployed. Fail loudly
-  // instead: REDIS_URL being set means multi-instance, and silently degrading
-  // to the memory adapter would split presence across instances.
-  await Promise.race([
-    Promise.all([pubClient.connect(), subClient.connect()]),
-    new Promise((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `redis adapter connect timed out after ${ADAPTER_CONNECT_TIMEOUT_MS}ms`
-            )
-          ),
-        ADAPTER_CONNECT_TIMEOUT_MS
-      )
-    ),
-  ]);
   io.adapter(createAdapter(pubClient, subClient));
   adapterState = { adapter: "redis", pubClient, subClient };
 

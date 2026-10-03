@@ -213,17 +213,45 @@ async function main() {
   });
   step("mark lost", lostR.status === 200 && lostR.data?.lead?.status === "lost", lostR.status !== 200 ? `status=${lostR.status}` : "");
 
+  // Lost leads are convertible again (customer came back): 201, lead becomes
+  // converted with a linked job and its lost_reason is cleared.
+  const lostConvertBody = {
+    location,
+    dateTime: now.toISOString(),
+    jobType: "Flat Tire",
+    price: 100,
+    issue: "Customer came back — convert lost lead",
+  };
   const convertLost = await json("POST", `${ADMIN_URL}/api/leads/${lostLeadId}/convert`, {
     token: adminToken,
-    body: {
-      location,
-      dateTime: now.toISOString(),
-      jobType: "Tires",
-      price: 100,
-      issue: "should fail",
-    },
+    body: lostConvertBody,
   });
-  step("reject convert lost lead", convertLost.status === 400, `status=${convertLost.status}`);
+  const lostJobId = convertLost.data?.job?._id;
+  const lostLead = convertLost.data?.lead;
+  step(
+    "convert lost lead → job (reopens lead)",
+    convertLost.status === 201 &&
+      !!lostJobId &&
+      lostLead?.status === "converted" &&
+      String(lostLead?.job_id || "") === String(lostJobId),
+    convertLost.status === 201
+      ? `job=${lostJobId}`
+      : `status=${convertLost.status} ${convertLost.data?.message || ""}`
+  );
+  step(
+    "lost_reason cleared after convert",
+    convertLost.status === 201 && !lostLead?.lost_reason,
+    `lost_reason=${JSON.stringify(lostLead?.lost_reason ?? null)}`
+  );
+  const reconvertLost = await json("POST", `${ADMIN_URL}/api/leads/${lostLeadId}/convert`, {
+    token: adminToken,
+    body: lostConvertBody,
+  });
+  step(
+    "reject re-convert of converted (ex-lost) lead",
+    reconvertLost.status === 400,
+    `status=${reconvertLost.status}`
+  );
 
   const openR = await json("GET", `${ADMIN_URL}/api/leads?open=1`, { token: adminToken });
   const openHasConverted = (openR.data?.leads || []).some(

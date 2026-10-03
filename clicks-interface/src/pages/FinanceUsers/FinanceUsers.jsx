@@ -117,7 +117,7 @@ function FinanceUsers() {
         ) : users.length === 0 ? (
           <div className="biz-empty">No finance users yet</div>
         ) : (
-          <table className="biz-table">
+          <table className="biz-table responsive-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -131,18 +131,18 @@ function FinanceUsers() {
             <tbody>
               {users.map((user) => (
                 <tr key={user.id || user._id}>
-                  <td>{user.name}</td>
-                  <td>{user.email}</td>
-                  <td>{user.phone || "—"}</td>
-                  <td>{user.role}</td>
-                  <td>
+                  <td data-label="Name">{user.name}</td>
+                  <td data-label="Email">{user.email}</td>
+                  <td data-label="Phone">{user.phone || "—"}</td>
+                  <td data-label="Role">{user.role}</td>
+                  <td data-label="Status">
                     <span
                       className={`biz-status-pill ${user.isActive ? "active" : "inactive"}`}
                     >
                       {user.isActive ? "Active" : "Inactive"}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Actions">
                     <div className="biz-actions">
                       <button
                         type="button"

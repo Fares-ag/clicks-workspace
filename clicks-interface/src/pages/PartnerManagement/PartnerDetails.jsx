@@ -399,7 +399,7 @@ function PartnerDetails() {
         {withdrawals.length === 0 ? (
           <div className="partner-empty">No withdrawal requests yet</div>
         ) : (
-          <table className="partner-table">
+          <table className="partner-table responsive-table">
             <thead>
               <tr>
                 <th>Date</th>
@@ -416,26 +416,26 @@ function PartnerDetails() {
             <tbody>
               {withdrawals.map((w) => (
                 <tr key={w._id}>
-                  <td>
+                  <td data-label="Date">
                     {w.createdAt
                       ? new Date(w.createdAt).toLocaleString()
                       : "—"}
                   </td>
-                  <td>{withdrawalTypeLabel(w.type)}</td>
-                  <td>QAR {Number(w.investmentAmount || 0).toLocaleString()}</td>
-                  <td>QAR {Number(w.earningsAmount || 0).toLocaleString()}</td>
-                  <td>QAR {Number(w.totalAmount || 0).toLocaleString()}</td>
-                  <td>#{w.period}</td>
-                  <td>
+                  <td data-label="Type">{withdrawalTypeLabel(w.type)}</td>
+                  <td data-label="Investment">QAR {Number(w.investmentAmount || 0).toLocaleString()}</td>
+                  <td data-label="Earnings">QAR {Number(w.earningsAmount || 0).toLocaleString()}</td>
+                  <td data-label="Total">QAR {Number(w.totalAmount || 0).toLocaleString()}</td>
+                  <td data-label="Period">#{w.period}</td>
+                  <td data-label="Status">
                     <span className={`partner-badge ${w.status}`}>
                       {w.status}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Notes">
                     {[w.partnerNote, w.adminNote].filter(Boolean).join(" · ") ||
                       "—"}
                   </td>
-                  <td>
+                  <td data-label="Actions">
                     <div className="partner-header-actions">
                       {w.status === "pending" && (
                         <>
@@ -507,7 +507,7 @@ function PartnerDetails() {
         {earnings.length === 0 ? (
           <div className="partner-empty">No attributed jobs yet</div>
         ) : (
-          <table className="partner-table">
+          <table className="partner-table responsive-table">
             <thead>
               <tr>
                 <th>Date</th>
@@ -520,15 +520,15 @@ function PartnerDetails() {
             <tbody>
               {earnings.map((e) => (
                 <tr key={e._id}>
-                  <td>
+                  <td data-label="Date">
                     {e.createdAt
                       ? new Date(e.createdAt).toLocaleString()
                       : "—"}
                   </td>
-                  <td>{e.job?.clientName || "—"}</td>
-                  <td>{e.job?.jobType || "—"}</td>
-                  <td>QAR {Number(e.amount || 0).toLocaleString()}</td>
-                  <td>#{e.period}</td>
+                  <td data-label="Client">{e.job?.clientName || "—"}</td>
+                  <td data-label="Service">{e.job?.jobType || "—"}</td>
+                  <td data-label="Amount">QAR {Number(e.amount || 0).toLocaleString()}</td>
+                  <td data-label="Period">#{e.period}</td>
                 </tr>
               ))}
             </tbody>

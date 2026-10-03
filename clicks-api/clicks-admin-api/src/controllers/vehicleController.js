@@ -1,5 +1,7 @@
 const Vehicle = require("../models/Vehicle");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
+const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
 
 // GET /api/vehicles
@@ -24,15 +26,23 @@ async function getVehicles(req, res) {
       query.isActive = status === "Active" || status === "true" || status === true;
     }
     
-    const vehicles = await Vehicle.find(query)
-      .populate("make")
-      .populate("model")
-      .populate("assignedTechnician")
-      .skip((page - 1) * limitNum)
-      .limit(limitNum)
-      .lean();
-    const total = await Vehicle.countDocuments(query);
-    res.json({ vehicles, total });
+    const cacheKey = `clicks:admin:payload:vehicles:${page}:${limitNum}:${search}|${status || ""}`;
+    const payload = await getCachedPayload(cacheKey, 20000, async () => {
+      const listQuery = Vehicle.find(query)
+        .select("plateNumber make model year color isActive assignedTechnician vinNumber estimaraExpiration vehicleImage")
+        .populate("make", "makeName")
+        .populate("model", "modelName")
+        .populate("assignedTechnician", "firstName lastName")
+        .skip((page - 1) * limitNum)
+        .limit(limitNum)
+        .lean();
+      const [vehicles, total] = await Promise.all([
+        listQuery,
+        cachedCount(Vehicle, query, { ttlMs: 20000, key: cacheKey }),
+      ]);
+      return { vehicles, total };
+    });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch vehicles", error: err.message });
   }

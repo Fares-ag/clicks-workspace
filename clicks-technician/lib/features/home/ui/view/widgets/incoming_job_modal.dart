@@ -11,9 +11,14 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 /// Figma Incoming Job overlay — shown globally over any tab.
 class IncomingJobModal extends StatelessWidget {
-  const IncomingJobModal({super.key, required this.cubit});
+  const IncomingJobModal({
+    super.key,
+    required this.cubit,
+    this.onAccept,
+  });
 
   final HomeCubit cubit;
+  final Future<void> Function()? onAccept;
 
   static String _localPhone(String raw) {
     var digits = raw.replaceAll(RegExp(r'\D'), '');
@@ -127,7 +132,15 @@ class IncomingJobModal extends StatelessWidget {
                   SizedBox(height: 20.h),
                   AppButton(
                     isLoading: cubit.isLoadingAction,
-                    onPressed: cubit.isLoadingAction ? null : cubit.acceptJob,
+                    onPressed: cubit.isLoadingAction
+                        ? null
+                        : () async {
+                            if (onAccept != null) {
+                              await onAccept!();
+                            } else {
+                              await cubit.acceptJob();
+                            }
+                          },
                     label: 'notif.job_assigned.accept'.tr(),
                     margin: 0,
                     width: double.infinity,

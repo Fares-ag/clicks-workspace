@@ -25,6 +25,9 @@ function LeadDetails() {
 
   const lead = data?.lead;
   const isOpen = lead && ["new", "contacted", "qualified"].includes(lead.status);
+  // Lost leads can still be converted (customer came back) — kept separate from
+  // isOpen so the pipeline select and Mark Lost stay hidden.
+  const isLost = lead && lead.status === "lost";
 
   const handleStatusChange = async (status) => {
     try {
@@ -140,6 +143,21 @@ function LeadDetails() {
             onClick={() => setShowLostForm((v) => !v)}
           >
             Mark Lost
+          </button>
+        </div>
+      )}
+
+      {isLost && (
+        <div className="add-new-job-actions" style={{ marginBottom: 24, gap: 12 }}>
+          <span style={{ color: "#667085", fontSize: 13 }}>
+            Lost lead — converting creates a job and reopens it.
+          </span>
+          <button
+            type="button"
+            className="add-new-job-submit"
+            onClick={() => navigate(`/leads/${id}/convert`)}
+          >
+            Convert to Job
           </button>
         </div>
       )}

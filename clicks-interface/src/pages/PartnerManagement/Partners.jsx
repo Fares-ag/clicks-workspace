@@ -126,7 +126,7 @@ function Partners() {
         ) : partners.length === 0 ? (
           <div className="partner-empty">No partners found</div>
         ) : (
-          <table className="partner-table">
+          <table className="partner-table responsive-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -144,18 +144,18 @@ function Partners() {
                   className="partner-row"
                   onClick={() => navigate(`/partners/${p._id}`)}
                 >
-                  <td>
+                  <td data-label="Name">
                     <div className="partner-name">{p.name}</div>
                     <div className="partner-muted">{p.email || p.phone || "—"}</div>
                   </td>
-                  <td>QAR {Number(p.investmentAmount || 0).toLocaleString()}</td>
-                  <td>#{p.currentPeriod}</td>
-                  <td>
+                  <td data-label="Investment">QAR {Number(p.investmentAmount || 0).toLocaleString()}</td>
+                  <td data-label="Period">#{p.currentPeriod}</td>
+                  <td data-label="Accrued / Cap">
                     QAR {Number(p.accruedTotal || 0).toLocaleString()} /{" "}
                     {Number(p.periodCap || 0).toLocaleString()}
                   </td>
-                  <td>{p.daysLeft ?? "—"}</td>
-                  <td>
+                  <td data-label="Days left">{p.daysLeft ?? "—"}</td>
+                  <td data-label="Status">
                     <span className={statusClass(p.status)}>{p.status}</span>
                   </td>
                 </tr>

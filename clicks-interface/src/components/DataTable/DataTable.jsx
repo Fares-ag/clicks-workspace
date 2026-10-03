@@ -30,7 +30,9 @@ const DataTable = ({
   ],
   hasBorders = false,
   filterButtonText = "Filter",
-  hideFilterIcon = false
+  hideFilterIcon = false,
+  hideSearch = false,
+  hideTitle = false
 }) => {
   return (
     <div className="data-table-outer">
@@ -45,6 +47,8 @@ const DataTable = ({
           filterButtonRef={filterButtonRef}
           filterButtonText={filterButtonText}
           hideFilterIcon={hideFilterIcon}
+          hideSearch={hideSearch}
+          hideTitle={hideTitle}
         />
         <TableContent
           columns={columns}

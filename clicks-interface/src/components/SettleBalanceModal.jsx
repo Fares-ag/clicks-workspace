@@ -127,7 +127,7 @@ export default function SettleBalanceModal({
           <button
             className="settle-modal-settle-btn"
             style={{
-              background: amount && uploadedImage && !isLoading ? "#981F1F" : "#D0D5DD",
+              background: amount && uploadedImage && !isLoading ? "var(--color-primary)" : "#D0D5DD",
               color: "#fff"
             }}
             disabled={!amount || !uploadedImage || isLoading}

@@ -50,5 +50,7 @@ module.exports = {
   AccountDeletionRequest: require("./AccountDeletionRequest"),
   OutboxEvent: require("./OutboxEvent"),
   AdminAuditLog: require("./AdminAuditLog"),
+  TechnicianActivityLog: require("./TechnicianActivityLog"),
   PlatformStats: require("./PlatformStats"),
+  Notification: require("./Notification"),
 };

@@ -15,4 +15,13 @@
  * stale clicks-shared/node_modules. Host entry points must use it instead of
  * requiring mongoose directly.
  */
-module.exports = require("mongoose");
+const mongoose = require("mongoose");
+
+// Production boots must not create indexes inline. A foreground/autoIndex
+// build on Job or Technician locks those collections and the admin lists
+// sit on "Loading..." for many seconds.
+if (process.env.NODE_ENV === "production") {
+  mongoose.set("autoIndex", false);
+}
+
+module.exports = mongoose;

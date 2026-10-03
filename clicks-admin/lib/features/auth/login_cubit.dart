@@ -74,10 +74,8 @@ class LoginCubit extends Cubit<LoginState> {
           (e.type == DioExceptionType.connectionError ||
               e.type == DioExceptionType.unknown)) {
         return 'Cannot reach ${AppConfig.apiBaseUrl} from the browser. '
-            'Flutter web on localhost is blocked by admin-api CORS in production '
-            '(only https://admin.clicks.qa is allowed). '
-            'Use local admin-api on :5000, test on https://admin.clicks.qa, '
-            'or run Chrome with --web-browser-flag=--disable-web-security for dev.';
+            'Check your network/DNS, use local admin-api on :5000, or run '
+            'node tools/cors_proxy.js and --dart-define=API_BASE_URL=http://localhost:5055.';
       }
 
       if (e.type == DioExceptionType.connectionError ||

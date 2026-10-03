@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:clicks_technician/core/api/dio_helper.dart';
 import 'package:clicks_technician/core/api/end_points/end_points.dart';
+import 'package:clicks_technician/core/config/device_capability.dart';
 import 'package:clicks_technician/core/constants/map_style.dart';
 import 'package:clicks_technician/core/helper/maps_api_key.dart';
 import 'package:clicks_technician/core/helper/maps_launcher.dart';
@@ -42,10 +43,12 @@ class _LiveJobMapState extends State<LiveJobMap> {
   static final Map<String, LatLng> _geocodeCache = {};
 
   /// Minimum wall-clock spacing between billed Directions calls while driving.
-  static const _routeMinInterval = Duration(seconds: 30);
+  Duration get _routeMinInterval => DeviceCapability.isLowEnd
+      ? const Duration(seconds: 60)
+      : const Duration(seconds: 30);
 
   /// Minimum origin movement (metres) before a new Directions call is worth it.
-  static const _routeMinMove = 150.0;
+  double get _routeMinMove => DeviceCapability.isLowEnd ? 250 : 150;
 
   GoogleMapController? _controller;
   BitmapDescriptor? _vanIcon;
@@ -81,7 +84,7 @@ class _LiveJobMapState extends State<LiveJobMap> {
     _mapsKey = await MapsApiKey.resolve();
     if (!mounted) return;
     await Future.wait([
-      _loadVanIcon(),
+      if (!DeviceCapability.isLowEnd) _loadVanIcon(),
       _geocodeDestination(),
       _ensureLocalGps(),
     ]);
@@ -118,8 +121,11 @@ class _LiveJobMapState extends State<LiveJobMap> {
         if (_destination != null && !_fetchingRoute) {
           _fetchRoute(_localTechPos!);
         }
-        // Camera follow must not depend on the throttled Directions call.
-        _fitBounds();
+        // Low-end GPUs hitch on animateCamera every GPS tick. Fit once at
+        // start; later movement only updates the marker.
+        if (!DeviceCapability.isLowEnd) {
+          _fitBounds();
+        }
       }
     }
     if (oldWidget.bottomPadding != widget.bottomPadding) {
@@ -517,13 +523,13 @@ class _LiveJobMapState extends State<LiveJobMap> {
           initialCameraPosition: CameraPosition(target: initial, zoom: 14),
           markers: _markers,
           polylines: _polylines,
-          myLocationEnabled: true,
+          myLocationEnabled: !DeviceCapability.isLowEnd,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           mapToolbarEnabled: false,
           compassEnabled: false,
           padding: EdgeInsets.only(bottom: bottomPad, top: 72),
-          style: kMapStyle,
+          style: DeviceCapability.isLowEnd ? null : kMapStyle,
           onMapCreated: (controller) async {
             _controller = controller;
             if (mounted) setState(() => _mapReady = true);

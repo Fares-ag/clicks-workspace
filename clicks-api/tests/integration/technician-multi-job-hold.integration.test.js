@@ -91,7 +91,7 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
     expect(first.body.job.job_status).toBe("accepted");
   });
 
-  test("create is blocked while another fulfill-path job is active", async () => {
+  test("create is allowed while another fulfill-path job is active", async () => {
     const tech = await seedTechnician();
     const token = technicianToken(tech._id);
 
@@ -99,9 +99,8 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
     expect(first.status).toBe(201);
 
     const second = await createAcceptedTechJob(techApp, token, { clientName: "Job B" });
-    expect(second.status).toBe(400);
-    expect(second.body.error).toMatch(/on hold before creating another/i);
-    expect(second.body.blocking_job_id).toBeTruthy();
+    expect(second.status).toBe(201);
+    expect(second.body.job.job_status).toBe("accepted");
   });
 
   test("technician cannot hold or resume (admin-only)", async () => {
@@ -172,7 +171,7 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
     expect(saved.hold_reason).toMatch(/parts/i);
   });
 
-  test("M5/M6: only one in_progress job; held job does not block starting another after resume+complete", async () => {
+  test("M5/M6: multiple in_progress jobs allowed; complete one then continue the other", async () => {
     const tech = await seedTechnician();
     const token = technicianToken(tech._id);
 
@@ -197,13 +196,17 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
       .set(bearer(token))
       .send({});
 
-    const blocked = await request(techApp)
+    const startB = await request(techApp)
       .post(`/api/jobs/${idB}/start`)
       .set(bearer(token))
       .send({});
-    expect(blocked.status).toBe(400);
-    expect(blocked.body.error).toMatch(/Finish your current in-progress job/i);
-    expect(String(blocked.body.blocking_job_id)).toBe(String(idA));
+    expect(startB.status).toBe(200);
+    expect(startB.body.job_status).toBe("in_progress");
+
+    const jobAState = await Job.findById(idA).lean();
+    const jobBState = await Job.findById(idB).lean();
+    expect(jobAState.job_status).toBe("in_progress");
+    expect(jobBState.job_status).toBe("in_progress");
 
     await request(techApp)
       .post(`/api/jobs/${idA}/payment`)
@@ -219,12 +222,8 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
       .send({ notes: "QA M6 complete A", job_reference: "QA-MULTI-A" });
     expect(completeA.status).toBe(200);
 
-    const startB = await request(techApp)
-      .post(`/api/jobs/${idB}/start`)
-      .set(bearer(token))
-      .send({});
-    expect(startB.status).toBe(200);
-    expect(startB.body.job_status).toBe("in_progress");
+    const startBAgain = await Job.findById(idB).lean();
+    expect(startBAgain.job_status).toBe("in_progress");
   });
 
   test("M9: session returns active_jobs queue including on_hold", async () => {
@@ -393,5 +392,146 @@ describe("Technician multi-job + on-hold QA matrix (API)", () => {
     expect(resume.status).toBe(200);
     expect(resume.body.job.job_status).toBe("accepted");
     expect(resume.body.job.hold_reason).toMatch(/garage/i);
+  });
+
+  test("HR1: technician hold request stays pending until admin approves", async () => {
+    const tech = await seedTechnician();
+    const token = technicianToken(tech._id);
+    const created = await createAcceptedTechJob(techApp, token, { clientName: "Hold request job" });
+    const jobId = created.body.job._id;
+
+    const reqHold = await request(techApp)
+      .post(`/api/jobs/${jobId}/hold-request`)
+      .set(bearer(token))
+      .send({ reason: "Need to send car to garage" });
+    expect(reqHold.status).toBe(200);
+    expect(reqHold.body.job.job_status).toBe("accepted");
+    expect(reqHold.body.job.hold_request.status).toBe("pending");
+    expect(reqHold.body.job.hold_request.reason).toMatch(/garage/i);
+
+    const dup = await request(techApp)
+      .post(`/api/jobs/${jobId}/hold-request`)
+      .set(bearer(token))
+      .send({ reason: "Duplicate" });
+    expect(dup.status).toBe(409);
+
+    const adminTok = adminToken("Super Admin");
+    const approve = await request(adminApp)
+      .post(`/api/jobs/${jobId}/hold-request/approve`)
+      .set(bearer(adminTok))
+      .send({});
+    expect(approve.status).toBe(200);
+    expect(approve.body.job.job_status).toBe("on_hold");
+    expect(approve.body.job.hold_reason).toMatch(/garage/i);
+    expect(approve.body.job.held_by).toBe("technician");
+    expect(approve.body.job.hold_request.status).toBe("approved");
+  });
+
+  test("HR2: admin can reject hold request without changing job status", async () => {
+    const tech = await seedTechnician();
+    const token = technicianToken(tech._id);
+    const created = await createAcceptedTechJob(techApp, token);
+    const jobId = created.body.job._id;
+
+    await request(techApp)
+      .post(`/api/jobs/${jobId}/hold-request`)
+      .set(bearer(token))
+      .send({ reason: "Waiting on customer approval" });
+
+    const adminTok = adminToken("Super Admin");
+    const reject = await request(adminApp)
+      .post(`/api/jobs/${jobId}/hold-request/reject`)
+      .set(bearer(adminTok))
+      .send({ note: "Customer wants tech today" });
+    expect(reject.status).toBe(200);
+    expect(reject.body.job.job_status).toBe("accepted");
+    expect(reject.body.job.hold_request.status).toBe("rejected");
+    expect(reject.body.job.hold_request.decision_note).toMatch(/today/i);
+  });
+
+  test("HR3: direct admin hold supersedes pending hold request", async () => {
+    const tech = await seedTechnician();
+    const token = technicianToken(tech._id);
+    const created = await createAcceptedTechJob(techApp, token);
+    const jobId = created.body.job._id;
+
+    await request(techApp)
+      .post(`/api/jobs/${jobId}/hold-request`)
+      .set(bearer(token))
+      .send({ reason: "Tech requested hold" });
+
+    const adminTok = adminToken("Super Admin");
+    const direct = await request(adminApp)
+      .post(`/api/jobs/${jobId}/hold`)
+      .set(bearer(adminTok))
+      .send({ reason: "Dispatch direct hold" });
+    expect(direct.status).toBe(200);
+    expect(direct.body.job.job_status).toBe("on_hold");
+    expect(direct.body.job.hold_reason).toMatch(/Dispatch direct hold/i);
+  });
+
+  test("MA1: technician can accept a second assigned job while the first is already accepted", async () => {
+    const tech = await seedTechnician();
+    const source = await seedSource("Multi accept");
+    const token = technicianToken(tech._id);
+
+    const assignedJob = (label) =>
+      Job.create({
+        clientName: `Multi accept ${label}`,
+        clientMobileNumber: `+9745000${label === "A" ? "0101" : "0102"}`,
+        issue: `QA MA1 ${label}`,
+        location: `${JOB_LAT},${JOB_LNG}`,
+        locationCoordinates: { type: "Point", coordinates: [JOB_LNG, JOB_LAT] },
+        dateTime: new Date(),
+        jobType: "Flat Tire",
+        assignedTechnician: tech._id,
+        price: 100,
+        source: source._id,
+        job_status: "assigned",
+        payment_status: "unpaid",
+      });
+    const jobA = await assignedJob("A");
+    const jobB = await assignedJob("B");
+
+    const acceptA = await request(techApp)
+      .post(`/api/technicians/jobs/${jobA._id}/accept`)
+      .set(bearer(token))
+      .send({});
+    expect(acceptA.status).toBe(200);
+    expect(acceptA.body.job_status).toBe("accepted");
+
+    // B stays assigned and is still visible in the session queue.
+    let session = await request(techApp)
+      .get("/api/jobs/technician/session")
+      .set(bearer(token));
+    expect(session.status).toBe(200);
+    const queuedB = (session.body.active_jobs || []).find(
+      (j) => String(j._id) === String(jobB._id)
+    );
+    expect(queuedB).toBeTruthy();
+    expect(queuedB.job_status).toBe("assigned");
+
+    const acceptB = await request(techApp)
+      .post(`/api/technicians/jobs/${jobB._id}/accept`)
+      .set(bearer(token))
+      .send({});
+    expect(acceptB.status).toBe(200);
+    expect(acceptB.body.job_status).toBe("accepted");
+
+    session = await request(techApp)
+      .get("/api/jobs/technician/session")
+      .set(bearer(token));
+    const statuses = Object.fromEntries(
+      (session.body.active_jobs || []).map((j) => [String(j._id), j.job_status])
+    );
+    expect(statuses[String(jobA._id)]).toBe("accepted");
+    expect(statuses[String(jobB._id)]).toBe("accepted");
+
+    // Accepting an already-accepted job is rejected.
+    const again = await request(techApp)
+      .post(`/api/technicians/jobs/${jobB._id}/accept`)
+      .set(bearer(token))
+      .send({});
+    expect(again.status).toBe(400);
   });
 });

@@ -7,14 +7,6 @@ const MOBILE_JOB_LIST_POPULATE = [
     path: "assignedTechnician",
     select: "firstName lastName phone profilePicture",
   },
-  {
-    path: "customer_vehicle_id",
-    select: "year plate_number",
-    populate: [
-      { path: "vehicle_make", select: "makeName" },
-      { path: "vehicle_model", select: "modelName" },
-    ],
-  },
 ];
 
 function paginateQuery(pageRaw, limitRaw) {

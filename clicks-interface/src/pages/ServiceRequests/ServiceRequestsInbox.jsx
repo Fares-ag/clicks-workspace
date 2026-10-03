@@ -71,6 +71,7 @@ function ServiceRequestsInbox() {
       title: "Request ID",
       key: "id",
       width: "10%",
+      mobile: { featured: true, order: 1 },
       render: (row) => (
         <span className="sos-id-cell">
           #{(row.service_request_id || row._id || "").slice(-8).toUpperCase()}
@@ -105,6 +106,7 @@ function ServiceRequestsInbox() {
       title: "Customer",
       key: "customer",
       width: "16%",
+      mobile: { order: 2 },
       render: (row) => (
         <div className="sos-customer-cell">
           <span className="sos-customer-name">{row.customer?.name || "—"}</span>
@@ -125,6 +127,7 @@ function ServiceRequestsInbox() {
       title: "Status",
       key: "status",
       width: "10%",
+      mobile: { featured: true, order: 0 },
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
@@ -201,7 +204,7 @@ function ServiceRequestsInbox() {
         columns={columns}
         data={requests}
         loading={isLoading}
-        searchPlaceholder="Search…"
+        hideSearch={true}
         hideFilterIcon={true}
         pagination={{
           current: page,
@@ -210,6 +213,7 @@ function ServiceRequestsInbox() {
           onChange: (newPage) => setPage(newPage),
         }}
         title="Service Requests"
+        hideTitle
       />
     </div>
   );

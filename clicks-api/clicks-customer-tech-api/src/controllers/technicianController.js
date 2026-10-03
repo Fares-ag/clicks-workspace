@@ -20,9 +20,11 @@ const {
 } = require("../../../clicks-shared/utils/technicianLocationWrite");
 const { JOB_TYPES } = require("../../../clicks-shared/constants/jobTypes");
 const {
-  TECH_BUSY_JOB_STATUSES,
   OFFLINE_BLOCKING_STATUSES,
 } = require("../../../clicks-shared/constants/jobStatuses");
+const {
+  recordTechnicianActivity,
+} = require("../../../clicks-shared/services/technicianActivityLog");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -39,6 +41,7 @@ const normalizePhone = (raw) => {
  * "11111111" → "+97411111111"; "+97411111111" → "+97411111111"; "97411111111" → "+97411111111"
  */
 const { str, num, objectId } = require("../../../clicks-shared/utils/coerce");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
 const {
   findAndVerifyOtp,
   generateOtp,
@@ -86,25 +89,80 @@ const login = async (req, res) => {
           { phone: bare },
           { phone: String(phone).trim() },
         ],
-      }).select("+password");
+      }).select(
+        "+password firstName lastName email phone profilePicture applicationStatus rejectionReason isActive"
+      );
     } else if (email) {
       // Coerced: {"email":{"$ne":null}} would otherwise match an arbitrary
       // technician and let an attacker enumerate accounts.
-      technician = await Technician.findOne({ email: str(email, { maxLength: 254 }) }).select("+password");
+      technician = await Technician.findOne({ email: str(email, { maxLength: 254 }) }).select(
+        "+password firstName lastName email phone profilePicture applicationStatus rejectionReason isActive"
+      );
     } else {
+      // No identifier typed at all — still a login attempt worth recording.
+      recordTechnicianActivity({
+        req,
+        event: "auth.login.failed",
+        outcome: "failure",
+        message: "Login failed — no phone or email supplied",
+        statusCode: 400,
+        metadata: { reason: "missing_identifier" },
+      });
       return res.status(400).json({ error: "Phone or email required" });
     }
+    // `attempted` is what the technician typed: the only identity a failed
+    // attempt against an unknown account has. Passwords are never recorded.
+    const attempted = str(phone || email, { maxLength: 128 });
     if (!technician) {
+      recordTechnicianActivity({
+        req,
+        event: "auth.login.failed",
+        outcome: "failure",
+        identifier: attempted,
+        message: `Login failed — no account for ${attempted}`,
+        statusCode: 401,
+        metadata: { reason: "unknown_account", method: phone ? "phone" : "email" },
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
     const valid = await bcrypt.compare(password, technician.password);
     if (!valid) {
+      recordTechnicianActivity({
+        req,
+        technician,
+        event: "auth.login.failed",
+        outcome: "failure",
+        identifier: attempted,
+        message: "Login failed — wrong password",
+        statusCode: 401,
+        metadata: { reason: "wrong_password", method: phone ? "phone" : "email" },
+      });
       return res.status(401).json({ error: "Invalid credentials" });
     }
     if (technician.isActive === false) {
+      recordTechnicianActivity({
+        req,
+        technician,
+        event: "account.blocked",
+        outcome: "blocked",
+        identifier: attempted,
+        message: "Login blocked — account deactivated",
+        statusCode: 403,
+        metadata: { reason: "deactivated" },
+      });
       return res.status(403).json({ error: "This account has been deactivated" });
     }
     if (!process.env.JWT_SECRET) {
+      recordTechnicianActivity({
+        req,
+        technician,
+        event: "auth.login.failed",
+        outcome: "failure",
+        identifier: attempted,
+        message: "Login failed — auth not configured",
+        statusCode: 503,
+        metadata: { reason: "jwt_secret_missing" },
+      });
       return res.status(503).json({ error: "Auth not configured" });
     }
     // Registration is public, so the token is deliberately NOT the approval
@@ -119,6 +177,18 @@ const login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+    recordTechnicianActivity({
+      req,
+      technician,
+      event: "auth.login.success",
+      identifier: technician.phone || technician.email || "",
+      message: "Logged in to the technician app",
+      statusCode: 200,
+      metadata: {
+        method: phone ? "phone" : "email",
+        applicationStatus: technician.applicationStatus,
+      },
+    });
     res.json({
       token,
       technician: {
@@ -133,6 +203,15 @@ const login = async (req, res) => {
       }
     });
   } catch (err) {
+    recordTechnicianActivity({
+      req,
+      event: "auth.login.failed",
+      outcome: "failure",
+      identifier: str(req.body?.phone || req.body?.email, { maxLength: 128 }),
+      message: "Login failed — server error",
+      statusCode: 500,
+      metadata: { reason: "server_error", error: err.message },
+    });
     res.status(500).json({ error: "Login failed", details: err.message });
   }
 };
@@ -192,13 +271,21 @@ const buildDailyEarningsThisWeek = async (technicianId) => {
 const getDashboard = async (req, res) => {
   try {
     const { id } = req.user;
-    const technician = await Technician.findById(id);
+
+    const payload = await getCachedPayload(
+      `clicks:tech:payload:dashboard:${id}`,
+      45000,
+      async () => {
+    const technician = await Technician.findById(id)
+      .select("homeHeroUrl currentStatus onlineSessionStartedAt")
+      .lean();
     if (!technician) {
-      return res.status(404).json({ error: "Technician not found" });
+      return null;
     }
 
-    const earnings = await TechnicianEarnings.findOne({ technician_id: id });
-    const techPerf = technician.performance || {};
+    const earnings = await TechnicianEarnings.findOne({ technician_id: id })
+      .select("total_earned cash_balance")
+      .lean();
 
     const now = new Date();
     const thisWeekStart = startOfWeekSundayUtc(now);
@@ -224,6 +311,7 @@ const getDashboard = async (req, res) => {
       earningsAgg,
       weekEarningsAgg,
       earningsData,
+      cancelledAll,
     ] = await Promise.all([
       Job.countDocuments({ ...techFilter, job_status: "completed" }),
       Job.countDocuments({
@@ -295,29 +383,20 @@ const getDashboard = async (req, res) => {
         { $group: { _id: null, total: { $sum: { $ifNull: ["$price", 0] } } } },
       ]),
       buildDailyEarningsThisWeek(id),
+      Job.countDocuments({ ...techFilter, job_status: "cancelled" }),
     ]);
 
-    // Cancelled without rejection_reasons may still be cancels; simplify counts:
-    // if rejection query is too strict, fall back to all cancelled for cancelledJobs
-    const cancelledAll = await Job.countDocuments({
-      ...techFilter,
-      job_status: "cancelled",
-    });
     const finalCancelled = Math.max(cancelledJobs, cancelledAll - rejectedJobs);
     const finalRejected = rejectedJobs;
 
     const totalEarnings =
-      Number(earningsAgg[0]?.total) ||
-      Number(earnings?.total_earned) ||
-      Number(techPerf.totalEarnings) ||
-      0;
+      Number(earningsAgg[0]?.total) || Number(earnings?.total_earned) || 0;
 
     const onlineHours = await getWeeklyOnlineHoursSummary(id, technician);
 
     const performance = {
-      ...techPerf,
       totalEarnings,
-      cashBalance: Number(earnings?.cash_balance) || Number(techPerf.cashBalance) || 0,
+      cashBalance: Number(earnings?.cash_balance) || 0,
       completedJobs,
       rejectedJobs: finalRejected,
       cancelledJobs: finalCancelled,
@@ -337,7 +416,13 @@ const getDashboard = async (req, res) => {
       homeHeroUrl: technician.homeHeroUrl || "",
     };
 
-    res.json({ performance });
+    return { performance };
+      }
+    );
+    if (payload == null) {
+      return res.status(404).json({ error: "Technician not found" });
+    }
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: "Dashboard fetch failed", details: err.message });
   }
@@ -376,6 +461,22 @@ const updateLocation = async (req, res) => {
       console.log(
         `[REST] Technician ${technicianId} location updated: [${result.lat}, ${result.lng}]`
       );
+    }
+
+    // Throttled inside the recorder (TECHNICIAN_ACTIVITY_LOCATION_MIN_INTERVAL_MS,
+    // default 5 min) — the app pings every few seconds while online.
+    if (result.coordsChanged) {
+      recordTechnicianActivity({
+        req,
+        technicianId,
+        event: "location.updated",
+        message: "Location ping while online",
+        statusCode: 200,
+        latitude: result.lat,
+        longitude: result.lng,
+        jobId: objectId(job_id) || null,
+        metadata: { accuracy: num(accuracy) ?? undefined, source: "rest" },
+      });
     }
 
     if (result.coordsChanged && job_id) {
@@ -423,6 +524,19 @@ const toggleStatus = async (req, res) => {
         ],
       }).select("_id job_status payment_status");
       if (blockingJob) {
+        recordTechnicianActivity({
+          req,
+          technicianId: id,
+          event: "session.offline_blocked",
+          outcome: "blocked",
+          message: "Tried to go offline with an active job",
+          statusCode: 400,
+          jobId: blockingJob._id,
+          metadata: {
+            job_status: blockingJob.job_status,
+            payment_status: blockingJob.payment_status,
+          },
+        });
         return res.status(400).json({
           error: "Cannot go Offline while you have an active job",
         });
@@ -441,6 +555,17 @@ const toggleStatus = async (req, res) => {
       await notifyPresence(technician._id, status);
     }
 
+    recordTechnicianActivity({
+      req,
+      technician,
+      event: status === "Online" ? "session.online" : "session.offline",
+      message:
+        status === "Online"
+          ? "Went online (available for jobs)"
+          : "Went offline",
+      statusCode: 200,
+      metadata: { currentStatus: technician.currentStatus },
+    });
     res.json({ message: "Status updated", currentStatus: technician.currentStatus });
   } catch (err) {
     res.status(500).json({ error: "Status update failed", details: err.message });
@@ -495,59 +620,86 @@ const getJobs = async (req, res) => {
 const acceptJob = async (req, res) => {
   try {
     const { id } = req.params;
-    const job = await Job.findById(id)
-      .populate('assignedTechnician', 'firstName lastName phone profilePicture currentLocation')
-      .populate('customer_id', 'first_name last_name phone_number');
-    
-    if (!job) {
+    const techId = req.user.id;
+
+    const existing = await Job.findOne({
+      _id: id,
+      assignedTechnician: techId,
+    })
+      .select("_id job_status customer_id")
+      .lean();
+
+    if (!existing) {
       return res.status(404).json({ error: "Job not found" });
     }
-    if (!assertJobAccess(job, req.user)) {
-      return res.status(403).json({ error: "Forbidden" });
+    if (existing.job_status !== "assigned") {
+      return res.status(400).json({
+        error: `Cannot accept job with status: ${existing.job_status}`,
+      });
     }
 
-    // Job must be in "assigned" status to be accepted
-    if (job.job_status !== "assigned") {
-      return res.status(400).json({ error: `Cannot accept job with status: ${job.job_status}` });
-    }
-    
-    // Change status from "assigned" to "accepted"
-    job.job_status = "accepted";
-    job.accepted_at = new Date();
-    await job.save();
+    const accepted_at = new Date();
+    const updated = await Job.findOneAndUpdate(
+      { _id: id, job_status: "assigned", assignedTechnician: techId },
+      { $set: { job_status: "accepted", accepted_at } },
+      { new: true, select: "_id job_status accepted_at customer_id" }
+    ).lean();
 
-    // Update technician status to "On Job"
-    await setTechnicianStatus(job.assignedTechnician._id, "On Job");
+    if (!updated) {
+      return res.status(400).json({ error: "Cannot accept job with current status" });
+    }
+
+    const { deletePayloadCacheKey } = require("../../../clicks-shared/utils/payloadCache");
+    deletePayloadCacheKey(`clicks:tech:payload:session:${techId}`).catch(() => {});
 
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-    if (typeof notifyPresence === "function") {
-      await notifyPresence(job.assignedTechnician._id, "On Job");
-    }
-    
-    // Notify customer via Socket.IO that technician accepted
-    const notifyCustomer = req.app.get('notifyCustomerTechnicianAccepted');
-    if (notifyCustomer && job.customer_id) {
-      try {
-        await notifyCustomer(job.customer_id._id.toString(), {
-          job_id: job._id,
-          status: "accepted",
-          technician: {
-            id: job.assignedTechnician._id,
-            name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-            phone: job.assignedTechnician.phone,
-            photo: job.assignedTechnician.profilePicture
-          },
-          accepted_at: job.accepted_at
-        });
-      } catch (notifyError) {
-        console.error('Failed to notify customer:', notifyError.message);
-      }
-    }
-    
-    res.json({ 
-      message: "Job accepted", 
-      job_status: job.job_status,
-      accepted_at: job.accepted_at
+    const notifyCustomer = req.app.get("notifyCustomerTechnicianAccepted");
+    const jobId = updated._id;
+    const customerId = updated.customer_id;
+
+    setImmediate(() => {
+      (async () => {
+        await setTechnicianStatus(techId, "On Job");
+        if (typeof notifyPresence === "function") {
+          await notifyPresence(techId, "On Job");
+        }
+        if (typeof notifyCustomer === "function" && customerId) {
+          const tech = await Technician.findById(techId)
+            .select("firstName lastName phone profilePicture")
+            .lean();
+          if (tech) {
+            await notifyCustomer(String(customerId), {
+              job_id: jobId,
+              status: "accepted",
+              technician: {
+                id: techId,
+                name: `${tech.firstName || ""} ${tech.lastName || ""}`.trim(),
+                phone: tech.phone,
+                photo: tech.profilePicture,
+              },
+              accepted_at,
+            });
+          }
+        }
+      })().catch((err) => {
+        console.error("acceptJob async side effects:", err.message);
+      });
+    });
+
+    recordTechnicianActivity({
+      req,
+      technicianId: techId,
+      event: "job.accepted",
+      message: "Accepted an assigned job",
+      statusCode: 200,
+      jobId: updated._id,
+      metadata: { accepted_at },
+    });
+
+    res.json({
+      message: "Job accepted",
+      job_status: "accepted",
+      accepted_at,
     });
   } catch (err) {
     res.status(500).json({ error: "Accept job failed", details: err.message });
@@ -625,6 +777,20 @@ const rejectJob = async (req, res) => {
       }
     }
 
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.rejected",
+      message: "Rejected an assigned job",
+      statusCode: 200,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        rejection_reasons: job.rejection_reasons,
+        rejection_description: job.rejection_description,
+      },
+    });
+
     res.json({ message: "Job rejected", job_status: job.job_status });
   } catch (err) {
     res.status(500).json({ error: "Reject job failed", details: err.message });
@@ -699,6 +865,14 @@ const sendOTP = async (req, res) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
     });
     await sendSMS(phone, `Your OTP is: ${otp}`);
+    recordTechnicianActivity({
+      req,
+      event: "auth.otp.sent",
+      identifier: phone,
+      message: "Requested a registration OTP",
+      statusCode: 200,
+      metadata: { purpose: "registration" },
+    });
     res.json({ message: "OTP sent", phone });
   } catch (err) {
     console.error("sendOTP failed:", err.message);
@@ -716,6 +890,15 @@ const verifyOTP = async (req, res) => {
     });
 
     if (!result.ok) {
+      recordTechnicianActivity({
+        req,
+        event: "auth.otp.failed",
+        outcome: "failure",
+        identifier: phone,
+        message: "Registration OTP rejected",
+        statusCode: result.status,
+        metadata: { reason: result.error, purpose: "registration" },
+      });
       return res.status(result.status).json({ error: result.error });
     }
 
@@ -727,6 +910,14 @@ const verifyOTP = async (req, res) => {
     result.record.verified = true;
     result.record.expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
     await result.record.save();
+    recordTechnicianActivity({
+      req,
+      event: "auth.otp.verified",
+      identifier: phone,
+      message: "Verified their phone number",
+      statusCode: 200,
+      metadata: { purpose: "registration" },
+    });
     res.json({ message: "OTP verified", phone });
   } catch (err) {
     console.error("verifyOTP failed:", err.message);
@@ -836,6 +1027,15 @@ const registerTechnician = async (req, res) => {
       phone: { $in: phoneForms(applicantPhone) },
       purpose: "registration",
     });
+    recordTechnicianActivity({
+      req,
+      technician,
+      event: "account.registered",
+      identifier: technician.phone || "",
+      message: "Submitted a technician application",
+      statusCode: 200,
+      metadata: { applicationStatus: technician.applicationStatus },
+    });
     res.json({ message: "Technician registration successful", technicianId: technician._id });
   } catch (err) {
     res.status(500).json({ error: "Registration failed", details: err.message });
@@ -904,6 +1104,19 @@ const forgotPassword = async (req, res) => {
       );
     }
 
+    recordTechnicianActivity({
+      req,
+      technicianId: technician?._id || null,
+      technician: technician || undefined,
+      event: "auth.password.forgot_requested",
+      identifier: str(phone, { maxLength: 128 }),
+      message: "Requested a password reset code",
+      statusCode: 200,
+      // `technician` is null when the number matches no account; the response
+      // stays generic but the attempt is still recorded.
+      metadata: { account_found: Boolean(technician) },
+    });
+
     res.json({
       message: "If an account exists for that number, a code has been sent.",
       phone: String(phone).replace(/.(?=.{4})/g, "*"),
@@ -926,11 +1139,28 @@ const verifyResetOTP = async (req, res) => {
     });
 
     if (!result.ok) {
+      recordTechnicianActivity({
+        req,
+        event: "auth.password.reset_otp_failed",
+        outcome: "failure",
+        identifier: str(req.body.phone, { maxLength: 128 }),
+        message: "Password reset code rejected",
+        statusCode: result.status,
+        metadata: { reason: result.error },
+      });
       return res.status(result.status).json({ error: result.error });
     }
 
     result.record.verified = true;
     await result.record.save();
+
+    recordTechnicianActivity({
+      req,
+      event: "auth.password.reset_otp_verified",
+      identifier: str(req.body.phone, { maxLength: 128 }),
+      message: "Verified the password reset code",
+      statusCode: 200,
+    });
 
     res.json({ message: "OTP verified successfully" });
   } catch (err) {
@@ -981,6 +1211,15 @@ const resetPassword = async (req, res) => {
     await OTPVerification.deleteMany({
       phone: { $in: phoneForms(phone) },
       purpose: "password_reset",
+    });
+
+    recordTechnicianActivity({
+      req,
+      technician,
+      event: "auth.password.reset",
+      identifier: technician.phone || "",
+      message: "Changed their password via reset code",
+      statusCode: 200,
     });
 
     res.json({
@@ -1054,6 +1293,15 @@ const updateProfile = async (req, res) => {
     
     const technicianWithSAS = addSASToTechnician(technician);
     
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "profile.updated",
+      message: "Updated profile details",
+      statusCode: 200,
+      metadata: { fields: Object.keys(req.body || {}) },
+    });
+
     res.json({
       message: "Profile updated successfully",
       technician: {
@@ -1076,6 +1324,15 @@ const saveFcmToken = async (req, res) => {
       return res.status(400).json({ error: "fcm_token is required" });
     }
     await Technician.findByIdAndUpdate(req.user.id, { fcm_token: fcm_token.trim() });
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "device.push_token_registered",
+      message: "Registered this device for job alerts",
+      statusCode: 200,
+      // The token itself is a credential — only its shape is recorded.
+      metadata: { token_length: fcm_token.trim().length },
+    });
     res.json({ message: "FCM token saved" });
   } catch (err) {
     res.status(500).json({ error: "Save FCM token failed", details: err.message });
@@ -1085,6 +1342,16 @@ const saveFcmToken = async (req, res) => {
 const clearFcmToken = async (req, res) => {
   try {
     await Technician.findByIdAndUpdate(req.user.id, { fcm_token: null });
+    // The app clears the push token as the last step of logout
+    // (home_cubit.dart logout → clearTokenOnBackend), so this doubles as the
+    // sign-out marker in the activity trail.
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "auth.logout",
+      message: "Logged out of the technician app",
+      statusCode: 200,
+    });
     res.json({ message: "FCM token cleared" });
   } catch (err) {
     res.status(500).json({ error: "Clear FCM token failed", details: err.message });
@@ -1118,6 +1385,13 @@ const deleteAccount = async (req, res) => {
       technician.phone = `deleted+${Date.now()}+${technician.phone}`;
     }
     await technician.save();
+    recordTechnicianActivity({
+      req,
+      technicianId: id,
+      event: "account.delete_requested",
+      message: "Deleted their account from the app",
+      statusCode: 200,
+    });
     res.json({ message: "Account deactivated" });
   } catch (err) {
     res.status(500).json({ error: "Account deletion failed", details: err.message });
@@ -1210,17 +1484,6 @@ const createTechnicianJob = async (req, res) => {
     const technician = await Technician.findById(techId);
     if (!technician) {
       return res.status(404).json({ error: "Technician not found" });
-    }
-
-    const blocking = await Job.findOne({
-      assignedTechnician: techId,
-      job_status: { $in: TECH_BUSY_JOB_STATUSES },
-    }).select("_id job_status");
-    if (blocking) {
-      return res.status(400).json({
-        error: "Ask dispatch to put your current job on hold before creating another",
-        blocking_job_id: blocking._id,
-      });
     }
 
     const {
@@ -1353,6 +1616,22 @@ const createTechnicianJob = async (req, res) => {
       console.error("Failed to notify admins of technician job:", notifyErr.message);
     }
 
+    recordTechnicianActivity({
+      req,
+      technicianId: req.user.id,
+      event: "job.created",
+      message: "Created a walk-in job from the app",
+      statusCode: 201,
+      jobId: job._id,
+      jobReference: job.job_reference,
+      metadata: {
+        jobType: job.jobType,
+        price: job.price,
+        clientName: job.clientName,
+        location: job.location,
+      },
+    });
+
     res.status(201).json({ message: "Job created and assigned to you", job: populated });
   } catch (err) {
     const status = err.status || 500;
@@ -1379,6 +1658,13 @@ const uploadHomeHero = async (req, res) => {
       return res.status(404).json({ error: "Technician not found" });
     }
     const withSas = addSASToTechnician(technician.toObject());
+    recordTechnicianActivity({
+      req,
+      technician,
+      event: "profile.home_hero_updated",
+      message: "Changed their home screen image",
+      statusCode: 200,
+    });
     res.json({
       message: "Home hero updated",
       homeHeroUrl: withSas.homeHeroUrl || url,

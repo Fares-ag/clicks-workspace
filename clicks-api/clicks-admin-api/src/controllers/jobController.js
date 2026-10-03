@@ -30,6 +30,14 @@ const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-sha
 const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
+const {
+  getSlimTechnicianRoster,
+  technicianRosterMap,
+  getSourceRoster,
+  sourceRosterMap,
+  toId,
+} = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { pick, str } = require("../../../clicks-shared/utils/coerce");
 const {
@@ -117,30 +125,7 @@ async function getJobs(req, res) {
     if (businessPortal === "1" || businessPortal === "true") {
       query.business_id = { $exists: true, $ne: null };
     }
-    
-    const jobs = await Job.find(query)
-      .select(
-        "job_reference clientName clientMobileNumber job_status hold_reason dateTime location locationCoordinates source subSource assignedTechnician legacyTechnicianName price issue jobType vehicleMake vehicleModel vehicleYear licensePlate customer_vehicle_id business_id businessName created_by_technician createdByTechnicianName payment_status createdAt"
-      )
-      .populate("assignedTechnician", "firstName lastName phone profilePicture currentStatus")
-      .populate("created_by_technician", "firstName lastName")
-      .populate("source", "mainSourceName")
-      .populate({
-        path: "customer_vehicle_id",
-        select: "year plate_number vehicle_color",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-        ],
-      })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limitNum)
-      .limit(limitNum)
-      .lean();
-    const enrichedJobs = jobs.map((job) => ({
-      ...job,
-      sourceDisplay: formatJobSourceLabel(job),
-    }));
+
     const hasFilter = Boolean(
       search ||
         status ||
@@ -148,16 +133,78 @@ async function getJobs(req, res) {
         businessPortal === "1" ||
         businessPortal === "true"
     );
-    // Key off the raw inputs, not the compiled query: buildPrefixSearchFilter
-    // returns RegExp values and JSON.stringify turns a RegExp into {}, so every
-    // search used to collapse onto one cache entry and report another search's total.
     const countKey = `admin_jobs:${str(search)}|${str(status)}|${filterCompletedToday ? "1" : ""}|${str(businessPortal)}`;
-    const total = hasFilter
-      ? await cachedCount(Job, query, { ttlMs: 15000, key: countKey })
-      : page === 1
-        ? await Job.estimatedDocumentCount()
-        : await cachedCount(Job, query, { ttlMs: 15000, key: "admin_jobs_unfiltered" });
-    res.json({ jobs: enrichedJobs, total });
+    const skip = (page - 1) * limitNum;
+    const cacheKey = `clicks:admin:payload:job-list:${page}:${limitNum}:${countKey}`;
+
+    const started = Date.now();
+    const payload = await getCachedPayload(cacheKey, 30000, async () => {
+      const findStarted = Date.now();
+      const listQuery = Job.find(query)
+        .select(
+          "job_reference clientName clientMobileNumber job_status hold_reason dateTime location source subSource assignedTechnician legacyTechnicianName price jobType vehicleMake vehicleModel vehicleYear licensePlate business_id businessName createdByTechnicianName payment_status createdAt"
+        )
+        .sort(hasFilter ? { createdAt: -1 } : { _id: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      const countPromise = hasFilter
+        ? cachedCount(Job, query, { ttlMs: 15000, key: countKey })
+        : page === 1
+          ? Job.estimatedDocumentCount()
+          : cachedCount(Job, query, { ttlMs: 15000, key: "admin_jobs_unfiltered" });
+
+      const [jobs, total, techRoster, sourceRoster] = await Promise.all([
+        listQuery,
+        countPromise,
+        getSlimTechnicianRoster(),
+        getSourceRoster(),
+      ]);
+      const findMs = Date.now() - findStarted;
+      const techById = technicianRosterMap(techRoster);
+      const sourceById = sourceRosterMap(sourceRoster);
+
+      console.log(
+        JSON.stringify({
+          msg: "getJobs_timing",
+          findMs,
+          hydrateMs: Date.now() - findStarted - findMs,
+          n: jobs.length,
+          hasFilter,
+          page,
+        })
+      );
+
+      return {
+        jobs: jobs.map((job) => {
+          const assigned = job.assignedTechnician
+            ? techById.get(toId(job.assignedTechnician)) || null
+            : null;
+          const source = job.source
+            ? sourceById.get(toId(job.source)) || job.source
+            : job.source;
+          const hydrated = {
+            ...job,
+            assignedTechnician: assigned,
+            source,
+          };
+          return {
+            ...hydrated,
+            sourceDisplay: formatJobSourceLabel(hydrated),
+          };
+        }),
+        total,
+      };
+    });
+    console.log(
+      JSON.stringify({
+        msg: "getJobs_total",
+        totalMs: Date.now() - started,
+        n: Array.isArray(payload?.jobs) ? payload.jobs.length : 0,
+      })
+    );
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch jobs", error: err.message });
   }
@@ -222,17 +269,26 @@ async function getJobById(req, res) {
         select: "firstName lastName phone profilePicture currentStatus assignedVehicle",
         populate: {
           path: "assignedVehicle",
-          populate: [{ path: "make" }, { path: "model" }],
+          select: "plateNumber make model",
+          populate: [
+            { path: "make", select: "makeName" },
+            { path: "model", select: "modelName" },
+          ],
         },
       })
       .populate("customer_id")
       .populate({
         path: "customer_vehicle_id",
-        populate: [{ path: "vehicle_make" }, { path: "vehicle_model" }],
+        select: "vehicle_make vehicle_model year plateNumber",
+        populate: [
+          { path: "vehicle_make", select: "makeName" },
+          { path: "vehicle_model", select: "modelName" },
+        ],
       })
       .populate("created_by_technician", "firstName lastName")
       .populate("source", "mainSourceName")
-      .populate("lead_id", "internalNotes");
+      .populate("lead_id", "internalNotes")
+      .lean();
 
     let archived = false;
     if (!job) {

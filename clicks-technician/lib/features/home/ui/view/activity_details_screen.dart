@@ -7,6 +7,7 @@ import 'package:clicks_technician/core/helper/phone_launcher.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
+import 'package:clicks_technician/features/home/ui/view/open_active_job_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/invoice_screen.dart';
 import 'package:clicks_technician/features/home/ui/view/job_display.dart';
 import 'package:flutter/material.dart';
@@ -55,6 +56,10 @@ class _ActivityDetailsScreenState extends State<ActivityDetailsScreen> {
   bool get _canContinue =>
       ['accepted', 'en_route', 'arrived', 'in_progress'].contains(_status) ||
       (_status == 'completed' && _paymentStatus != 'paid');
+
+  /// Assigned jobs need Accept first (multi-job: dispatch may assign a second
+  /// job while the technician is busy on another).
+  bool get _canAccept => _status == 'assigned' && widget.cubit != null;
 
   bool get _showReceipt =>
       _status == 'completed' || _paymentStatus == 'paid' || _receipt != null;
@@ -149,9 +154,30 @@ class _ActivityDetailsScreenState extends State<ActivityDetailsScreen> {
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).pop();
+      await openActiveJobScreen(context, cubit);
     } else {
       AppSnackBars.errorSnackBar('Could not open this job');
     }
+  }
+
+  Future<void> _onAccept() async {
+    final cubit = widget.cubit;
+    if (cubit == null) {
+      AppSnackBars.errorSnackBar('Cannot accept job right now');
+      return;
+    }
+    final ok = await cubit.acceptJobById(_jobId);
+    if (!mounted) return;
+    if (!ok) {
+      AppSnackBars.errorSnackBar(
+        cubit.lastActionError ?? 'Could not accept this job',
+      );
+      return;
+    }
+    await cubit.focusJob(_jobId);
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    await openActiveJobScreen(context, cubit);
   }
 
   Future<void> _openReceiptImage(String url) async {
@@ -267,7 +293,18 @@ class _ActivityDetailsScreenState extends State<ActivityDetailsScreen> {
                       top: false,
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 12.h),
-                        child: _canContinue && widget.cubit != null
+                        child: _canAccept
+                            ? AppButton(
+                                onPressed: _onAccept,
+                                label: 'Accept job',
+                                margin: 0,
+                                width: double.infinity,
+                                bgColor: ColorsManager.mainColor,
+                                textColor: Colors.white,
+                                height: 48.h,
+                                radius: 10.r,
+                              )
+                            : _canContinue && widget.cubit != null
                             ? AppButton(
                                 onPressed: _onContinue,
                                 label: _status == 'completed'

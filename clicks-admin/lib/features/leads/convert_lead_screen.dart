@@ -180,7 +180,9 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
 
     final lead = _lead!;
     final status = lead['status']?.toString() ?? '';
-    if (!['new', 'contacted', 'qualified'].contains(status)) {
+    final lostReason = lead['lost_reason']?.toString() ?? '';
+    // Mirrors CONVERTIBLE_LEAD_STATUSES on the API: lost leads may be converted.
+    if (!['new', 'contacted', 'qualified', 'lost'].contains(status)) {
       return AdminEmptyState(
         message: 'This lead cannot be converted (status: $status)',
         iconAsset: 'assets/icons/warning.svg',
@@ -217,6 +219,25 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
             ],
           ),
         ),
+        if (status == 'lost')
+          AdminCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, color: Colors.orange),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    lostReason.isEmpty
+                        ? 'This lead was marked lost. Converting it creates a job and reopens the lead.'
+                        : 'This lead was marked lost. Converting it creates a job and reopens the lead.\nPrevious reason: $lostReason',
+                    style: AdminTypography.body,
+                  ),
+                ),
+              ],
+            ),
+          ),
         AdminCard(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(

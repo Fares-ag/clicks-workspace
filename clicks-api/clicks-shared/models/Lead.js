@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 
 const OPEN_LEAD_STATUSES = ["new", "contacted", "qualified"];
+// Statuses that may be converted to a job. A lost lead can be reopened by
+// converting it (the customer came back); converted leads never convert twice.
+// OPEN_LEAD_STATUSES stays as-is for badges, filters and open counts.
+const CONVERTIBLE_LEAD_STATUSES = [...OPEN_LEAD_STATUSES, "lost"];
 
 const LeadSchema = new mongoose.Schema(
   {
@@ -109,4 +113,5 @@ LeadSchema.index({ job_id: 1 }, { sparse: true });
 
 const Lead = mongoose.model("Lead", LeadSchema);
 Lead.OPEN_LEAD_STATUSES = OPEN_LEAD_STATUSES;
+Lead.CONVERTIBLE_LEAD_STATUSES = CONVERTIBLE_LEAD_STATUSES;
 module.exports = Lead;

@@ -80,9 +80,14 @@ function checkUiWiring() {
   const cubit = fs.readFileSync(files[3], "utf8");
 
   step("home_screen navigates to AddJobScreen", home.includes("AddJobScreen"));
+  // Multi-job: Add job is shown whenever the technician is online. The old
+  // blocking-fulfill / incoming-dispatch gate was removed (see GAP-4 closed in
+  // qa-tech-multi-job-hold-report.md), so assert the gate is absent.
   step(
-    "Add job gated by blocking fulfill / incoming dispatch",
-    home.includes("canShowAddJob") && home.includes("JobFulfillStatus.isBlocking")
+    "Add job shown when online; no blocking fulfill gate (multi-job)",
+    home.includes("canShowAddJob") &&
+      cubit.includes("bool get canShowAddJob => isOnline") &&
+      !home.includes("JobFulfillStatus.isBlocking")
   );
   step(
     "add job only on idle Home (not Activity tab)",
@@ -160,7 +165,7 @@ async function main() {
     issue: "QA add-job test — flat tire",
     location: `LatLng(${JOB_LAT}, ${JOB_LNG})`,
     dateTime: new Date().toISOString(),
-    jobType: "Flat tire",
+    jobType: "Flat Tire",
     price: 175,
   };
 

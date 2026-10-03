@@ -1,5 +1,7 @@
 /// Shared brand assets (copied from clicks-technician / clicks-user).
 class AssetsManager {
+  static const String brandLogo = 'assets/logo/SanadLogo.png';
+
   static const String logoSvg = 'assets/icons/clicks_logo.svg';
   static const String loginIconSvg = 'assets/icons/login_icon.svg';
   static const String clicksLogoSvg = 'assets/icons/clicks_logo.svg';

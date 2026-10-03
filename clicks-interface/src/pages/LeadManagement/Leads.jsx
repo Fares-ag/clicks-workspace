@@ -47,6 +47,7 @@ function Leads() {
       title: "Lead ID",
       key: "id",
       width: "10%",
+      mobile: { featured: true, order: 1 },
       render: (row) => (
         <span className="sos-id-cell">
           #{(row.lead_id || row._id || "").slice(-8).toUpperCase()}
@@ -57,6 +58,7 @@ function Leads() {
       title: "Customer",
       key: "customer",
       width: "18%",
+      mobile: { order: 2 },
       render: (row) => (
         <div className="sos-customer-cell">
           <span className="sos-customer-name">{row.clientName || "—"}</span>
@@ -83,6 +85,7 @@ function Leads() {
       title: "Status",
       key: "status",
       width: "10%",
+      mobile: { featured: true, order: 0 },
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
@@ -155,7 +158,7 @@ function Leads() {
         data={leads}
         loading={isLoading && !data}
         fetching={isFetching && !!data}
-        searchPlaceholder="Search…"
+        hideSearch={true}
         hideFilterIcon={true}
         pagination={{
           current: page,
@@ -164,6 +167,7 @@ function Leads() {
           onChange: (newPage) => setPage(newPage),
         }}
         title="Leads"
+        hideTitle
       />
     </div>
   );

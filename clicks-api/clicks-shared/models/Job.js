@@ -89,6 +89,28 @@ const JobSchema = new mongoose.Schema(
       default: undefined,
     },
     resumed_at: { type: Date, default: null },
+    // Technician-initiated hold request — job stays active until admin approves.
+    hold_request: {
+      status: {
+        type: String,
+        enum: ["pending", "approved", "rejected", null],
+        default: undefined,
+      },
+      reason: { type: String, maxlength: 2000, default: "" },
+      requested_at: { type: Date, default: null },
+      requested_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Technician",
+        default: null,
+      },
+      decided_at: { type: Date, default: null },
+      decided_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null,
+      },
+      decision_note: { type: String, maxlength: 2000, default: "" },
+    },
     task_description: { type: String },
     rejection_reasons: [{ type: String }],
     rejection_description: { type: String, maxlength: 500 },
@@ -202,6 +224,10 @@ JobSchema.index({ businessName: 1 });
 JobSchema.index({ business_id: 1, updatedAt: -1 });
 
 JobSchema.index({ job_status: 1, assignedTechnician: 1, createdAt: -1 });
+// tech session + dashboard counts: Job.find({ assignedTechnician, job_status })
+JobSchema.index({ assignedTechnician: 1, job_status: 1 });
+// dashboard pending queue: Job.find({ job_status: "pending" }).sort({ dateTime: 1 })
+JobSchema.index({ job_status: 1, dateTime: 1 });
 JobSchema.index({ customer_id: 1, createdAt: -1 });
 JobSchema.index({ business_id: 1, createdAt: -1 });
 // Idempotency guard for the historical import. Explicitly named so it does not

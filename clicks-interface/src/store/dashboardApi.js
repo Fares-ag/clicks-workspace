@@ -8,6 +8,7 @@ export const dashboardApi = apiSlice.injectEndpoints({
         method: "GET",
       }),
       providesTags: ["NavBadges"],
+      keepUnusedDataFor: 60,
     }),
     getDashboardSummary: builder.query({
       query: () => ({
@@ -15,16 +16,17 @@ export const dashboardApi = apiSlice.injectEndpoints({
         method: "GET",
       }),
       providesTags: ["Dashboard", "SOS"],
+      keepUnusedDataFor: 60,
     }),
     getEarningsData: builder.query({
-      query: (timeframe = "12months") => ({
+      query: (timeframe = "30days") => ({
         url: `/dashboard/earnings?timeframe=${timeframe}`,
         method: "GET",
       }),
       providesTags: ["Dashboard"],
     }),
     getJobCompletionData: builder.query({
-      query: (timeframe = "12months") => ({
+      query: (timeframe = "30days") => ({
         url: `/dashboard/job-completion?timeframe=${timeframe}`,
         method: "GET",
       }),

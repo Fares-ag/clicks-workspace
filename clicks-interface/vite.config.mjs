@@ -27,13 +27,29 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     build: {
+      target: "es2020",
+      cssCodeSplit: true,
+      sourcemap: false,
+      minify: "esbuild",
       rollupOptions: {
         output: {
-          manualChunks: {
-            recharts: ["recharts"],
-            googlemaps: ["@react-google-maps/api"],
-            xlsx: ["xlsx"],
-            antd: ["antd"],
+          // Only split vendor (needed on login) and maps (only LiveMap/HeatMap).
+          // Putting antd/recharts in shared chunks made Vite modulepreload them
+          // on the login HTML, which hurt cold load.
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (id.includes("@react-google-maps")) return "googlemaps";
+            if (
+              id.includes("/react/") ||
+              id.includes("react-dom") ||
+              id.includes("react-router") ||
+              id.includes("react-redux") ||
+              id.includes("@reduxjs/toolkit") ||
+              id.includes("use-sync-external-store")
+            ) {
+              return "vendor";
+            }
+            return undefined;
           },
         },
       },

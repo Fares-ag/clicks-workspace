@@ -175,7 +175,7 @@
 }
 
 .edit-source-add-subsource-btn:hover:not(:disabled) {
-  background: #7A1919;
+  background: var(--color-primary-hover);
 }
 
 .edit-source-add-subsource-btn:disabled {

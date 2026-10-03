@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Brand tokens aligned with clicks-business-web / admin interface.
+/// Brand tokens aligned with the Sanad lockup (#0A2635 navy).
 class AppColors {
-  static const Color primary = Color(0xFF981F1F);
-  static const Color primaryHover = Color(0xFF7A1919);
+  static const Color primary = Color(0xFF0A2635);
+  static const Color primaryHover = Color(0xFF061820);
   static const Color accent = Color(0xFF00796B);
   static const Color pageBackground = Color(0xFFF9FAFB);
   static const Color background = pageBackground;
@@ -17,7 +17,7 @@ class AppColors {
   static const Color textSecondary = Color(0xFF667085);
   static const Color selection = Color(0xFFF2F4F7);
   static const Color field = Color(0xFFEDF1F3);
-  static const Color navHighlight = Color(0xFFFDF2FA);
+  static const Color navHighlight = Color(0xFFE8EEF2);
   static const Color success = Color(0xFF039855);
   static const Color warning = Color(0xFFF79009);
   static const Color info = Color(0xFF1570EF);
@@ -26,6 +26,6 @@ class AppColors {
   static const LinearGradient earningsGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Color(0xFF981F1F), Color(0xFF320A0A)],
+    colors: [Color(0xFF0A2635), Color(0xFF041018)],
   );
 }

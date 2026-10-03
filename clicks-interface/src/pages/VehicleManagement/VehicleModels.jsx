@@ -100,7 +100,7 @@ function VehicleModels() {
 
   return (
     <div style={{ padding: 32 }}>
-      <h2 style={{ color: "#981F1F" }}>Vehicle Models</h2>
+      <h2 style={{ color: "var(--color-primary)" }}>Vehicle Models</h2>
       <div style={{ marginBottom: 16 }}>
         <Select
           placeholder="Filter by Make"

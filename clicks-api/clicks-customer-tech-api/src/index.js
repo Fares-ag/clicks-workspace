@@ -62,6 +62,9 @@ async function shutdown(signal) {
       await mongoose.disconnect();
     }
 
+    const { closeRedis } = require("../../clicks-shared/utils/redisClient");
+    await closeRedis();
+
     clearTimeout(hardExit);
     process.exit(0);
   } catch (err) {
@@ -88,6 +91,7 @@ async function bootstrap() {
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminBusinessLead", sosHandlers.notifyAdminBusinessLead);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);
+  app.set("notifyAdminHoldRequest", sosHandlers.notifyAdminHoldRequest);
   app.set("notifyAdminServiceRequest", sosHandlers.notifyAdminServiceRequest);
   app.set(
     "notifyAdminServiceRequestCancelled",
@@ -104,6 +108,11 @@ async function bootstrap() {
   const MONGO_URI = process.env.MONGODB_URI;
 
   await mongoose.connect(MONGO_URI);
+
+  const { shrinkTechnicianDocuments } = require("../../clicks-shared/utils/adminLookups");
+  shrinkTechnicianDocuments().catch((err) => {
+    console.error("tech shrink failed:", err.message);
+  });
 
   const {
     startOutboxWorker,

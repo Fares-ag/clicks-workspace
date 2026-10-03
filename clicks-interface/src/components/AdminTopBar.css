@@ -52,6 +52,12 @@
   border: var(--border-width) solid var(--color-border);
 }
 
+.admin-avatar--placeholder {
+  object-fit: contain;
+  padding: 8px;
+  background: var(--color-secondary-light, #f2f4f7);
+}
+
 .admin-name {
   font-family: var(--font-family);
   font-size: var(--font-size-body);

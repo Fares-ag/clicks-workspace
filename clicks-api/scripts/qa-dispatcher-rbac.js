@@ -247,12 +247,23 @@ function runMiddlewareUnitTests() {
     return res;
   };
 
+  // requireRoles() no longer trusts the role claim alone: it also checks
+  // Admin.exists({ _id: req.user.id, isActive: true }) so deactivated/deleted
+  // admins are refused (covered by tests/integration/rbac.integration.test.js).
+  // This unit harness has no DB, so stub the lookup and supply a user id.
+  const Admin = require("../clicks-admin-api/src/models/Admin");
   const runMw = (mw, role) =>
     new Promise((resolve) => {
-      const req = { user: { role } };
+      const realExists = Admin.exists;
+      Admin.exists = async () => true;
+      const req = { user: { id: "000000000000000000000001", role } };
       const res = mockRes();
-      mw(req, res, () => resolve({ ok: true, status: 200 }));
-      setTimeout(() => resolve({ ok: false, status: res.statusCode, body: res.body }), 0);
+      Promise.resolve(mw(req, res, () => resolve({ ok: true, status: 200 })))
+        .catch(() => {})
+        .finally(() => {
+          Admin.exists = realExists;
+          setTimeout(() => resolve({ ok: false, status: res.statusCode, body: res.body }), 0);
+        });
     });
 
   return (async () => {

@@ -82,7 +82,7 @@ export default function DocumentReviewModal({
             <button
               className="doc-review-modal-action-btn"
               style={{
-                background: "#981F1F",
+                background: "var(--color-primary)",
                 color: "#fff",
                 border: "1px solid #E4E7EC"
               }}
@@ -125,7 +125,7 @@ export default function DocumentReviewModal({
                 className="doc-review-modal-action-btn"
                 style={{
                   background: checkbox
-                    ? "#981F1F"
+                    ? "var(--color-primary)"
                     : "#FFFFFF",
                   color: checkbox
                     ? "#fff"

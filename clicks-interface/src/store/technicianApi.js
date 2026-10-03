@@ -134,7 +134,8 @@ export const technicianApi = apiSlice.injectEndpoints({
         url: "/technicians/live-map",
         method: "GET"
       }),
-      providesTags: ["LiveMapTechnician"]
+      providesTags: ["LiveMapTechnician"],
+      keepUnusedDataFor: 30,
     }),
     toggleTechnicianActive: builder.mutation({
       query: (id) => ({

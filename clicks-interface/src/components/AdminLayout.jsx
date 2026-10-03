@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { Layout, message } from "antd";
+import React, { useState, useEffect, useMemo } from "react";
+import { message } from "antd";
 import { useSelector } from "react-redux";
-import { useNavigate } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import io from "socket.io-client";
 import AdminSidebar from "./AdminSidebar.jsx";
 import AdminTopBar from "./AdminTopBar.jsx";
@@ -9,12 +9,18 @@ import SOSNotification from "./SOSNotification.jsx";
 import ServiceRequestNotification from "./ServiceRequestNotification.jsx";
 import BusinessJobNotification from "./BusinessJobNotification.jsx";
 import TechnicianJobNotification from "./TechnicianJobNotification.jsx";
+import HoldRequestNotification from "./HoldRequestNotification.jsx";
 import { apiSlice } from "../store/apiSlice";
 import { useDispatch } from "react-redux";
 import { AdminSocketContext } from "../context/AdminSocketContext.jsx";
+import { prefetchCriticalAdminData } from "../utils/prefetchAdmin";
+import { prefetchAdminRouteChunksWhenIdle } from "../utils/prefetchAdminRoutes";
+import {
+  playNotificationSound,
+  unlockNotificationSound,
+} from "../utils/notificationSound";
+import "antd/dist/reset.css";
 import "./AdminLayout.css";
-
-const { Content } = Layout;
 
 const NOTIFICATION_TYPES = {
   SOS: "sos",
@@ -22,6 +28,7 @@ const NOTIFICATION_TYPES = {
   BUSINESS_LEAD: "businessLead",
   BUSINESS_JOB: "businessJob",
   TECHNICIAN_JOB: "technicianJob",
+  HOLD_REQUEST: "holdRequest",
 };
 
 function notificationId(type, data) {
@@ -33,6 +40,8 @@ function notificationId(type, data) {
     case NOTIFICATION_TYPES.BUSINESS_JOB:
     case NOTIFICATION_TYPES.TECHNICIAN_JOB:
       return String(data.job_id || data.id || data._id || "");
+    case NOTIFICATION_TYPES.HOLD_REQUEST:
+      return String(data.job_id || data.id || data._id || "");
     case NOTIFICATION_TYPES.SERVICE_REQUEST:
       return String(
         data.service_request_id || data.id || data._id || ""
@@ -42,12 +51,7 @@ function notificationId(type, data) {
   }
 }
 
-function playNotificationSound() {
-  const audio = new Audio("/notification.mp3");
-  audio.play().catch(() => {});
-}
-
-function AdminLayout({ children }) {
+function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth > 900 : true
   );
@@ -60,6 +64,7 @@ function AdminLayout({ children }) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { user, token } = useSelector((state) => state.auth);
+  const userId = user?._id || user?.id;
 
   const activeNotification = notificationQueue[0] ?? null;
   const queueCount = notificationQueue.length;
@@ -67,6 +72,16 @@ function AdminLayout({ children }) {
   const dequeueNotification = () => {
     setNotificationQueue((queue) => queue.slice(1));
   };
+
+  const invalidateNotifications = () => {
+    dispatch(apiSlice.util.invalidateTags(["Notifications"]));
+  };
+
+  useEffect(() => {
+    prefetchCriticalAdminData(dispatch);
+    prefetchAdminRouteChunksWhenIdle();
+    unlockNotificationSound();
+  }, [dispatch]);
 
   useEffect(() => {
     let wasMobile = window.innerWidth <= 900;
@@ -92,7 +107,6 @@ function AdminLayout({ children }) {
   }, [isMobile, sidebarOpen]);
 
   useEffect(() => {
-    const userId = user?._id || user?.id;
     if (!userId || !token) {
       return;
     }
@@ -130,6 +144,7 @@ function AdminLayout({ children }) {
         },
       ]);
       dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+      invalidateNotifications();
       playNotificationSound();
     });
 
@@ -143,6 +158,7 @@ function AdminLayout({ children }) {
         },
       ]);
       dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "NavBadges"]));
+      invalidateNotifications();
       playNotificationSound();
     });
 
@@ -163,6 +179,7 @@ function AdminLayout({ children }) {
         );
       });
       dispatch(apiSlice.util.invalidateTags(["ServiceRequest", "NavBadges"]));
+      invalidateNotifications();
     });
 
     adminSocket.on("newBusinessLead", (data) => {
@@ -175,6 +192,7 @@ function AdminLayout({ children }) {
         },
       ]);
       dispatch(apiSlice.util.invalidateTags(["Lead", "NavBadges"]));
+      invalidateNotifications();
       playNotificationSound();
     });
 
@@ -192,6 +210,7 @@ function AdminLayout({ children }) {
         },
       ]);
       dispatch(apiSlice.util.invalidateTags(["Lead", "Job", "NavBadges"]));
+      invalidateNotifications();
       playNotificationSound();
     });
 
@@ -205,11 +224,27 @@ function AdminLayout({ children }) {
         },
       ]);
       dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
+      invalidateNotifications();
+      playNotificationSound();
+    });
+
+    adminSocket.on("holdRequestPending", (data) => {
+      setNotificationQueue((queue) => [
+        ...queue,
+        {
+          type: NOTIFICATION_TYPES.HOLD_REQUEST,
+          data,
+          id: notificationId(NOTIFICATION_TYPES.HOLD_REQUEST, data),
+        },
+      ]);
+      dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
+      invalidateNotifications();
       playNotificationSound();
     });
 
     adminSocket.on("sosExpired", () => {
       dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+      invalidateNotifications();
     });
 
     adminSocket.on("sosClaimed", (data) => {
@@ -225,8 +260,10 @@ function AdminLayout({ children }) {
           )
         );
         message.info("SOS claimed by another dispatcher");
+        playNotificationSound();
       }
       dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+      invalidateNotifications();
     });
 
     adminSocket.on("sosCancelled", (data) => {
@@ -240,6 +277,7 @@ function AdminLayout({ children }) {
         )
       );
       dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+      invalidateNotifications();
     });
 
     adminSocket.on("error", (err) => {
@@ -249,12 +287,14 @@ function AdminLayout({ children }) {
           queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
         );
         dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+        invalidateNotifications();
       } else if (err?.code === "SOS_UNAVAILABLE") {
         message.error("SOS is no longer available");
         setNotificationQueue((queue) =>
           queue[0]?.type === NOTIFICATION_TYPES.SOS ? queue.slice(1) : queue
         );
         dispatch(apiSlice.util.invalidateTags(["SOS", "NavBadges"]));
+        invalidateNotifications();
       }
     });
 
@@ -267,7 +307,7 @@ function AdminLayout({ children }) {
     // every navigation, which would tear down and re-dial this socket on each
     // route change and drop any SOS / service-request event in that window.
     // It is not used inside this effect.
-  }, [user, token, dispatch]);
+  }, [userId, token, dispatch]);
 
   const handleToggleSidebar = () => {
     setSidebarOpen((open) => !open);
@@ -378,9 +418,28 @@ function AdminLayout({ children }) {
     dequeueNotification();
   };
 
+  const handleOpenHoldRequest = (holdData) => {
+    if (holdData?.job_id) {
+      navigate(`/jobs/${holdData.job_id}`);
+    } else {
+      navigate("/jobs");
+    }
+    dequeueNotification();
+    dispatch(apiSlice.util.invalidateTags(["Job", "NavBadges"]));
+  };
+
+  const handleDismissHoldRequest = () => {
+    dequeueNotification();
+  };
+
+  const socketContextValue = useMemo(
+    () => ({ socket, connected: socketConnected }),
+    [socket, socketConnected]
+  );
+
   return (
-    <AdminSocketContext.Provider value={{ socket, connected: socketConnected }}>
-    <Layout className="admin-layout">
+    <AdminSocketContext.Provider value={socketContextValue}>
+    <div className="admin-layout">
       <AdminSidebar isOpen={sidebarOpen} onNavigate={handleCloseSidebar} />
       {isMobile && sidebarOpen && (
         <button
@@ -390,17 +449,17 @@ function AdminLayout({ children }) {
           onClick={handleCloseSidebar}
         />
       )}
-      <Layout
+      <div
         className={`admin-layout-content${sidebarOpen ? "" : " content-sidebar-collapsed"}`}
       >
         <AdminTopBar
           onToggleSidebar={handleToggleSidebar}
           isSidebarOpen={sidebarOpen}
         />
-        <Content className="admin-layout-main">
-          {children}
-        </Content>
-      </Layout>
+        <div className="admin-layout-main">
+          <Outlet />
+        </div>
+      </div>
 
       {activeNotification?.type === NOTIFICATION_TYPES.SOS && (
         <SOSNotification
@@ -446,7 +505,16 @@ function AdminLayout({ children }) {
           onDismiss={handleDismissTechnicianJob}
         />
       )}
-    </Layout>
+
+      {activeNotification?.type === NOTIFICATION_TYPES.HOLD_REQUEST && (
+        <HoldRequestNotification
+          holdData={activeNotification.data}
+          queueCount={queueCount}
+          onOpenJob={() => handleOpenHoldRequest(activeNotification.data)}
+          onDismiss={handleDismissHoldRequest}
+        />
+      )}
+    </div>
     </AdminSocketContext.Provider>
   );
 }

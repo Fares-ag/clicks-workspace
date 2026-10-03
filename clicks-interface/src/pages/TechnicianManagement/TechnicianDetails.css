@@ -571,3 +571,26 @@
   padding: 12px 8px;
   border-bottom: 1px solid var(--color-border);
 }
+
+/* Header actions: activity-log shortcut sits next to the status pill. */
+.tech-details-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tech-details-logs-btn {
+  background: #fff;
+  border: 1px solid var(--color-input-border, #d0d5dd);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  color: #344054;
+  cursor: pointer;
+}
+
+.tech-details-logs-btn:hover {
+  background: #f9fafb;
+}

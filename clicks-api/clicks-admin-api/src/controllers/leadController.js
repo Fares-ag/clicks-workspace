@@ -3,10 +3,13 @@ const Lead = require("../models/Lead");
 
 const OPEN_LEAD_STATUSES =
   Lead.OPEN_LEAD_STATUSES || ["new", "contacted", "qualified"];
+const CONVERTIBLE_LEAD_STATUSES =
+  Lead.CONVERTIBLE_LEAD_STATUSES || [...OPEN_LEAD_STATUSES, "lost"];
 const { createJobRecord } = require("../../../clicks-shared/services/createJobRecord");
 const { normalizePhoneE164 } = require("../../../clicks-shared/utils/phone");
 const { buildPrefixSearchFilter, computeLeadSearchFields } = require("../../../clicks-shared/utils/searchFields");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
+const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
 const { computeChanges, recordAudit } = require("../utils/auditLog");
 
 function mapLead(doc) {
@@ -103,26 +106,30 @@ async function getLeads(req, res) {
     }
 
     const hasFilter = Boolean(search || status || openOnly || businessPortal);
-    const [docs, total, openCount] = await Promise.all([
-      Lead.find(filter)
-        .populate("source", "mainSourceName")
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .lean(),
-      hasFilter
-        ? cachedCount(Lead, filter, { ttlMs: 15000, key: `leads:${JSON.stringify(filter)}` })
-        : page === 1
-          ? Lead.estimatedDocumentCount()
-          : cachedCount(Lead, filter, { ttlMs: 15000, key: "leads_unfiltered" }),
-      cachedCount(Lead, { status: { $in: OPEN_LEAD_STATUSES } }, { ttlMs: 30000, key: "leads_open" }),
-    ]);
+    const cacheKey = `clicks:admin:payload:leads:${page}:${limit}:${status || ""}|${search}|${openOnly ? "1" : ""}|${businessPortal ? "1" : ""}`;
+    const payload = await getCachedPayload(cacheKey, 20000, async () => {
+      const [docs, total, openCount] = await Promise.all([
+        Lead.find(filter)
+          .populate("source", "mainSourceName")
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .lean(),
+        hasFilter
+          ? cachedCount(Lead, filter, { ttlMs: 15000, key: `leads:${JSON.stringify(filter)}` })
+          : page === 1
+            ? Lead.estimatedDocumentCount()
+            : cachedCount(Lead, filter, { ttlMs: 15000, key: "leads_unfiltered" }),
+        cachedCount(Lead, { status: { $in: OPEN_LEAD_STATUSES } }, { ttlMs: 30000, key: "leads_open" }),
+      ]);
 
-    res.json({
-      leads: docs.map(mapLead),
-      pagination: { page, limit, total },
-      openCount,
+      return {
+        leads: docs.map(mapLead),
+        pagination: { page, limit, total },
+        openCount,
+      };
     });
+    res.json(payload);
   } catch (err) {
     res.status(500).json({
       message: "Failed to fetch leads",
@@ -315,8 +322,12 @@ async function convertLead(req, res) {
     if (lead.status === "converted") {
       return res.status(400).json({ message: "Lead is already converted" });
     }
-    if (lead.status === "lost") {
-      return res.status(400).json({ message: "Cannot convert a lost lead" });
+    // Lost leads are convertible again (customer came back) — see
+    // CONVERTIBLE_LEAD_STATUSES. Only converted / already-linked leads block.
+    if (!CONVERTIBLE_LEAD_STATUSES.includes(lead.status)) {
+      return res.status(400).json({
+        message: `Cannot convert a ${lead.status} lead`,
+      });
     }
     if (lead.job_id) {
       return res.status(400).json({ message: "Lead is already linked to a job" });
@@ -379,6 +390,7 @@ async function convertLead(req, res) {
     }
 
     const priorStatus = lead.status;
+    const priorLostReason = lead.lost_reason || "";
     const { populatedJob } = await createJobRecord(body, {
       notifyTechnicianFn: notifyTechnician,
     });
@@ -387,17 +399,27 @@ async function convertLead(req, res) {
     lead.job_id = populatedJob._id;
     lead.converted_at = new Date();
     lead.converted_by = req.user?.id || req.user?._id || null;
+    if (priorStatus === "lost") {
+      // Job created = lead reopened via conversion; the lost reason no longer applies.
+      lead.lost_reason = "";
+    }
     await lead.save();
+
+    const changes = {
+      status: { from: priorStatus, to: "converted" },
+      job_id: { from: null, to: populatedJob._id.toString() },
+    };
+    if (priorStatus === "lost") {
+      changes.priorStatus = "lost";
+      changes.lost_reason = { from: priorLostReason, to: "" };
+    }
 
     await recordAudit({
       req,
       action: "lead.convert",
       entityType: "lead",
       entityId: lead._id,
-      changes: {
-        status: { from: priorStatus, to: "converted" },
-        job_id: { from: null, to: populatedJob._id.toString() },
-      },
+      changes,
     });
 
     res.status(201).json({

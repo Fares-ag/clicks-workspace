@@ -1,34 +1,19 @@
 const express = require("express");
-const rateLimit = require("express-rate-limit");
 const router = express.Router();
 const technicianController = require("../controllers/technicianController");
 const { authenticate } = require("../middleware/auth");
 const { requireApprovedTechnician } = require("../middleware/requireApprovedTechnician");
-const { authLimiter, otpLimiter } = require("../middleware/rateLimiter");
+const {
+  authLimiter,
+  otpLimiter,
+  applicationStatusLimiter,
+} = require("../middleware/rateLimiter");
 const upload = require("../middleware/upload");
 
 // Operational endpoints additionally require a still-approved, still-active
 // account, so a rejected or deactivated technician cannot keep working off a
 // token that was issued before the change.
 const approvedTechnician = [authenticate(["technician"]), requireApprovedTechnician];
-
-/**
- * The pending-application screen polls /application-status every 15s with no
- * token (4 req/min per device, and Qatari mobile IPs are heavily NATed), so
- * authLimiter's 10-per-15-minutes would 429 legitimate applicants. This is
- * still low enough that walking the 8-digit Qatari number space from an IP
- * would take years — and the handler now answers with the status alone.
- */
-const applicationStatusLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 600,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: "Too many requests from this IP. Please try again later.",
-  },
-  skip: () => process.env.NODE_ENV === "test",
-});
 
 router.post("/login", authLimiter, technicianController.login);
 router.post("/forgot-password", authLimiter, technicianController.forgotPassword);

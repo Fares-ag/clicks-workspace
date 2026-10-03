@@ -17,7 +17,11 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 /// Figma Settings: avatar, profile edit, vehicle, language, contact, delete.
 class SettingsTab extends StatefulWidget {
-  const SettingsTab({super.key});
+  const SettingsTab({super.key, this.visible = false});
+
+  /// [MainShell] only mounts this after the tab is opened, and keeps it alive.
+  /// Profile/vehicle fetches wait until it is actually shown.
+  final bool visible;
 
   @override
   State<SettingsTab> createState() => _SettingsTabState();
@@ -25,6 +29,7 @@ class SettingsTab extends StatefulWidget {
 
 class _SettingsTabState extends State<SettingsTab> {
   bool _loading = true;
+  bool _started = false;
   String? _error;
   Map<String, dynamic>? _profile;
   Map<String, dynamic>? _vehicle;
@@ -33,10 +38,17 @@ class _SettingsTabState extends State<SettingsTab> {
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.visible) _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible && !_started) _load();
   }
 
   Future<void> _load() async {
+    _started = true;
     setState(() {
       _loading = true;
       _error = null;

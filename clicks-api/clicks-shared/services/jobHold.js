@@ -32,6 +32,11 @@ function parseScheduledReturnAt(value) {
   return d;
 }
 
+function sameId(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
 /**
  * Put a job on hold. Requires a non-empty reason.
  * Does not change technician presence — caller should resolve after save.
@@ -46,7 +51,7 @@ async function putJobOnHold(job, { reason, scheduledReturnAt, heldBy } = {}) {
       "Cannot put a paid job on hold. Complete the job or request a refund."
     );
   }
-  if (heldBy !== "admin") {
+  if (heldBy !== "admin" && heldBy !== "technician") {
     throw holdError("Only dispatch can put a job on hold");
   }
 
@@ -61,6 +66,106 @@ async function putJobOnHold(job, { reason, scheduledReturnAt, heldBy } = {}) {
   job.resumed_at = null;
   await job.save();
   return job;
+}
+
+/**
+ * Technician requests hold — job status unchanged until admin approves.
+ */
+async function requestJobHold(job, { reason, technicianId } = {}) {
+  const holdReason = validateHoldReason(reason);
+  if (!HOLDABLE_JOB_STATUSES.includes(job.job_status)) {
+    throw holdError(`Cannot request hold from status: ${job.job_status}`);
+  }
+  if (job.payment_status === "paid") {
+    throw holdError(
+      "Cannot request hold on a paid job. Complete the job or contact dispatch."
+    );
+  }
+  if (!sameId(job.assignedTechnician, technicianId)) {
+    throw holdError("Forbidden", 403);
+  }
+  if (job.hold_request?.status === "pending") {
+    throw holdError("A hold request is already pending for this job", 409);
+  }
+
+  job.hold_request = {
+    status: "pending",
+    reason: holdReason,
+    requested_at: new Date(),
+    requested_by: technicianId,
+    decided_at: null,
+    decided_by: null,
+    decision_note: "",
+  };
+  await job.save();
+  return job;
+}
+
+/**
+ * Admin approves a pending hold request — applies on_hold using the tech reason.
+ */
+async function approveHoldRequest(job, { adminId, scheduledReturnAt } = {}) {
+  if (job.hold_request?.status !== "pending") {
+    throw holdError("No pending hold request to approve", 409);
+  }
+  const reason = job.hold_request.reason;
+  await putJobOnHold(job, {
+    reason,
+    scheduledReturnAt,
+    heldBy: "technician",
+  });
+  job.hold_request.status = "approved";
+  job.hold_request.decided_at = new Date();
+  job.hold_request.decided_by = adminId;
+  await job.save();
+  return job;
+}
+
+/**
+ * Admin rejects a pending hold request — job stays on fulfill path.
+ */
+async function rejectHoldRequest(job, { adminId, note } = {}) {
+  if (job.hold_request?.status !== "pending") {
+    throw holdError("No pending hold request to reject", 409);
+  }
+  job.hold_request.status = "rejected";
+  job.hold_request.decided_at = new Date();
+  job.hold_request.decided_by = adminId;
+  job.hold_request.decision_note = String(note ?? "").trim();
+  await job.save();
+  return job;
+}
+
+/**
+ * Technician cancels their own pending hold request.
+ */
+async function cancelHoldRequest(job, { technicianId } = {}) {
+  if (job.hold_request?.status !== "pending") {
+    throw holdError("No pending hold request to cancel", 409);
+  }
+  if (!sameId(job.assignedTechnician, technicianId)) {
+    throw holdError("Forbidden", 403);
+  }
+  job.hold_request = {
+    status: null,
+    reason: "",
+    requested_at: null,
+    requested_by: null,
+    decided_at: null,
+    decided_by: null,
+    decision_note: "",
+  };
+  await job.save();
+  return job;
+}
+
+/** Clear pending request when admin puts job on hold directly. */
+function clearPendingHoldRequest(job, { adminId } = {}) {
+  if (job.hold_request?.status !== "pending") return;
+  job.hold_request.status = "approved";
+  job.hold_request.decided_at = new Date();
+  job.hold_request.decided_by = adminId;
+  job.hold_request.decision_note = "Superseded by direct hold";
 }
 
 /**
@@ -101,6 +206,11 @@ module.exports = {
   validateHoldReason,
   parseScheduledReturnAt,
   putJobOnHold,
+  requestJobHold,
+  approveHoldRequest,
+  rejectHoldRequest,
+  cancelHoldRequest,
+  clearPendingHoldRequest,
   resumeJobFromHold,
   resolveTechnicianStatusAfterJob,
   resolveTechnicianPresenceAfterHoldChange,

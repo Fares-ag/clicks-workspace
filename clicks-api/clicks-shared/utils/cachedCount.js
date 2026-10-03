@@ -1,8 +1,19 @@
 /**
- * In-process count cache for display-only dashboard/list totals.
+ * Count cache for display-only dashboard/list totals.
+ *
+ * Soft launch (REDIS_URL unset): in-process Map, same as before.
+ * Growth (REDIS_URL set): L1 process Map + L2 Redis so admin-api instances
+ * share badge totals. Redis errors fall back to L1/Mongo — counts are not
+ * a source of truth.
+ *
  * Slight cross-instance drift is acceptable for dashboard badge numbers.
  */
+const crypto = require("crypto");
+const { getRedisClient } = require("./redisClient");
+
 const cache = new Map();
+const COUNT_KEY_PREFIX = "clicks:shared:count:";
+const REDIS_OP_TIMEOUT_MS = 1000;
 
 /**
  * JSON.stringify serialises a RegExp as "{}", so every prefix search
@@ -25,6 +36,11 @@ function stableKey(model, query, explicitKey) {
   return `${model.modelName}:${serialized}`;
 }
 
+function redisCountKey(stable) {
+  const digest = crypto.createHash("sha256").update(stable).digest("hex");
+  return `${COUNT_KEY_PREFIX}${digest}`;
+}
+
 // Keys embed user-supplied search terms, so entries must not accumulate for the
 // lifetime of the process. Expired entries are dropped on write and, if the map
 // is still at the cap, the oldest inserts go (Map iterates in insertion order).
@@ -41,6 +57,67 @@ function evict(now) {
   }
 }
 
+function setMemory(cacheKey, value, ttlMs, now) {
+  if (cache.size >= MAX_ENTRIES) {
+    evict(now);
+  }
+  cache.set(cacheKey, { value, expiresAt: now + ttlMs });
+}
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function readRedisCount(redisKey) {
+  const redisClient = await getRedisClient();
+  if (!redisClient) return null;
+  if (redisClient.isOpen === false) return null;
+  try {
+    const raw = await withTimeout(
+      redisClient.get(redisKey),
+      REDIS_OP_TIMEOUT_MS,
+      "redis get timeout"
+    );
+    if (raw == null || raw === "") return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        msg: "redis_count_get_failed",
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+    return null;
+  }
+}
+
+async function writeRedisCount(redisKey, value, ttlMs) {
+  const redisClient = await getRedisClient();
+  if (!redisClient) return;
+  if (redisClient.isOpen === false) return;
+  try {
+    await withTimeout(
+      redisClient.set(redisKey, String(value), { PX: ttlMs }),
+      REDIS_OP_TIMEOUT_MS,
+      "redis set timeout"
+    );
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        msg: "redis_count_set_failed",
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+  }
+}
+
 async function cachedCount(model, query = {}, { ttlMs = 30000, key } = {}) {
   const cacheKey = stableKey(model, query, key);
   const now = Date.now();
@@ -48,11 +125,17 @@ async function cachedCount(model, query = {}, { ttlMs = 30000, key } = {}) {
   if (hit && hit.expiresAt > now) {
     return hit.value;
   }
-  const value = await model.countDocuments(query);
-  if (cache.size >= MAX_ENTRIES) {
-    evict(now);
+
+  const redisKey = redisCountKey(cacheKey);
+  const redisValue = await readRedisCount(redisKey);
+  if (redisValue != null) {
+    setMemory(cacheKey, redisValue, ttlMs, now);
+    return redisValue;
   }
-  cache.set(cacheKey, { value, expiresAt: now + ttlMs });
+
+  const value = await model.countDocuments(query);
+  setMemory(cacheKey, value, ttlMs, now);
+  await writeRedisCount(redisKey, value, ttlMs);
   return value;
 }
 
@@ -60,4 +143,4 @@ function clearCountCache() {
   cache.clear();
 }
 
-module.exports = { cachedCount, clearCountCache, stableKey };
+module.exports = { cachedCount, clearCountCache, stableKey, redisCountKey };

@@ -54,6 +54,7 @@ function attachStubNotifyHandlers(app) {
   app.set("notifyAdminBusinessJob", noopAsync);
   app.set("notifyAdminBusinessLead", noopAsync);
   app.set("notifyAdminTechnicianJob", noopAsync);
+  app.set("notifyAdminHoldRequest", noopAsync);
   app.set("notifyAdminServiceRequest", noopAsync);
   app.set("notifyAdminServiceRequestCancelled", noopAsync);
 }
@@ -147,6 +148,7 @@ function wireSosNotifyHandlers(app, sosHandlers) {
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminBusinessLead", sosHandlers.notifyAdminBusinessLead);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);
+  app.set("notifyAdminHoldRequest", sosHandlers.notifyAdminHoldRequest);
   app.set("notifyAdminServiceRequest", sosHandlers.notifyAdminServiceRequest);
   app.set(
     "notifyAdminServiceRequestCancelled",

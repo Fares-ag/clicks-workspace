@@ -7,6 +7,7 @@ import 'package:clicks_technician/core/helper/app_snack_bars.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
+import 'package:clicks_technician/features/home/ui/view/open_active_job_screen.dart';
 import 'package:clicks_technician/features/welcome/logic/services/welcome_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -138,6 +139,7 @@ class _AddJobScreenState extends State<AddJobScreen> {
     if (ok) {
       AppSnackBars.successSnackBar('Job created — you can start now');
       Navigator.pop(context);
+      await openActiveJobScreen(context, widget.cubit);
     } else {
       AppSnackBars.errorSnackBar(
         widget.cubit.lastActionError ?? 'Failed to create job',
