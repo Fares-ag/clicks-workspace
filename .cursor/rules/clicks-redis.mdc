@@ -1,0 +1,44 @@
+---
+description: Clicks monorepo Redis architecture and adoption patterns (use with redis-development skill)
+globs: clicks-api/**/*
+alwaysApply: false
+---
+
+# Clicks Redis
+
+Apply the **redis-development** skill and Redis plugin rules when touching caching, sockets, rate limits, or shared state in `clicks-api`.
+
+## Current state
+
+| Area | Today | Growth target |
+|------|-------|---------------|
+| Shared client | `clicks-shared/utils/redisClient.js` singleton (timeouts, ping, duplicate for subscriber) | Reuse; never `createClient` per request |
+| Socket.IO fanout | Opt-in via `REDIS_URL` in `clicks-customer-tech-api` (`utils/socketAdapter.js` uses shared client + `@socket.io/redis-adapter`) | Required before `TECH_API_INSTANCES > 1` |
+| Health | Both APIs ping Redis when `REDIS_URL` set | 503 if configured but unreachable |
+| Dashboard counts | `cachedCount.js`: in-process Map + Redis L2 (`clicks:shared:count:<sha256>`) when `REDIS_URL` is set | Set `REDIS_URL` on admin-api when it scales |
+| Dashboard series | `payloadCache.js` L1 + Redis L2 (`clicks:admin:payload:*`) | Keep TTLs 30–60s; do not recompute revenue on the request path |
+| Rate limits | `express-rate-limit` MemoryStore when `REDIS_URL` unset; Redis `INCR` store (`clicks:{admin|tech}:rl:{name}:`) when set | Shared windows when APIs scale |
+| Socket presence | Per-user rooms in `sosSocketService.js` (Redis-adapter safe for emits) | Sticky sessions still required; offline timers/batches not yet in Redis |
+
+**Soft launch:** single VPS, PM2×1, **no** `REDIS_URL`. See `clicks-api/INFRASTRUCTURE.md` and `SOFT_LAUNCH.md`.
+
+## Conventions
+
+- **Key prefix:** `clicks:` then service (`tech:`, `admin:`, `shared:`) then domain, e.g. `clicks:shared:count:<hash>`.
+- **TTL:** match existing TTLs (10–30s for nav badges, 30s for list totals) unless product requires fresher data.
+- **Graceful fallback:** if `REDIS_URL` unset, keep in-process behavior (soft launch). Never silently degrade Redis adapter to memory when `REDIS_URL` is set. Count cache may fall back to L1/Mongo on a Redis blip so dashboards still render.
+- **Connection pooling:** reuse `clicks-shared/utils/redisClient.js`; do not open a new client per request.
+- **Do not cache:** auth tokens, PII payloads, or finance audit rows without an explicit retention policy.
+
+## Where to add Redis next (priority)
+
+1. **Production scale gate:** set `REDIS_URL` on customer-tech-api + sticky nginx → enable multi-instance sockets.
+2. **Shared count cache:** done. Set `REDIS_URL` on admin-api when it scales.
+3. **Rate limit store:** done. Set `REDIS_URL` when either API runs >1 instance so login/OTP limits are not per-process.
+4. **Socket shared state:** move offline timers / `adminLocationBatch` to Redis hashes or streams only if sticky sessions prove insufficient.
+
+## Out of scope for Redis
+
+- Flutter apps (`clicks-technician`, `clicks-user`, etc.) — client-side only; no direct Redis.
+- `clicks-interface` — consumes REST/WebSocket; cache via API layer or RTK Query, not Redis from the browser.
+- MongoDB remains source of truth for jobs, leads, SOS, and notifications.

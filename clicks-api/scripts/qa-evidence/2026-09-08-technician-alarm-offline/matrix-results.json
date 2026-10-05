@@ -1,0 +1,134 @@
+{
+  "ran": "2026-09-08T18:19:49.134Z",
+  "passed": 18,
+  "failed": 0,
+  "warned": 0,
+  "results": [
+    {
+      "id": "AL-1/AL-2 api",
+      "desc": "Admin job assigned successfully",
+      "ok": true,
+      "detail": "6aa0513f310607eb7eb07487",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-1/AL-2 api",
+      "desc": "Accept returns 200",
+      "ok": true,
+      "detail": "200",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-5",
+      "desc": "Session after accept has no 'assigned' jobs (alarm must not restart on session poll)",
+      "ok": true,
+      "detail": "status=accepted assigned=false",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-5",
+      "desc": "Session poll after 30s still has no assigned jobs",
+      "ok": true,
+      "detail": "assigned=false",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-6",
+      "desc": "Re-assign (new job) triggers fresh API job",
+      "ok": true,
+      "detail": "6aa05167310607eb7eb074a2",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-3 api",
+      "desc": "Job B assigned while A en_route",
+      "ok": true,
+      "detail": "6aa05176310607eb7eb074b5",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-3 api",
+      "desc": "Accept Job B returns 200",
+      "ok": true,
+      "detail": "200",
+      "mark": "PASS"
+    },
+    {
+      "id": "AL-3",
+      "desc": "No assigned jobs remain after accepting B",
+      "ok": true,
+      "detail": "assigned=false",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-1 api",
+      "desc": "Job assigned for OFF-1",
+      "ok": true,
+      "detail": "6aa05185310607eb7eb074c8",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-8",
+      "desc": "API blocks offline with active accepted job",
+      "ok": true,
+      "detail": "Cannot go Offline while you have an active job",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-4",
+      "desc": "API blocks offline with 2 accepted jobs",
+      "ok": true,
+      "detail": "Cannot go Offline while you have an active job",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-5 api",
+      "desc": "Admin holds Job A → on_hold",
+      "ok": true,
+      "detail": "on_hold",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-5",
+      "desc": "API still blocks offline (Job B is accepted)",
+      "ok": true,
+      "detail": "Cannot go Offline while you have an active job",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-3",
+      "desc": "API allows offline when only job is on_hold",
+      "ok": true,
+      "detail": "Status updated",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-7 api",
+      "desc": "Session has no active jobs for clean offline test",
+      "ok": true,
+      "detail": "active_jobs=0",
+      "mark": "PASS"
+    },
+    {
+      "id": "OFF-7",
+      "desc": "API allows offline with no active jobs",
+      "ok": true,
+      "detail": "Status updated",
+      "mark": "PASS"
+    },
+    {
+      "id": "R-1/R-2 api",
+      "desc": "Assign job for regression check",
+      "ok": true,
+      "detail": "6aa051b5310607eb7eb07512",
+      "mark": "PASS"
+    },
+    {
+      "id": "R-3",
+      "desc": "Both jobs accepted (MA1 multi-accept)",
+      "ok": true,
+      "detail": "{\"6aa051bd310607eb7eb07519\":\"accepted\",\"6aa051b5310607eb7eb07512\":\"accepted\"}",
+      "mark": "PASS"
+    }
+  ]
+}

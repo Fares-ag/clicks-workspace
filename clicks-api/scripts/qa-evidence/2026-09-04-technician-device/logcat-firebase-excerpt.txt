@@ -1,0 +1,22 @@
+09-04 18:25:58.134 I/FirebaseApp( 5148): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:25:58.136 I/FirebaseInitProvider( 5148): FirebaseApp initialization successful
+09-04 18:25:58.519 I/FLTFireMsgService( 5148): FlutterFirebaseMessagingBackgroundService started!
+09-04 18:28:44.081 I/FirebaseApp( 5943): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:28:44.085 I/FirebaseInitProvider( 5943): FirebaseApp initialization successful
+09-04 18:28:44.545 I/FLTFireMsgService( 5943): FlutterFirebaseMessagingBackgroundService started!
+09-04 18:32:11.738 I/FirebaseApp( 6593): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:32:11.747 I/FirebaseInitProvider( 6593): FirebaseApp initialization successful
+09-04 18:32:12.021 I/FLTFireMsgService( 6593): FlutterFirebaseMessagingBackgroundService started!
+09-04 18:35:38.252 I/FirebaseApp( 7502): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:35:38.258 I/FirebaseInitProvider( 7502): FirebaseApp initialization successful
+09-04 18:37:00.641 I/FirebaseApp( 7790): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:37:00.644 I/FirebaseInitProvider( 7790): FirebaseApp initialization successful
+09-04 18:37:00.847 I/FLTFireMsgService( 7790): FlutterFirebaseMessagingBackgroundService started!
+09-04 18:39:35.587 D/FLTFireMsgReceiver( 7790): broadcast received for message
+09-04 18:47:14.978 I/FirebaseApp( 9607): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:47:14.998 I/FirebaseInitProvider( 9607): FirebaseApp initialization successful
+09-04 18:54:01.499 I/FirebaseApp(10766): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:54:01.513 I/FirebaseInitProvider(10766): FirebaseApp initialization successful
+09-04 18:56:40.734 I/FirebaseApp(11349): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+09-04 18:56:40.736 I/FirebaseInitProvider(11349): FirebaseApp initialization successful
+09-04 18:56:41.030 I/FLTFireMsgService(11349): FlutterFirebaseMessagingBackgroundService started!
