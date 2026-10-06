@@ -6,7 +6,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useAdminRole } from "../../utils/adminRoles";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
-import JobFilterDropdown from "../../components/JobFilterDropdown.jsx";
+import JobFilterDropdown, { EMPTY_JOB_FILTERS } from "../../components/JobFilterDropdown.jsx";
 import JobStatsStrip from "../../components/JobStatsStrip.jsx";
 import EditJobModal from "../../components/EditJobModal.jsx";
 import JobStatusPill from "../../components/JobStatusPill.jsx";
@@ -194,7 +194,7 @@ function Jobs() {
   const debouncedSearch = useDebouncedValue(searchInput, 400);
   const filterButtonRef = useRef(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [filters, setFilters] = useState({ status: "" });
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_JOB_FILTERS }));
   const [activeStatFilter, setActiveStatFilter] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -215,6 +215,14 @@ function Jobs() {
       limit: 40,
       search: debouncedSearch,
       technician: filters.technician || undefined,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+      timeFrom: filters.timeFrom || undefined,
+      timeTo: filters.timeTo || undefined,
+      paymentStatus: filters.paymentStatus || undefined,
+      jobType: filters.jobType || undefined,
+      source: filters.source || undefined,
+      jobOrigin: filters.jobOrigin || undefined,
     };
 
     if (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") {
@@ -228,7 +236,11 @@ function Jobs() {
     }
 
     return params;
-  }, [page, debouncedSearch, filters.technician, filters.status, activeStatFilter]);
+  }, [page, debouncedSearch, filters, activeStatFilter]);
+
+  const activeFilterCount = useMemo(() => {
+    return Object.entries(filters).filter(([, v]) => String(v || "").trim()).length;
+  }, [filters]);
 
   const { data, isLoading, isFetching, refetch } = useGetJobsQuery(jobQueryParams);
   const jobs = data?.jobs || [];
@@ -396,9 +408,15 @@ function Jobs() {
 
   const handleStatFilterChange = useCallback((filter) => {
     setActiveStatFilter(filter);
-    setFilters({ status: "", technician: filters.technician || "" });
+    setFilters((prev) => ({ ...prev, status: "" }));
     setPage(1);
-  }, [filters.technician]);
+  }, []);
+
+  const handleFilterClear = useCallback(() => {
+    setFilters({ ...EMPTY_JOB_FILTERS });
+    setActiveStatFilter(null);
+    setPage(1);
+  }, []);
 
   return (
     <div className="jobs-container">
@@ -427,11 +445,16 @@ function Jobs() {
         onSearch={handleSearch}
         onFilter={() => setFilterOpen(!filterOpen)}
         filterButtonRef={filterButtonRef}
+        filterButtonText={
+          activeFilterCount > 0 ? `Filter (${activeFilterCount})` : "Filter"
+        }
         filterDropdown={
           <JobFilterDropdown
             open={filterOpen}
             onClose={() => setFilterOpen(false)}
             onApply={handleFilterApply}
+            onClear={handleFilterClear}
+            initialFilters={filters}
             anchorEl={filterButtonRef.current}
           />
         }

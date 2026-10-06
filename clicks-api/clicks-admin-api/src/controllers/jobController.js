@@ -23,9 +23,7 @@ const {
   rejectHoldRequest,
   clearPendingHoldRequest,
 } = require("../../../clicks-shared/services/jobHold");
-const { TECH_BUSY_JOB_STATUSES, ONGOING_JOB_STATUSES, ADMIN_COMPLETABLE_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
-const { COMPLETED } = require("../../../clicks-shared/utils/dashboardRevenue");
-const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
+const { TECH_BUSY_JOB_STATUSES, ADMIN_COMPLETABLE_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
 const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
@@ -39,6 +37,7 @@ const {
   toId,
 } = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
+const { buildAdminJobListFilters } = require("../../../clicks-shared/utils/adminJobListFilters");
 const { pick, str } = require("../../../clicks-shared/utils/coerce");
 const {
   computeJobChanges,
@@ -80,14 +79,22 @@ const ADMIN_EDITABLE_JOB_FIELDS = [
 // GET /api/jobs
 async function getJobs(req, res) {
   try {
-    const { page = 1, limit = 10, search = "", status, businessPortal, completedToday } = req.query;
+    const { page = 1, limit = 10, search = "" } = req.query;
     const limitNum = capAdminLimit(limit, 10, 100);
-    const filterCompletedToday =
-      completedToday === "1" || completedToday === "true";
-    
-    // Build search query
-    let query = {};
-    
+
+    const needsTechRoster = Boolean(
+      str(req.query.technician).trim() || str(req.query.technicianId).trim()
+    );
+    const techRosterForFilter = needsTechRoster ? await getSlimTechnicianRoster() : [];
+
+    const {
+      query: filterQuery,
+      filterKeyParts,
+      hasListFilters,
+    } = buildAdminJobListFilters(req.query, { techRoster: techRosterForFilter });
+
+    let query = { ...filterQuery };
+
     if (search) {
       // TODO: full free-text search on issue/location → Atlas Search
       const searchFilter = buildPrefixSearchFilter(search, {
@@ -96,44 +103,22 @@ async function getJobs(req, res) {
         businessNameField: "businessName",
       });
       if (searchFilter) {
-        // The list now shows job_reference as the job's identity, so it has to
-        // be searchable. buildPrefixSearchFilter short-circuits to a phone
-        // prefix as soon as the term holds 4+ digits — which a numeric Job ID
-        // always does — so the reference is ORed back in rather than replaced.
         const term = str(search, { maxLength: 64 }).trim();
         const clauses = searchFilter.$or ? [...searchFilter.$or] : [searchFilter];
         if (term) {
           clauses.push({ job_reference: new RegExp(`^${escapeRegex(term)}`, "i") });
         }
-        query = { ...query, $or: clauses };
+        const searchClause = { $or: clauses };
+        if (Object.keys(query).length) {
+          query = { $and: [query, searchClause] };
+        } else {
+          query = searchClause;
+        }
       }
     }
-    
-    // Add status filter
-    if (filterCompletedToday) {
-      query.job_status = { $in: COMPLETED };
-      query.completed_at = {
-        $gte: startOfQatarDay(),
-        $lte: endOfQatarDay(),
-      };
-    } else if (status === "ongoing") {
-      query.job_status = { $in: ONGOING_JOB_STATUSES };
-    } else if (status) {
-      query.job_status = status;
-    }
 
-    if (businessPortal === "1" || businessPortal === "true") {
-      query.business_id = { $exists: true, $ne: null };
-    }
-
-    const hasFilter = Boolean(
-      search ||
-        status ||
-        filterCompletedToday ||
-        businessPortal === "1" ||
-        businessPortal === "true"
-    );
-    const countKey = `admin_jobs:${str(search)}|${str(status)}|${filterCompletedToday ? "1" : ""}|${str(businessPortal)}`;
+    const hasFilter = Boolean(str(search).trim() || hasListFilters);
+    const countKey = `admin_jobs:${str(search)}|${filterKeyParts.join(",")}`;
     const skip = (page - 1) * limitNum;
     const cacheKey = `clicks:admin:payload:job-list:${page}:${limitNum}:${countKey}`;
 

@@ -3,23 +3,42 @@ import { apiSlice } from "./apiSlice";
 export const jobApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getJobs: builder.query({
-      query: ({ page = 1, limit = 10, search = "", status, technician, businessPortal, completedToday } = {}) => {
-        let url = `/jobs?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`;
-        if (status) {
-          url += `&status=${encodeURIComponent(status)}`;
-        }
-        if (technician) {
-          url += `&technician=${encodeURIComponent(technician)}`;
-        }
-        if (businessPortal) {
-          url += `&businessPortal=true`;
-        }
-        if (completedToday) {
-          url += `&completedToday=1`;
-        }
+      query: ({
+        page = 1,
+        limit = 10,
+        search = "",
+        status,
+        technician,
+        businessPortal,
+        completedToday,
+        dateFrom,
+        dateTo,
+        timeFrom,
+        timeTo,
+        paymentStatus,
+        jobType,
+        source,
+        jobOrigin,
+      } = {}) => {
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(limit));
+        params.set("search", search || "");
+        if (status) params.set("status", status);
+        if (technician) params.set("technician", technician);
+        if (businessPortal) params.set("businessPortal", "true");
+        if (completedToday) params.set("completedToday", "1");
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
+        if (timeFrom) params.set("timeFrom", timeFrom);
+        if (timeTo) params.set("timeTo", timeTo);
+        if (paymentStatus) params.set("paymentStatus", paymentStatus);
+        if (jobType) params.set("jobType", jobType);
+        if (source) params.set("source", source);
+        if (jobOrigin) params.set("jobOrigin", jobOrigin);
         return {
-          url,
-          method: "GET"
+          url: `/jobs?${params.toString()}`,
+          method: "GET",
         };
       },
       providesTags: ["Job"],
