@@ -38,6 +38,7 @@ const {
 } = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { buildAdminJobListFilters } = require("../../../clicks-shared/utils/adminJobListFilters");
+const { reassignJob: reassignJobRecord } = require("../../../clicks-shared/services/jobReassign");
 const { pick, str } = require("../../../clicks-shared/utils/coerce");
 const {
   computeJobChanges,
@@ -273,6 +274,9 @@ async function getJobById(req, res) {
       .populate("created_by_technician", "firstName lastName")
       .populate("source", "mainSourceName")
       .populate("lead_id", "internalNotes")
+      .populate("reassignment_history.from_technician", "firstName lastName")
+      .populate("reassignment_history.to_technician", "firstName lastName")
+      .populate("reassignment_history.reassigned_by", "firstName lastName email")
       .lean();
 
     let archived = false;
@@ -357,6 +361,22 @@ async function updateJob(req, res) {
       return res
         .status(400)
         .json({ message: "Cannot change location on a completed job" });
+    }
+
+    const priorTechId = currentJob.assignedTechnician
+      ? String(currentJob.assignedTechnician._id || currentJob.assignedTechnician)
+      : "";
+    const nextTechRaw = Object.prototype.hasOwnProperty.call(req.body, "assignedTechnician")
+      ? req.body.assignedTechnician
+      : undefined;
+    if (nextTechRaw !== undefined && priorTechId) {
+      const nextTechId = nextTechRaw ? String(nextTechRaw) : "";
+      if (nextTechId !== priorTechId) {
+        return res.status(400).json({
+          message:
+            "Use POST /api/jobs/:id/reassign to move this job to another technician",
+        });
+      }
     }
 
     if (isSourceLockedJob(currentJob)) {
@@ -591,6 +611,53 @@ async function updateJob(req, res) {
       return res.status(400).json({ message: "Invalid job update", error: err.message });
     }
     res.status(500).json({ message: "Failed to update job", error: err.message });
+  }
+}
+
+// POST /api/jobs/:id/reassign
+async function reassignJob(req, res) {
+  try {
+    const technicianId = req.body?.technician_id || req.body?.technicianId;
+    const reason = req.body?.reason;
+    const reasonNote = req.body?.reason_note || req.body?.reasonNote || "";
+
+    const result = await reassignJobRecord({
+      jobId: req.params.id,
+      technicianId,
+      reason,
+      reasonNote,
+      adminId: req.user?.id || req.user?._id,
+    });
+
+    const job = await Job.findById(result.job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("reassignment_history.from_technician", "firstName lastName")
+      .populate("reassignment_history.to_technician", "firstName lastName")
+      .populate("source", "mainSourceName");
+
+    await recordAudit({
+      req,
+      action: "job.reassign",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        from_technician: serializeAuditValue(result.fromTechnicianId),
+        to_technician: serializeAuditValue(result.toTechnicianId),
+        reason: serializeAuditValue(result.reason),
+        reason_note: serializeAuditValue(result.reasonNote),
+      },
+    });
+
+    res.json({
+      message: "Job reassigned successfully",
+      job,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to reassign job",
+      error: err.message,
+    });
   }
 }
 
@@ -991,6 +1058,7 @@ module.exports = {
   createJob,
   getJobById,
   updateJob,
+  reassignJob,
   deleteJob,
   getJobRepairs,
   importJobs,

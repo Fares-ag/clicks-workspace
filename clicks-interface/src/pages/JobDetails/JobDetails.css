@@ -979,6 +979,23 @@
 }
 
 /* Reassignment History Styles */
+.job-details-reassign-btn {
+  margin-left: auto;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-primary, #0a2635);
+  background: #fff;
+  border: 1px solid var(--color-primary, #0a2635);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.job-details-reassign-btn:hover {
+  background: rgba(10, 38, 53, 0.06);
+}
+
 .reassignment-history {
   display: flex;
   flex-direction: column;

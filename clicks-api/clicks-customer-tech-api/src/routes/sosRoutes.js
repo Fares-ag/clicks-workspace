@@ -29,6 +29,30 @@ router.post("/notify-claim", authenticateInternal, async (req, res) => {
   }
 });
 
+// Previous technician unassigned (admin job reassignment)
+router.post("/notify-job-reassigned", authenticateInternal, async (req, res) => {
+  try {
+    const { job_id, previous_technician_id, reason } = req.body;
+    if (!job_id || !previous_technician_id) {
+      return res.status(400).json({
+        message: "job_id and previous_technician_id are required",
+      });
+    }
+    const notifyJobReassigned = req.app.get("notifyJobReassigned");
+    if (!notifyJobReassigned) {
+      return res.status(500).json({ message: "Socket service not initialized" });
+    }
+    await notifyJobReassigned(job_id, previous_technician_id, { reason });
+    res.json({ message: "Reassignment notified" });
+  } catch (error) {
+    console.error("Error notifying job reassignment:", error);
+    res.status(500).json({
+      message: "Failed to notify reassignment",
+      error: error.message,
+    });
+  }
+});
+
 // Notify technician endpoint (called from admin-api after job creation)
 router.post("/notify-technician", authenticateInternal, async (req, res) => {
   try {

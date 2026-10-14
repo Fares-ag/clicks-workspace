@@ -45,6 +45,7 @@ async function registerTechHealthRoutes(app, { checkRedis = false } = {}) {
 
 function attachStubNotifyHandlers(app) {
   app.set("notifyAssignedTechnician", noopAsync);
+  app.set("notifyJobReassigned", noopAsync);
   app.set("notifyCustomerTechnicianAssigned", noopAsync);
   app.set("notifyCustomerTechnicianAccepted", noopAsync);
   app.set("notifyCustomerJobEvent", noopAsync);
@@ -139,6 +140,7 @@ function createTechApp(opts = {}) {
 
 function wireSosNotifyHandlers(app, sosHandlers) {
   app.set("notifyAssignedTechnician", sosHandlers.notifyAssignedTechnician);
+  app.set("notifyJobReassigned", sosHandlers.notifyJobReassigned);
   app.set("notifyCustomerTechnicianAssigned", sosHandlers.notifyCustomerTechnicianAssigned);
   app.set("notifyCustomerTechnicianAccepted", sosHandlers.notifyCustomerTechnicianAccepted);
   app.set("notifyCustomerJobEvent", sosHandlers.notifyCustomerJobEvent);

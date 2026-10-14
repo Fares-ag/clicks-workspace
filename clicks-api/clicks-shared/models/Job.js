@@ -197,6 +197,26 @@ const JobSchema = new mongoose.Schema(
     // Normalized search digests — set by pre-save hook and write paths (admin jobs prefix search)
     search_phone: { type: String, default: "", index: true },
     search_name: { type: String, default: "", index: true },
+    reassignment_history: [
+      {
+        from_technician: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Technician",
+        },
+        to_technician: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Technician",
+        },
+        reassigned_at: { type: Date, default: Date.now },
+        reason: { type: String, default: "" },
+        reason_note: { type: String, default: "", maxlength: 500 },
+        reassigned_by: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Admin",
+          default: null,
+        },
+      },
+    ],
   },
   { timestamps: true }
 );

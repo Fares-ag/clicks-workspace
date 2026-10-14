@@ -1692,6 +1692,66 @@ function initializeSOSSocket(io) {
     }
   }
 
+  async function notifyJobReassigned(jobId, previousTechnicianId, { reason } = {}) {
+    try {
+      const prevId = String(previousTechnicianId || "").trim();
+      if (!prevId) return false;
+
+      const payload = {
+        job_id: String(jobId),
+        reason: reason || "",
+        message: "This job has been reassigned to another technician",
+      };
+
+      if (await userHasLiveSockets(technicianNamespace, prevId)) {
+        emitToUser(technicianNamespace, prevId, "jobReassigned", payload);
+        devLog(`jobReassigned emitted to technician ${prevId}`);
+      }
+
+      const tech = await Technician.findById(prevId)
+        .select("fcm_token firstName lastName")
+        .lean();
+      if (tech?.fcm_token) {
+        try {
+          const { sendJobReassignedPush } = require("./fcmService");
+          await sendJobReassignedPush(tech, {
+            job_id: payload.job_id,
+            reason: payload.reason,
+          });
+        } catch (fcmErr) {
+          console.error("[fcm] job_reassigned push error:", fcmErr.message);
+        }
+      }
+
+      const job = await Job.findById(jobId)
+        .populate(
+          "assignedTechnician",
+          "firstName lastName phone profilePicture currentLocation"
+        )
+        .populate("customer_id", "first_name last_name phone_number");
+      if (job?.customer_id && job.assignedTechnician) {
+        const customerId = (job.customer_id._id || job.customer_id).toString();
+        const t = job.assignedTechnician;
+        await notifyCustomerTechnicianAssigned(customerId, {
+          job_id: job._id.toString(),
+          technician: {
+            name: `${t.firstName || ""} ${t.lastName || ""}`.trim(),
+            phone: t.phone,
+            photo: t.profilePicture,
+            latitude: t.currentLocation?.coordinates?.[1],
+            longitude: t.currentLocation?.coordinates?.[0],
+          },
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error notifying job reassignment:", error);
+      captureException(error);
+      return false;
+    }
+  }
+
   async function pushCustomerEvent(customerId, event, data = {}) {
     try {
       const { sendCustomerPush } = require("./fcmService");
@@ -1998,6 +2058,7 @@ function initializeSOSSocket(io) {
     technicianNamespace, 
     adminNamespace,
     notifyAssignedTechnician,
+    notifyJobReassigned,
     notifyCustomerTechnicianAssigned,
     notifyCustomerTechnicianAccepted,
     notifyCustomerJobEvent,

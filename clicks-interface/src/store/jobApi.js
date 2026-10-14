@@ -60,6 +60,14 @@ export const jobApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Job"]
     }),
+    reassignJob: builder.mutation({
+      query: ({ id, technician_id, reason, reason_note }) => ({
+        url: `/jobs/${id}/reassign`,
+        method: "POST",
+        body: { technician_id, reason, reason_note },
+      }),
+      invalidatesTags: ["Job"],
+    }),
     deleteJob: builder.mutation({
       query: (id) => ({
         url: `/jobs/${id}`,
@@ -207,6 +215,7 @@ export const {
   useGetJobsQuery,
   useCreateJobMutation,
   useUpdateJobMutation,
+  useReassignJobMutation,
   useHoldJobMutation,
   useResumeJobMutation,
   useCompleteJobMutation,

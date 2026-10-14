@@ -82,6 +82,7 @@ async function bootstrap() {
   const sosHandlers = initializeSOSSocket(io);
 
   app.set("notifyAssignedTechnician", sosHandlers.notifyAssignedTechnician);
+  app.set("notifyJobReassigned", sosHandlers.notifyJobReassigned);
   app.set("notifyCustomerTechnicianAssigned", sosHandlers.notifyCustomerTechnicianAssigned);
   app.set("notifyCustomerTechnicianAccepted", sosHandlers.notifyCustomerTechnicianAccepted);
   app.set("notifyCustomerJobEvent", sosHandlers.notifyCustomerJobEvent);

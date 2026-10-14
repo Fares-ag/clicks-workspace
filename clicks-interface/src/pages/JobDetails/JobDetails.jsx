@@ -3,6 +3,8 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
 import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
+import ReassignJobModal from "../../components/ReassignJobModal.jsx";
+import { canReassignJob, jobReassignReasonLabel } from "../../utils/jobReassign.js";
 import "../../components/ConfirmationModal.css";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import "./JobDetails.css";
@@ -81,8 +83,16 @@ function JobDetails() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [locationError, setLocationError] = useState("");
   const techDropdownRef = useRef(null);
+  const [showReassignModal, setShowReassignModal] = useState(false);
 
   const job = data?.job;
+  const reassignAllowed = canReassignJob(job);
+  const canPickInitialTechnician =
+    job &&
+    !job.assignedTechnician &&
+    !job.legacyTechnicianName?.trim() &&
+    !["completed", "cancelled"].includes(job.job_status);
+  const technicianFieldLocked = Boolean(job?.assignedTechnician) && !canPickInitialTechnician;
   const repairsFromDetail = data?.repairs;
   const repairsFromQuery = repairsData?.repairs;
   const repairs =
@@ -963,8 +973,17 @@ function JobDetails() {
             <h3 className="job-details-section-title">Assigned Technician</h3>
             
             <div className="job-details-form-group">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                 <label className="job-details-form-label" style={{ margin: 0 }}>Assigned Technician</label>
+                {reassignAllowed && (
+                  <button
+                    type="button"
+                    className="job-details-reassign-btn"
+                    onClick={() => setShowReassignModal(true)}
+                  >
+                    Reassign
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -995,20 +1014,21 @@ function JobDetails() {
               </div>
               <div className="job-details-select-wrapper" ref={techDropdownRef}>
                 <div 
-                  className={`job-details-select ${job.assignedTechnician && ['en_route', 'arrived', 'in_progress', 'completed', 'on_hold'].includes(job.job_status) ? 'job-details-select-disabled' : ''}`}
+                  className={`job-details-select ${technicianFieldLocked ? 'job-details-select-disabled' : ''}`}
                   onClick={() => {
-                    // Allow reassignment only if job hasn't started traveling and isn't on hold
-                    if (!job.assignedTechnician || !['en_route', 'arrived', 'in_progress', 'completed', 'on_hold'].includes(job.job_status)) {
+                    if (!technicianFieldLocked && canPickInitialTechnician) {
                       setShowTechDropdown(!showTechDropdown);
                     }
                   }}
                   style={{ 
-                    cursor: (job.assignedTechnician && ['en_route', 'arrived', 'in_progress', 'completed', 'on_hold'].includes(job.job_status)) ? 'not-allowed' : 'pointer' 
+                    cursor: technicianFieldLocked ? 'not-allowed' : 'pointer' 
                   }}
                   title={
-                    (job.assignedTechnician && ['en_route', 'arrived', 'in_progress', 'completed', 'on_hold'].includes(job.job_status))
-                      ? 'Cannot reassign technician after job has started or while on hold'
-                      : ''
+                    reassignAllowed
+                      ? 'Use Reassign to move this job to another technician'
+                      : technicianFieldLocked
+                        ? 'Technician cannot be changed here for this job status'
+                        : ''
                   }
                 >
                   {selectedTechnician && (
@@ -1043,7 +1063,7 @@ function JobDetails() {
                   </svg>
                 </div>
                 
-                {showTechDropdown && (!job.assignedTechnician || !['en_route', 'arrived', 'in_progress', 'completed', 'on_hold'].includes(job.job_status)) && (
+                {showTechDropdown && canPickInitialTechnician && (
                   <div className="job-details-tech-dropdown">
                     <div className="job-details-tech-search">
                       <input
@@ -1134,7 +1154,11 @@ function JobDetails() {
                           })}
                         </span>
                         {reassignment.reason && (
-                          <span className="reassignment-reason"> • {reassignment.reason}</span>
+                          <span className="reassignment-reason">
+                            {" "}
+                            • {jobReassignReasonLabel(reassignment.reason)}
+                            {reassignment.reason_note ? ` — ${reassignment.reason_note}` : ""}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1515,14 +1539,31 @@ function JobDetails() {
               {completing ? 'Completing...' : 'Mark as completed'}
             </button>
           )}
-          <button 
-            className="job-details-btn job-details-btn-primary"
-            onClick={handleSave}
-          >
-            Save
-          </button>
+          {canPickInitialTechnician && (
+            <button 
+              className="job-details-btn job-details-btn-primary"
+              onClick={handleSave}
+              disabled={!selectedTechnician}
+            >
+              Assign technician
+            </button>
+          )}
         </div>
       </div>
+
+      <ReassignJobModal
+        open={showReassignModal}
+        onClose={() => setShowReassignModal(false)}
+        job={job}
+        onSuccess={() => {
+          setSuccessMessage({
+            title: "Technician reassigned",
+            subtitle: "Both technicians were notified. The job is back in Assigned status.",
+          });
+          setShowSuccessModal(true);
+          refetch();
+        }}
+      />
       
       {/* Cancel Job Modal with Reason */}
       {showCancelModal && (

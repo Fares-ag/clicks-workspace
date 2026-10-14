@@ -558,8 +558,43 @@ async function sendAdminDispatchPush(type, payload = {}) {
   return sent > 0;
 }
 
+async function sendJobReassignedPush(technician, { job_id, reason }) {
+  const msg = initFirebase();
+  if (!msg) return false;
+
+  const token =
+    typeof technician === "string"
+      ? technician
+      : technician?.fcm_token || technician?.fcmToken;
+  if (!token) return false;
+
+  const title = "Job reassigned";
+  const body = "This job was moved to another technician.";
+  const data = buildPushData({
+    type: "job_reassigned",
+    job_id: job_id || "",
+    reason: reason || "",
+    title,
+    body,
+  });
+
+  try {
+    await msg.send({
+      token,
+      notification: { title, body },
+      data,
+      android: { priority: "high" },
+    });
+    return true;
+  } catch (err) {
+    console.error("[fcm] job_reassigned send failed:", err.message);
+    return false;
+  }
+}
+
 module.exports = {
   sendJobAssignedPush,
+  sendJobReassignedPush,
   sendPartnerAccrualPush,
   sendCustomerPush,
   sendAdminDispatchPush,
