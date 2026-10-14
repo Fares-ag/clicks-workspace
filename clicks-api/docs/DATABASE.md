@@ -79,6 +79,7 @@ clicks-customer-tech-api ──┘
 | Finance | TechnicianEarnings | `technicianearnings` | Earnings ledger (also mirrored on `Technician.performance`) |
 | Finance | PartnerEarning | `partnerearnings` | One accrual row per attributed completed job |
 | Finance | PartnerWithdrawal | `partnerwithdrawals` | Offline cash withdraw requests (earnings / investment / both) |
+| Finance | TechnicianSettlement | `techniciansettlements` | Finance-portal cash settlement per technician and period: job lines, money movements, cash to collect vs collected (replaces the "job submission" spreadsheet) |
 
 ### Auth tokens
 
@@ -221,8 +222,8 @@ Work order: assignment, status machine, payment, rating, B2B cut, partner attrib
 | Type | Models |
 | --- | --- |
 | Unique field | Admin.email, Customer phone/email/`client_id` (sparse), Technician.email, Vehicle plate/VIN, VehicleMake.makeName, VehicleType.typeName, Source.mainSourceName, VehicleInsurance plate/VIN, BusinessUser.email, Partner.name, PartnerEarning.job |
-| Unique compound | VehicleModel `{ makeId, modelName }` |
-| Partial unique | Receipt `{ job_id }` (ObjectId only) |
+| Unique compound | VehicleModel `{ makeId, modelName }`, TechnicianSettlement `{ technician_id, number }` |
+| Partial unique | Receipt `{ job_id }` (ObjectId only), TechnicianSettlement `{ job_ids }` (a job is settled once; built on first use because production runs with autoIndex off) |
 | TTL | OTPVerification, PasswordReset (`expiresAt`, `expireAfterSeconds: 0`) |
 | 2dsphere | Technician.currentLocation, SOSRequest.location |
 | Compound query | Job (3), SOSRequest (2), Partner `{ status, isActive }`, PartnerEarning `{ partner, createdAt }`, Subscription `{ plateNumber, status }` |

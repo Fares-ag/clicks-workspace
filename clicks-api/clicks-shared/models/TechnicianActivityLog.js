@@ -57,7 +57,9 @@ const TechnicianActivityLogSchema = new mongoose.Schema(
       coordinates: { type: [Number], default: undefined },
     },
 
-    at: { type: Date, default: Date.now, index: true },
+    // Indexed explicitly below (plus the TTL index) — `index: true` here would
+    // declare a duplicate `at_1` and make Mongoose warn on every boot.
+    at: { type: Date, default: Date.now },
   },
   { versionKey: false }
 );

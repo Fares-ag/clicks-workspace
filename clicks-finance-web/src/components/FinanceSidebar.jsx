@@ -10,6 +10,7 @@ const navItems = [
   { label: "Jobs", icon: "/icons/job.svg", to: "/jobs" },
   { label: "Vendors", icon: "/icons/user.svg", to: "/vendors" },
   { label: "Purchases", icon: "/icons/job.svg", to: "/purchases" },
+  { label: "Settlements", icon: "/icons/li-check-check.svg", to: "/settlements" },
 ];
 
 function FinanceSidebar({ isOpen = true, onNavigate }) {

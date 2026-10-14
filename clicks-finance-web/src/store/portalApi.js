@@ -3,7 +3,14 @@ import { apiSlice } from "./apiSlice";
 // `tagTypes` lives on the root apiSlice; enhanceEndpoints is the supported way to
 // register an extra tag from an injecting module (it pushes onto the same array
 // the middleware reads, so "Vendors" is known before any request runs).
-const financeApi = apiSlice.enhanceEndpoints({ addTagTypes: ["Vendors", "Purchases", "Technicians"] });
+const financeApi = apiSlice.enhanceEndpoints({
+  addTagTypes: ["Vendors", "Purchases", "Technicians", "Settlements"],
+});
+
+// Settlements: one "LIST" tag for the list (and next-number defaults), one per
+// settlement for the detail page. Every write refreshes both.
+const settlementListTag = { type: "Settlements", id: "LIST" };
+const settlementTags = (id) => [settlementListTag, { type: "Settlements", id }];
 
 // Finance history is a sibling resource of the job, so it rides the existing
 // "Job" tag type under a namespaced id instead of adding another tag type.
@@ -201,6 +208,78 @@ export const portalApi = financeApi.injectEndpoints({
       }),
       invalidatesTags: ["Purchases", "Jobs", "Dashboard", "Job"],
     }),
+    listSettlements: builder.query({
+      query: ({ page = 1, limit = 20, technician_id, status, search = "" } = {}) => ({
+        url: "/finance/settlements",
+        params: {
+          page,
+          limit,
+          ...(technician_id ? { technician_id } : {}),
+          ...(status ? { status } : {}),
+          ...(search ? { search } : {}),
+        },
+      }),
+      providesTags: [settlementListTag],
+    }),
+    getNextSettlementDefaults: builder.query({
+      query: (technicianId) => ({
+        url: "/finance/settlements/next",
+        params: { technician_id: technicianId },
+      }),
+      providesTags: [settlementListTag],
+    }),
+    getSettlement: builder.query({
+      query: (id) => `/finance/settlements/${id}`,
+      providesTags: (_r, _e, id) => [{ type: "Settlements", id }],
+    }),
+    // Always fetched fresh on demand: which jobs are free to import changes
+    // whenever any settlement is saved.
+    getSettlementJobCandidates: builder.query({
+      query: ({ id, from, to }) => ({
+        url: `/finance/settlements/${id}/job-candidates`,
+        params: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      }),
+      keepUnusedDataFor: 0,
+    }),
+    createSettlement: builder.mutation({
+      query: (body) => ({
+        url: "/finance/settlements",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: [settlementListTag],
+    }),
+    updateSettlement: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/finance/settlements/${id}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (_r, _e, { id }) => settlementTags(id),
+    }),
+    closeSettlement: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/finance/settlements/${id}/close`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_r, _e, { id }) => settlementTags(id),
+    }),
+    reopenSettlement: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/finance/settlements/${id}/reopen`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_r, _e, { id }) => settlementTags(id),
+    }),
+    deleteSettlement: builder.mutation({
+      query: (arg) => ({
+        url: `/finance/settlements/${argId(arg)}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: [settlementListTag],
+    }),
   }),
 });
 
@@ -224,4 +303,13 @@ export const {
   useCreateJobPurchaseMutation,
   useUpdatePurchaseMutation,
   useVoidPurchaseMutation,
+  useListSettlementsQuery,
+  useGetNextSettlementDefaultsQuery,
+  useGetSettlementQuery,
+  useLazyGetSettlementJobCandidatesQuery,
+  useCreateSettlementMutation,
+  useUpdateSettlementMutation,
+  useCloseSettlementMutation,
+  useReopenSettlementMutation,
+  useDeleteSettlementMutation,
 } = portalApi;

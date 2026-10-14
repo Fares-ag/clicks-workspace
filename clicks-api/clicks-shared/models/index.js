@@ -43,6 +43,7 @@ module.exports = {
   FinanceAuditLog: require("./FinanceAuditLog"),
   Vendor: require("./Vendor"),
   VendorPurchase: require("./VendorPurchase"),
+  TechnicianSettlement: require("./TechnicianSettlement"),
   Subscription: require("./Subscription"),
   Partner: require("./Partner"),
   PartnerEarning: require("./PartnerEarning"),

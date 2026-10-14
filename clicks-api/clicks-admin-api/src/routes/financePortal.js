@@ -6,6 +6,7 @@ const { authLimiter } = require("../middleware/rateLimiter");
 const financePortalController = require("../controllers/financePortalController");
 const financeVendorController = require("../controllers/financeVendorController");
 const financePurchaseController = require("../controllers/financePurchaseController");
+const financeSettlementController = require("../controllers/financeSettlementController");
 
 router.post("/auth/login", authLimiter, financePortalController.login);
 
@@ -27,6 +28,29 @@ router.patch("/purchases/:id", authenticateFinance, financePurchaseController.up
 router.delete("/purchases/:id", authenticateFinance, financePurchaseController.voidPurchase);
 
 router.get("/technicians", authenticateFinance, financePortalController.listTechnicians);
+
+// Technician cash settlements. "/settlements/next" is declared before
+// "/settlements/:id" so the param route cannot swallow it.
+router.get("/settlements", authenticateFinance, financeSettlementController.listSettlements);
+router.post("/settlements", authenticateFinance, financeSettlementController.createSettlement);
+router.get("/settlements/next", authenticateFinance, financeSettlementController.getNextSettlementDefaults);
+router.get("/settlements/:id", authenticateFinance, financeSettlementController.getSettlement);
+router.patch("/settlements/:id", authenticateFinance, financeSettlementController.updateSettlement);
+router.delete("/settlements/:id", authenticateFinance, financeSettlementController.deleteSettlement);
+router.get(
+  "/settlements/:id/job-candidates",
+  authenticateFinance,
+  financeSettlementController.listJobCandidates
+);
+router.post("/settlements/:id/close", authenticateFinance, financeSettlementController.closeSettlement);
+// Same split as job audits: closing is the operator's job, unlocking cash that
+// was already collected is reserved for the "admin" finance role.
+router.post(
+  "/settlements/:id/reopen",
+  authenticateFinance,
+  requireFinanceRole("admin"),
+  financeSettlementController.reopenSettlement
+);
 
 router.get("/jobs", authenticateFinance, financePortalController.listJobs);
 // Declared before "/jobs/:id" — otherwise the param route swallows "export.csv".

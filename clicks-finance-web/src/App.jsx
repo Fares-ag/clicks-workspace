@@ -9,6 +9,8 @@ import Jobs from "./pages/Jobs/Jobs";
 import JobDetail from "./pages/JobDetail/JobDetail";
 import Vendors from "./pages/Vendors/Vendors";
 import Purchases from "./pages/Purchases/Purchases";
+import Settlements from "./pages/Settlements/Settlements";
+import SettlementDetail from "./pages/Settlements/SettlementDetail";
 
 function App() {
   const token = useSelector((state) => state.auth.token);
@@ -32,6 +34,8 @@ function App() {
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/vendors" element={<Vendors />} />
         <Route path="/purchases" element={<Purchases />} />
+        <Route path="/settlements" element={<Settlements />} />
+        <Route path="/settlements/:id" element={<SettlementDetail />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

@@ -1,0 +1,691 @@
+/* ---------- List page ---------- */
+
+.settlements-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: var(--spacing-lg);
+}
+
+.settlements-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: var(--spacing-lg);
+}
+
+.settlements-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settlements-title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.settlements-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.settlements-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.settlements-filters select {
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  padding: 0 12px;
+  font-family: var(--font-main);
+  background: var(--color-bg-white);
+}
+
+.settlement-link {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.settlement-gap {
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.settlement-gap--short {
+  color: var(--color-expired-text);
+}
+
+.settlement-gap--over {
+  color: var(--color-active-text);
+}
+
+.settlement-status-pill {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.settlement-status-pill.draft {
+  background: #fef0c7;
+  color: #b54708;
+}
+
+.settlement-status-pill.closed {
+  background: #d1fadf;
+  color: #027a48;
+}
+
+/* ---------- Detail page ---------- */
+
+.settlement-page {
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.settlement-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.settlement-back {
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font-family: var(--font-main);
+  cursor: pointer;
+  padding: 0;
+}
+
+.settlement-title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.settlement-period-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-unsaved {
+  font-size: 12px;
+  color: var(--color-expiring-text);
+  background: var(--color-expiring-bg);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.settlement-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: var(--spacing-lg);
+  align-items: start;
+}
+
+.settlement-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-width: 0;
+}
+
+.settlement-side {
+  position: sticky;
+  top: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .settlement-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* The summary is what the accountant needs first on a narrow screen. */
+  .settlement-side {
+    position: static;
+    order: -1;
+  }
+}
+
+.settlement-card {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.settlement-card h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: var(--font-weight-medium);
+}
+
+.settlement-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.settlement-card-head h2 {
+  margin: 0;
+}
+
+.settlement-count {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-selection);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+}
+
+.settlement-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.settlement-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-period-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.settlement-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-field--full {
+  width: 100%;
+}
+
+.settlement-field input,
+.settlement-field textarea {
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius-md);
+  padding: 9px 12px;
+  font-family: var(--font-main);
+  font-size: var(--font-size-body);
+  color: var(--color-text-primary);
+}
+
+.settlement-field textarea {
+  resize: vertical;
+}
+
+/* Line tables */
+
+.settlement-table-wrap {
+  overflow-x: auto;
+}
+
+.settlement-table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.settlement-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-page);
+  padding: 8px 6px;
+  white-space: nowrap;
+}
+
+.settlement-table td {
+  padding: 6px 4px;
+  border-top: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.settlement-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settlement-table input,
+.settlement-table select {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius-md);
+  padding: 0 8px;
+  font-family: var(--font-main);
+  font-size: 14px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-white);
+}
+
+.settlement-table input[type="number"] {
+  width: 76px;
+  text-align: right;
+}
+
+.settlement-table input[type="date"] {
+  width: 140px;
+}
+
+.settlement-table input[type="text"] {
+  min-width: 110px;
+}
+
+.settlement-table select {
+  width: 92px;
+  cursor: pointer;
+}
+
+.settlement-table select.settlement-entry-type {
+  width: 200px;
+}
+
+.settlement-table input:disabled,
+.settlement-table select:disabled,
+.settlement-field input:disabled,
+.settlement-field textarea:disabled {
+  background: var(--color-bg-page);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+.settlement-empty {
+  text-align: center;
+  color: var(--color-text-secondary);
+  padding: 20px 8px !important;
+}
+
+.settlement-job-cell {
+  min-width: 110px;
+}
+
+.settlement-job-cell a {
+  display: block;
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.settlement-job-cell span {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-gp {
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.settlement-gp.negative {
+  color: var(--color-expired-text);
+}
+
+.settlement-remove,
+.settlement-link-btn {
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-size: 13px;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+
+.settlement-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--border-radius-md);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
+
+.settlement-remove:hover {
+  color: var(--color-expired-text);
+  background: var(--color-expired-bg);
+}
+
+/* Summary */
+
+.settlement-summary h3 {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.settlement-summary h3:first-of-type {
+  margin-top: 0;
+}
+
+.settlement-sum-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.settlement-sum-row.quiet {
+  color: var(--color-text-placeholder);
+}
+
+.settlement-sum-row.strong {
+  border-top: 1px solid var(--color-border);
+  margin-top: 4px;
+  padding-top: 8px;
+  font-weight: var(--font-weight-medium);
+}
+
+.settlement-sum-label small {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-sum-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.settlement-sum-value.short {
+  color: var(--color-expired-text);
+}
+
+.settlement-sum-value.over {
+  color: var(--color-active-text);
+}
+
+.settlement-cash-box {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: var(--border-radius-md);
+  background: var(--color-bg-nav-highlight);
+  border: 1px solid var(--color-primary-lighter);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settlement-cash-box span {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-cash-box strong {
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.settlement-cash-box small {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+/* Actions and messages */
+
+.settlement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settlement-secondary-btn,
+.settlement-danger-btn {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius-md);
+  background: var(--color-bg-white);
+  font-family: var(--font-main);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.settlement-secondary-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-secondary-hover);
+}
+
+.settlement-danger-btn {
+  color: var(--color-expired-text);
+}
+
+.settlement-danger-btn:hover:not(:disabled) {
+  background: var(--color-expired-bg);
+}
+
+.settlement-secondary-btn:disabled,
+.settlement-danger-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settlement-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-md);
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
+  font-size: 13px;
+  color: var(--color-expired-text);
+}
+
+/* History */
+
+.settlement-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settlement-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.settlement-history-action {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  background: var(--color-bg-selection);
+  color: var(--color-text-muted);
+}
+
+.settlement-history-action.close {
+  background: #d1fadf;
+  color: #027a48;
+}
+
+.settlement-history-action.reopen {
+  background: #fef0c7;
+  color: #b54708;
+}
+
+.settlement-history-at,
+.settlement-history-by {
+  color: var(--color-text-secondary);
+}
+
+.settlement-history-money {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.settlement-history-reason {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+/* Modals */
+
+.settlement-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.settlement-modal {
+  width: min(480px, 100%);
+  background: var(--color-bg-white);
+  border-radius: var(--border-radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-lg);
+}
+
+.settlement-modal-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.settlement-modal-copy {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.settlement-modal-gap {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+}
+
+.settlement-modal-gap.short {
+  color: var(--color-expired-text);
+}
+
+.settlement-modal-gap.over {
+  color: var(--color-active-text);
+}
+
+.settlement-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.settlement-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settlement-form-group--full {
+  grid-column: 1 / -1;
+}
+
+.settlement-form-group label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-form-group input,
+.settlement-form-group select,
+.settlement-form-group textarea {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  padding: 10px 12px;
+  font-family: var(--font-main);
+  font-size: var(--font-size-body);
+}
+
+.settlement-form-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-text-secondary);
+}
+
+.settlement-form-error {
+  color: #b42318;
+  margin: 12px 0 0;
+}
+
+.settlement-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+@media (max-width: 640px) {
+  .settlement-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
