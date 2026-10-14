@@ -19,6 +19,7 @@ import {
   settlementGap,
   settlementTitle,
 } from "./settlementMath";
+import JobPicker from "./JobPicker.jsx";
 import "./Settlements.css";
 
 const REOPEN_REASON_MIN = 10;
@@ -48,6 +49,20 @@ const blankJob = () => ({
   garage_cost: "",
   tip: "",
 });
+
+// A job picked or imported from the system: amount and payment method come
+// from the job; battery, garage and tip are for the accountant to fill in.
+const lineFromCandidate = (job) => ({
+  ...blankJob(),
+  job_id: String(job.job_id),
+  label: job.label,
+  client_name: job.client_name || "",
+  payment_method: job.payment_method,
+  amount: moneyField(job.amount),
+});
+
+const addedMessage = (count) =>
+  `Added ${count} job${count === 1 ? "" : "s"}. Fill in battery, garage and tip where they apply, then save.`;
 
 const blankEntry = () => ({
   key: nextRowKey(),
@@ -239,6 +254,7 @@ function SettlementDetail() {
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
   const [reopenError, setReopenError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // The settlement and revision the form was filled from. The revision goes
   // back with every save, so a save can never overwrite someone else's edits.
@@ -325,22 +341,13 @@ function SettlementDetail() {
           elsewhere.add(`#${job.settlement.number}`);
           continue;
         }
-        fresh.push({
-          ...blankJob(),
-          job_id: String(job.job_id),
-          label: job.label,
-          client_name: job.client_name || "",
-          payment_method: job.payment_method,
-          amount: moneyField(job.amount),
-        });
+        fresh.push(lineFromCandidate(job));
       }
       if (fresh.length) {
         edit((current) => ({ ...current, jobs: [...current.jobs, ...fresh] }));
       }
       const parts = [
-        fresh.length
-          ? `Added ${fresh.length} job${fresh.length === 1 ? "" : "s"}. Fill in battery, garage and tip where they apply, then save.`
-          : "No new completed jobs to add for this period.",
+        fresh.length ? addedMessage(fresh.length) : "No new completed jobs to add for this period.",
       ];
       if (elsewhere.size) {
         parts.push(`Skipped jobs already in settlement ${[...elsewhere].join(", ")}.`);
@@ -350,6 +357,21 @@ function SettlementDetail() {
       setError(err?.data?.message || "Could not load the technician's jobs.");
     }
   };
+
+  const handlePickJobs = (picked) => {
+    const present = new Set(form.jobs.map((row) => row.job_id).filter(Boolean));
+    const fresh = picked
+      .filter((job) => !present.has(String(job.job_id)))
+      .map(lineFromCandidate);
+    setPickerOpen(false);
+    setError("");
+    if (!fresh.length) return;
+    edit((current) => ({ ...current, jobs: [...current.jobs, ...fresh] }));
+    setMessage(addedMessage(fresh.length));
+  };
+
+  const addJobByHand = () =>
+    edit((current) => ({ ...current, jobs: [...current.jobs, blankJob()] }));
 
   const handleSave = async () => {
     setError("");
@@ -490,17 +512,21 @@ function SettlementDetail() {
                   <button
                     type="button"
                     className="settlement-secondary-btn"
-                    onClick={handleImport}
-                    disabled={importing || busy}
+                    onClick={() => setPickerOpen(true)}
+                    disabled={busy}
                   >
-                    {importing ? "Loading jobs…" : "Import completed jobs"}
+                    + Select jobs
                   </button>
                   <button
                     type="button"
-                    className="settlement-link-btn"
-                    onClick={() => edit((current) => ({ ...current, jobs: [...current.jobs, blankJob()] }))}
+                    className="settlement-secondary-btn"
+                    onClick={handleImport}
+                    disabled={importing || busy}
                   >
-                    + Add job by hand
+                    {importing ? "Loading jobs…" : "Import all for this period"}
+                  </button>
+                  <button type="button" className="settlement-link-btn" onClick={addJobByHand}>
+                    + Add by hand
                   </button>
                 </div>
               )}
@@ -528,8 +554,8 @@ function SettlementDetail() {
                   {form.jobs.length === 0 && (
                     <tr>
                       <td colSpan={8} className="settlement-empty">
-                        No jobs yet. Import the technician's completed jobs for this period, or add
-                        one by hand.
+                        No jobs yet. Select jobs from the system, import all of this period's
+                        completed jobs, or add one by hand.
                       </td>
                     </tr>
                   )}
@@ -834,6 +860,21 @@ function SettlementDetail() {
           )}
         </aside>
       </div>
+
+      {pickerOpen && (
+        <JobPicker
+          settlementId={id}
+          periodFrom={form.period_from}
+          periodTo={form.period_to}
+          addedJobIds={new Set(form.jobs.map((row) => row.job_id).filter(Boolean))}
+          onAdd={handlePickJobs}
+          onAddByHand={() => {
+            setPickerOpen(false);
+            addJobByHand();
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       {closeOpen && (
         <div className="settlement-modal-backdrop" onClick={() => !closing && setCloseOpen(false)}>

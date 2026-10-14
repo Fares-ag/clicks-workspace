@@ -232,12 +232,18 @@ export const portalApi = financeApi.injectEndpoints({
       query: (id) => `/finance/settlements/${id}`,
       providesTags: (_r, _e, id) => [{ type: "Settlements", id }],
     }),
-    // Always fetched fresh on demand: which jobs are free to import changes
+    // Always fetched fresh on demand: which jobs are free to add changes
     // whenever any settlement is saved.
     getSettlementJobCandidates: builder.query({
-      query: ({ id, from, to }) => ({
+      query: ({ id, from, to, any_date, search, limit }) => ({
         url: `/finance/settlements/${id}/job-candidates`,
-        params: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+        params: {
+          ...(any_date ? { any_date: "true" } : {}),
+          ...(!any_date && from ? { from } : {}),
+          ...(!any_date && to ? { to } : {}),
+          ...(search ? { search } : {}),
+          ...(limit ? { limit } : {}),
+        },
       }),
       keepUnusedDataFor: 0,
     }),
@@ -306,6 +312,7 @@ export const {
   useListSettlementsQuery,
   useGetNextSettlementDefaultsQuery,
   useGetSettlementQuery,
+  useGetSettlementJobCandidatesQuery,
   useLazyGetSettlementJobCandidatesQuery,
   useCreateSettlementMutation,
   useUpdateSettlementMutation,

@@ -732,10 +732,13 @@ async function deleteSettlement(req, res) {
 }
 
 /**
- * The technician's completed jobs in a period, priced the same way the job
- * finance page prices revenue, each flagged with the other settlement it is
- * already in (if any). ?from / ?to override the saved period so an unsaved
- * period change can still be imported.
+ * The technician's completed jobs, priced the same way the job finance page
+ * prices revenue, each flagged with the other settlement it is already in (if
+ * any). Used both to import a whole period and by the job picker.
+ * - ?from / ?to override the saved period, so an unsaved period change works;
+ * - ?any_date=true drops the period filter (picker: a job finished earlier);
+ * - ?search matches job ID, client name or phone;
+ * - ?limit caps the result (default and maximum MAX_LINES).
  */
 async function listJobCandidates(req, res) {
   try {
@@ -746,31 +749,58 @@ async function listJobCandidates(req, res) {
       .lean();
     if (!settlement) return res.status(404).json({ message: "Settlement not found" });
 
+    const anyDate = str(req.query.any_date).trim() === "true";
     const from = str(req.query.from).trim() || settlement.period_from;
     const to = str(req.query.to).trim() || settlement.period_to;
-    if (!isCalendarDay(from) || !isCalendarDay(to)) {
-      return res.status(400).json({ message: "Invalid period date" });
+    if (!anyDate) {
+      if (!isCalendarDay(from) || !isCalendarDay(to)) {
+        return res.status(400).json({ message: "Invalid period date" });
+      }
+      if (from > to) {
+        return res
+          .status(400)
+          .json({ message: "The period must start on or before the day it ends" });
+      }
     }
-    if (from > to) {
-      return res
-        .status(400)
-        .json({ message: "The period must start on or before the day it ends" });
-    }
+    const limit = Math.min(
+      Math.max(num(req.query.limit, { integer: true }) ?? MAX_LINES, 1),
+      MAX_LINES
+    );
 
-    const range = {
-      $gte: new Date(`${from}T00:00:00.000${QATAR_UTC_OFFSET}`),
-      $lte: new Date(`${to}T23:59:59.999${QATAR_UTC_OFFSET}`),
-    };
-    // Same window rule as the jobs list: completed_at, falling back to createdAt
-    // for jobs that never got one.
-    const jobs = await Job.find({
+    const filter = {
       assignedTechnician: settlement.technician_id,
       job_status: "completed",
-      $or: [{ completed_at: range }, { completed_at: null, createdAt: range }],
-    })
-      .select("job_reference clientName payment_method price distance_km completed_at createdAt")
-      .sort({ completed_at: 1, createdAt: 1 })
-      .limit(MAX_LINES)
+    };
+    // A date window and a search are two independent $or groups, so they are ANDed.
+    const andClauses = [];
+    if (!anyDate) {
+      const range = {
+        $gte: new Date(`${from}T00:00:00.000${QATAR_UTC_OFFSET}`),
+        $lte: new Date(`${to}T23:59:59.999${QATAR_UTC_OFFSET}`),
+      };
+      // Same window rule as the jobs list: completed_at, falling back to
+      // createdAt for jobs that never got one.
+      andClauses.push({
+        $or: [{ completed_at: range }, { completed_at: null, createdAt: range }],
+      });
+    }
+    const search = str(req.query.search, { maxLength: 64 }).trim();
+    if (search) {
+      const rx = new RegExp(escapeRegex(search), "i");
+      andClauses.push({
+        $or: [{ job_reference: rx }, { clientName: rx }, { clientMobileNumber: rx }],
+      });
+    }
+    if (andClauses.length) filter.$and = andClauses;
+
+    // A period reads best in order; an open-ended search wants the latest first.
+    const order = anyDate ? -1 : 1;
+    const jobs = await Job.find(filter)
+      .select(
+        "job_reference clientName clientMobileNumber payment_method price distance_km completed_at createdAt"
+      )
+      .sort({ completed_at: order, createdAt: order })
+      .limit(limit)
       .lean();
 
     const ids = jobs.map((job) => job._id);
@@ -799,12 +829,15 @@ async function listJobCandidates(req, res) {
     }
 
     res.json({
-      period_from: from,
-      period_to: to,
+      period_from: anyDate ? null : from,
+      period_to: anyDate ? null : to,
+      // The limit was reached, so more jobs may match.
+      truncated: jobs.length === limit,
       jobs: jobs.map((job) => ({
         job_id: job._id,
         label: jobDisplayId(job),
         client_name: job.clientName || "",
+        client_phone: job.clientMobileNumber || "",
         completed_at: job.completed_at || job.createdAt,
         payment_method: SETTLEMENT_PAYMENT_METHODS.includes(job.payment_method)
           ? job.payment_method

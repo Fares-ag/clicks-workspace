@@ -197,6 +197,49 @@ describe("Technician settlements", () => {
     ).rejects.toMatchObject({ code: 11000 });
   });
 
+  test("the job picker searches the technician's jobs, inside or outside the period", async () => {
+    const auth = await financeAuth();
+    const technician = await seedTechnician();
+    const source = await seedSource();
+    const recent = await seedCompletedJob({ technician, source, price: 120 });
+    const older = await seedCompletedJob({ technician, source, price: 80 });
+    await Job.updateOne({ _id: recent._id }, { job_reference: "J-2001", clientName: "Ahmed" });
+    await Job.updateOne(
+      { _id: older._id },
+      { job_reference: "J-1990", clientName: "Sara", completed_at: new Date("2026-08-15T10:00:00Z") }
+    );
+
+    const settlement = await createSettlement(auth, technician);
+    const url = `/api/finance/settlements/${settlement._id}/job-candidates`;
+
+    const inPeriod = await request(adminApp).get(url).set(auth);
+    expect(inPeriod.body.jobs.map((job) => job.label)).toEqual(["J-2001"]);
+
+    const byClient = await request(adminApp)
+      .get(url)
+      .query({ any_date: "true", search: "sara" })
+      .set(auth);
+    expect(byClient.status).toBe(200);
+    expect(byClient.body.jobs.map((job) => job.label)).toEqual(["J-1990"]);
+    expect(byClient.body.jobs[0].amount).toBe(80);
+
+    const anyDate = await request(adminApp)
+      .get(url)
+      .query({ any_date: "true", limit: 1 })
+      .set(auth);
+    // Newest first, and the limit is reported.
+    expect(anyDate.body.jobs.map((job) => job.label)).toEqual(["J-2001"]);
+    expect(anyDate.body.truncated).toBe(true);
+
+    // A job finished outside the period can still be added to the settlement.
+    const saved = await request(adminApp)
+      .patch(`/api/finance/settlements/${settlement._id}`)
+      .set(auth)
+      .send({ jobs: [{ job_id: older._id, payment_method: "cash", amount: 80 }] });
+    expect(saved.status).toBe(200);
+    expect(saved.body.settlement.jobs[0]).toMatchObject({ label: "J-1990", client_name: "Sara" });
+  });
+
   test("rejects jobs that belong to another technician", async () => {
     const auth = await financeAuth();
     const technician = await seedTechnician();
