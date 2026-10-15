@@ -252,7 +252,7 @@ async function getJobById(req, res) {
     let job = await Job.findById(req.params.id)
       .populate({
         path: "assignedTechnician",
-        select: "firstName lastName phone profilePicture currentStatus assignedVehicle",
+        select: "firstName lastName phone profilePicture currentStatus assignedVehicle currentLocation lastLocationAt",
         populate: {
           path: "assignedVehicle",
           select: "plateNumber make model",
@@ -284,7 +284,7 @@ async function getJobById(req, res) {
       job = await JobArchive.findById(req.params.id)
         .populate({
           path: "assignedTechnician",
-          select: "firstName lastName phone profilePicture currentStatus assignedVehicle",
+          select: "firstName lastName phone profilePicture currentStatus assignedVehicle currentLocation lastLocationAt",
           populate: {
             path: "assignedVehicle",
             populate: [{ path: "make" }, { path: "model" }],

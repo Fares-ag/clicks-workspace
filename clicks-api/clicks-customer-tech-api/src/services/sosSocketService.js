@@ -1190,6 +1190,17 @@ function initializeSOSSocket(io) {
           en_route_at: job.en_route_at
         });
 
+        notifyAdminJobStatus({
+          job_id: String(job._id),
+          status: "en_route",
+          job_reference: job.job_reference,
+          clientName: job.clientName,
+          technician_id: job.assignedTechnician?._id
+            ? String(job.assignedTechnician._id)
+            : undefined,
+          en_route_at: job.en_route_at,
+        });
+
         // Notify customer
         if (job.customer_id) {
           emitToUser(customerNamespace, job.customer_id.toString(), "technicianEnRoute", {
@@ -1262,6 +1273,17 @@ function initializeSOSSocket(io) {
           status: "arrived",
           arrived_at: job.arrived_at,
           message: "Arrival marked successfully"
+        });
+
+        notifyAdminJobStatus({
+          job_id: String(job._id),
+          status: "arrived",
+          job_reference: job.job_reference,
+          clientName: job.clientName,
+          technician_id: job.assignedTechnician
+            ? String(job.assignedTechnician)
+            : undefined,
+          arrived_at: job.arrived_at,
         });
 
         // Notify customer
@@ -1361,6 +1383,17 @@ function initializeSOSSocket(io) {
           status: "in_progress",
           started_at: job.started_at,
           message: "Job started successfully"
+        });
+
+        notifyAdminJobStatus({
+          job_id: String(job._id),
+          status: "in_progress",
+          job_reference: job.job_reference,
+          clientName: job.clientName,
+          technician_id: job.assignedTechnician
+            ? String(job.assignedTechnician)
+            : undefined,
+          started_at: job.started_at,
         });
 
         // Notify customer
@@ -2032,6 +2065,19 @@ function initializeSOSSocket(io) {
     }
   }
 
+  /** Technician lifecycle (en_route / arrived / in_progress / accepted) → admin UIs. */
+  function notifyAdminJobStatus(payload) {
+    try {
+      if (!payload?.job_id || !payload?.status) return false;
+      adminNamespace.emit("jobStatusUpdated", payload);
+      return true;
+    } catch (error) {
+      console.error("Error emitting jobStatusUpdated to admin:", error);
+      captureException(error);
+      return false;
+    }
+  }
+
   function notifyAdminServiceRequestCancelled(payload) {
     try {
       adminNamespace.emit("serviceRequestCancelled", payload);
@@ -2068,6 +2114,7 @@ function initializeSOSSocket(io) {
     notifyAdminBusinessLead,
     notifyAdminBusinessJob,
     notifyAdminTechnicianJob,
+    notifyAdminJobStatus,
     notifyAdminHoldRequest,
     notifyAdminServiceRequest,
     notifyAdminServiceRequestCancelled,

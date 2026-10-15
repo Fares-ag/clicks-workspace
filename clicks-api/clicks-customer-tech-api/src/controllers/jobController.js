@@ -37,6 +37,9 @@ const {
   paginateQuery,
 } = require("../../../clicks-shared/utils/mobileJobList");
 const {
+  notifyAdminJobStatusFromReq,
+} = require("../../../clicks-shared/utils/adminJobStatus");
+const {
   getCachedPayload,
   deletePayloadCacheKey,
 } = require("../../../clicks-shared/utils/payloadCache");
@@ -245,6 +248,8 @@ const updateJobStatus = async (req, res) => {
     job.job_status = job_status;
     if (job_status === "en_route") job.en_route_at = new Date();
     await job.save();
+
+    notifyAdminJobStatusFromReq(req, job);
 
     if (job_status === "en_route" && job.customer_id) {
       const notify = req.app.get("notifyCustomerJobEvent");
@@ -664,6 +669,8 @@ const markArrived = async (req, res) => {
     job.arrived_at = new Date();
     await job.save();
 
+    notifyAdminJobStatusFromReq(req, job);
+
     if (job.customer_id) {
       const notify = req.app.get("notifyCustomerJobEvent");
       if (typeof notify === "function") {
@@ -755,6 +762,8 @@ const startJob = async (req, res) => {
     job.job_status = "in_progress";
     job.started_at = new Date();
     await job.save();
+
+    notifyAdminJobStatusFromReq(req, job);
 
     if (job.customer_id) {
       const notify = req.app.get("notifyCustomerJobEvent");

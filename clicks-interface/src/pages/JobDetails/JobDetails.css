@@ -1519,3 +1519,94 @@
   line-height: 16px;
   color: #D92D20;
 }
+
+.job-details-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.job-details-progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 0;
+}
+
+.job-details-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-main);
+}
+
+.job-details-progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #98A2B3;
+  flex-shrink: 0;
+}
+
+.job-details-progress-step.is-done .job-details-progress-dot {
+  background: #12B76A;
+}
+
+.job-details-progress-step.is-current .job-details-progress-dot {
+  background: #2563EB;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.job-details-progress-label {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--color-text-primary);
+}
+
+.job-details-progress-time {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-muted);
+}
+
+.job-details-progress-connector {
+  width: 16px;
+  height: 1px;
+  background: #D0D5DD;
+  margin: 0 8px 0 4px;
+}
+
+.job-details-enroute-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #EFF8FF;
+  border: 1px solid #B2DDFF;
+  color: #175CD3;
+  font-family: var(--font-main);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.job-details-enroute-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.job-details-enroute-actions a {
+  color: #175CD3;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.job-details-enroute-actions a:hover {
+  text-decoration: underline;
+}

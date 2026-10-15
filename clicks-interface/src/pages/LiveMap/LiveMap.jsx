@@ -7,7 +7,7 @@ import {
 } from "@react-google-maps/api";
 import { useGetLiveMapTechniciansQuery } from "../../store/technicianApi";
 import { usePageVisible } from "../../hooks/usePageVisible";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import {
   REST_POLL_MS,
@@ -174,7 +174,10 @@ const mapOptions = {
 
 function LiveMap() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusTechId = searchParams.get("tech");
   const mapRef = useRef(null);
+  const focusedTechRef = useRef(null);
   const panelRef = useRef(null);
   const contextMenuRef = useRef(null);
   /** Ids in the most recent successful REST snapshot (drives ghost pruning). */
@@ -192,6 +195,7 @@ function LiveMap() {
   const [selectedTechFilter, setSelectedTechFilter] = useState(null);
   const [selectedVehicleFilter, setSelectedVehicleFilter] = useState(null);
   const [contextMenuTechId, setContextMenuTechId] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
   // Re-render every 10s so "last seen" ages in the UI.
   const [lastSeenTick, setLastSeenTick] = useState(0);
 
@@ -304,6 +308,13 @@ function LiveMap() {
   const handleSelectTech = useCallback((id) => {
     setSelectedTechId(id);
   }, []);
+
+  useEffect(() => {
+    if (!focusTechId) return;
+    const id = String(focusTechId);
+    setSelectedTechId(id);
+    setSelectedTechFilter(id);
+  }, [focusTechId]);
 
   // ==================== SHARED SOCKET (AdminLayout) ====================
   useEffect(() => {
@@ -510,7 +521,10 @@ function LiveMap() {
   );
 
   // ==================== MAP HELPERS ====================
-  const onMapLoad = useCallback((map) => { mapRef.current = map; }, []);
+  const onMapLoad = useCallback((map) => {
+    mapRef.current = map;
+    setMapReady(true);
+  }, []);
 
   const centerOnTechnician = useCallback((tech) => {
     // Without the guard, clicking a technician who has never reported a fix
@@ -522,6 +536,15 @@ function LiveMap() {
     });
     mapRef.current.setZoom(15);
   }, []);
+
+  useEffect(() => {
+    if (!focusTechId || !mapReady) return;
+    if (focusedTechRef.current === String(focusTechId)) return;
+    const tech = technicians.find((t) => String(t._id) === String(focusTechId));
+    if (!tech || !hasUsableLocation(tech)) return;
+    centerOnTechnician(tech);
+    focusedTechRef.current = String(focusTechId);
+  }, [focusTechId, technicians, centerOnTechnician, mapReady]);
 
   const getInitials = (f, l) => `${(f || "")[0] || ""}${(l || "")[0] || ""}`.toUpperCase();
 

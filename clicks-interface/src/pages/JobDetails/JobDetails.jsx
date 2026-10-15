@@ -19,6 +19,7 @@ import {
   formatJobLocationDisplay,
   buildJobMapsLink,
 } from "../../utils/formatJobLocationDisplay.js";
+import JobProgressTimeline from "./JobProgressTimeline.jsx";
 
 function getJobVehicleInfo(job) {
   if (!job) return null;
@@ -145,16 +146,24 @@ function JobDetails() {
       }
     };
 
+    const onJobStatusUpdated = (data) => {
+      if (String(data?.job_id) === String(id)) {
+        refetch();
+      }
+    };
+
     const onError = (data) => {
       alert(data.message || "An error occurred");
       setCancelling(false);
     };
 
     socket.on("jobCancelled", onJobCancelled);
+    socket.on("jobStatusUpdated", onJobStatusUpdated);
     socket.on("error", onError);
 
     return () => {
       socket.off("jobCancelled", onJobCancelled);
+      socket.off("jobStatusUpdated", onJobStatusUpdated);
       socket.off("error", onError);
     };
   }, [id, refetch, socket]);
@@ -617,6 +626,7 @@ function JobDetails() {
                     <span className={`job-details-status-badge ${statusCssClass}`}>
                       {statusLabel}
                     </span>
+                    <JobProgressTimeline job={job} />
                   </div>
 
                   <div className="job-details-info-group">

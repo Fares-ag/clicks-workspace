@@ -25,6 +25,9 @@ const {
 const {
   recordTechnicianActivity,
 } = require("../../../clicks-shared/services/technicianActivityLog");
+const {
+  notifyAdminJobStatusFromReq,
+} = require("../../../clicks-shared/utils/adminJobStatus");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -648,6 +651,8 @@ const acceptJob = async (req, res) => {
     if (!updated) {
       return res.status(400).json({ error: "Cannot accept job with current status" });
     }
+
+    notifyAdminJobStatusFromReq(req, updated, { technician_id: techId });
 
     const { deletePayloadCacheKey } = require("../../../clicks-shared/utils/payloadCache");
     deletePayloadCacheKey(`clicks:tech:payload:session:${techId}`).catch(() => {});

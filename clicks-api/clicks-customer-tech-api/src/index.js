@@ -92,6 +92,7 @@ async function bootstrap() {
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminBusinessLead", sosHandlers.notifyAdminBusinessLead);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);
+  app.set("notifyAdminJobStatus", sosHandlers.notifyAdminJobStatus);
   app.set("notifyAdminHoldRequest", sosHandlers.notifyAdminHoldRequest);
   app.set("notifyAdminServiceRequest", sosHandlers.notifyAdminServiceRequest);
   app.set(

@@ -228,6 +228,10 @@ function AdminLayout() {
       playNotificationSound();
     });
 
+    adminSocket.on("jobStatusUpdated", () => {
+      dispatch(apiSlice.util.invalidateTags(["Job", "Dashboard"]));
+    });
+
     adminSocket.on("holdRequestPending", (data) => {
       setNotificationQueue((queue) => [
         ...queue,

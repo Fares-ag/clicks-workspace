@@ -3,6 +3,7 @@ const { connectTestDb, disconnectTestDb, clearCollections } = require("../helper
 const { technicianToken, bearer } = require("../helpers/tokens");
 const {
   seedArrivedJob,
+  seedCustomerJob,
   seedInProgressCompletableJob,
   seedTechnician,
   farTechCoords,
@@ -104,5 +105,32 @@ describe("Job lifecycle + proximity gate", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.job_status).toBe("completed");
+  });
+
+  test("en_route notifies admin so dispatch can see the status live", async () => {
+    const tech = await seedTechnician();
+    const job = await seedCustomerJob({ technician: tech, jobStatus: "accepted" });
+    const token = technicianToken(tech._id);
+    const seen = [];
+    techApp.set("notifyAdminJobStatus", (payload) => {
+      seen.push(payload);
+    });
+
+    const res = await request(techApp)
+      .patch(`/api/jobs/${job._id}/status`)
+      .set(bearer(token))
+      .send({ job_status: "en_route" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.job_status).toBe("en_route");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual(
+      expect.objectContaining({
+        job_id: String(job._id),
+        status: "en_route",
+        technician_id: String(tech._id),
+      })
+    );
+    expect(seen[0].en_route_at).toBeTruthy();
   });
 });
