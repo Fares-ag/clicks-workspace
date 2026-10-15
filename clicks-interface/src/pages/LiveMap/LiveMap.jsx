@@ -356,7 +356,6 @@ function LiveMap() {
                 locationStale: true,
                 presenceStale: true,
                 lastLocationAt: lastLocationAt || t.lastLocationAt,
-                _socketPresenceAt: new Date().toISOString(),
               }
             : t
         );

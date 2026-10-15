@@ -41,6 +41,30 @@ describe("liveMapUtils", () => {
     assert.equal(formatPresenceLabel(tech, now), "Connected · GPS 5m ago");
   });
 
+  it("merge does not treat a stale-event arrival stamp as a live heartbeat", () => {
+    const gps = new Date(now - 60 * 60_000).toISOString();
+    const heard = new Date(now - LOCATION_STALE_MS - 1).toISOString();
+    const merged = mergeApiTechnicianWithSocketState(
+      {
+        _id: "t1",
+        lastLocationAt: gps,
+        lastHeartbeatAt: heard,
+        presenceStale: true,
+      },
+      {
+        _id: "t1",
+        lastLocationAt: gps,
+        lastHeartbeatAt: heard,
+        presenceStale: true,
+        location: { latitude: 25, longitude: 51 },
+        _locationUpdatedAt: gps,
+      },
+      now
+    );
+    assert.equal(merged.presenceStale, true);
+    assert.equal(isTechPresenceStale(merged, now), true);
+  });
+
   it("heartbeat older than the window is disconnected even if GPS looks recent", () => {
     const gps = new Date(now - 10_000).toISOString();
     const heard = new Date(now - LOCATION_STALE_MS - 1).toISOString();

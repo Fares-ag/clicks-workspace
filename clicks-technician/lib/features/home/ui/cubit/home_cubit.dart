@@ -64,6 +64,8 @@ class HomeCubit extends Cubit<HomeState> {
   double? _lastDispatchedAccuracy;
   /// When the last dispatched pin was actually measured by the OS.
   DateTime? _lastFixAt;
+  /// When we last sent any location/liveness payload (socket or REST).
+  DateTime? _lastHeartbeatSentAt;
   /// When we last used the REST transport (see _shouldSendRest).
   DateTime? _lastRestSentAt;
 
@@ -1536,7 +1538,9 @@ class HomeCubit extends Cubit<HomeState> {
     final coarseIdle = _trackingCoarseIdle;
     final accuracy =
         coarseIdle ? LocationAccuracy.medium : LocationAccuracy.high;
-    final distanceFilter = coarseIdle ? 15 : 5;
+    // Time-based, not movement-based: a parked van must still wake Dart so
+    // the liveness heartbeat can leave the phone. See streamDistanceFilterMeters.
+    final distanceFilter = LocationTracking.streamDistanceFilterMeters;
     final interval = coarseIdle
         ? const Duration(seconds: 8)
         : const Duration(seconds: 4);
@@ -1621,6 +1625,7 @@ class HomeCubit extends Cubit<HomeState> {
     _lastDispatchedLng = null;
     _lastDispatchedAccuracy = null;
     _lastFixAt = null;
+    _lastHeartbeatSentAt = null;
     _lastRestSentAt = null;
   }
 
@@ -1687,7 +1692,12 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   void _onPositionUpdate(Position position) {
-    if (!_isAccuracyAcceptable(position.accuracy)) return;
+    if (!_isAccuracyAcceptable(position.accuracy)) {
+      // Native callback still woke us — that is enough to prove the app is
+      // alive even if this reading is too noisy to move the pin.
+      _dispatchHeartbeatIfDue();
+      return;
+    }
 
     final moved = lastLatitude == null ||
         lastLongitude == null ||
@@ -1705,12 +1715,31 @@ class HomeCubit extends Cubit<HomeState> {
         accuracy: position.accuracy,
         fixTime: position.timestamp,
       );
+    } else {
+      _dispatchHeartbeatIfDue();
     }
 
     if (locationWarning || moved) {
       locationWarning = false;
       _emitLoaded();
     }
+  }
+
+  /// Replay the last accepted pin when the OS woke us but the van has not moved.
+  void _dispatchHeartbeatIfDue() {
+    if (_lastDispatchedLat == null || _lastDispatchedLng == null) return;
+    if (!LocationTracking.shouldSendLiveness(
+      DateTime.now(),
+      _lastHeartbeatSentAt,
+    )) {
+      return;
+    }
+    _dispatchLocation(
+      _lastDispatchedLat!,
+      _lastDispatchedLng!,
+      accuracy: _lastDispatchedAccuracy,
+      fixTime: _lastFixAt,
+    );
   }
 
   /// Should this fix also go out over REST?
@@ -1738,6 +1767,7 @@ class HomeCubit extends Cubit<HomeState> {
     _lastDispatchedLat = latitude;
     _lastDispatchedLng = longitude;
     _lastDispatchedAccuracy = accuracy;
+    _lastHeartbeatSentAt = DateTime.now();
     if (fixTime != null) _lastFixAt = fixTime;
 
     _socketService.updateLocation(
@@ -1858,8 +1888,17 @@ class HomeCubit extends Cubit<HomeState> {
   // Called by the home shell's WidgetsBindingObserver when app is resumed.
   void onAppResumed() {
     _socketService.ensureConnected();
+    if (isOnline || activeJob != null) {
+      _sendCurrentPositionNow();
+    }
     // ignore: discarded_futures
     _hydrateFromPendingNotification();
+  }
+
+  /// Last chance to ping dispatch before the OS may freeze Dart.
+  void onAppBackgrounded() {
+    if (!isOnline && activeJob == null) return;
+    _sendCurrentPositionNow();
   }
 
   /// Clear location warning after user returns from Android Settings.

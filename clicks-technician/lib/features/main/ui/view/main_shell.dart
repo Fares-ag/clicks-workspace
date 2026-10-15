@@ -58,6 +58,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       context.read<HomeCubit>().onAppResumed();
       context.read<HomeCubit>().recheckLocationPermission();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      context.read<HomeCubit>().onAppBackgrounded();
     }
   }
 

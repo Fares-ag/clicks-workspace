@@ -305,7 +305,10 @@ function initializeSOSSocket(io) {
   sweepStaleSos();
   setInterval(sweepStaleSos, 60 * 1000).unref?.();
 
-  // On Job force-quit: emit stale (not Offline) when lastLocationAt exceeds window.
+  // On Job force-quit: emit stale (not Offline) when heartbeat exceeds window.
+  // A live technician socket means the process is still up even if GPS and the
+  // Dart 12s timer have gone quiet in the background — refresh presence so
+  // dispatch does not show Disconnected for an app sitting in Recents.
   setInterval(async () => {
     try {
       const cutoff = new Date(Date.now() - LOCATION_STALE_MS);
@@ -313,9 +316,13 @@ function initializeSOSSocket(io) {
         currentStatus: "On Job",
         isActive: true,
         ...presenceStaleMongoFilter(cutoff),
-      }).select("_id lastLocationAt lastHeartbeatAt");
+      }).select("_id lastLocationAt lastHeartbeatAt currentLocation");
       for (const t of staleOnJob) {
         const id = t._id.toString();
+        if (await userHasLiveSockets(technicianNamespace, id)) {
+          await refreshPresenceFromLiveSocket(t);
+          continue;
+        }
         if (!staleLocationEmittedFor.has(id)) {
           emitAdminTechnicianLocationStale(id, t.lastLocationAt);
         }
@@ -387,7 +394,10 @@ function initializeSOSSocket(io) {
         const technicianId = tech._id.toString();
         // A disconnect timer in this process is already on the case.
         if (technicianOfflineTimers.has(technicianId)) continue;
-        if (await userHasLiveSockets(technicianNamespace, technicianId)) continue;
+        if (await userHasLiveSockets(technicianNamespace, technicianId)) {
+          await refreshPresenceFromLiveSocket(tech);
+          continue;
+        }
         await markTechnicianAutoOffline(tech);
         await emitAdminTechnicianPresence(technicianId, "Offline");
         devLog(`Technician ${technicianId} marked Offline by reconciliation sweep`);
@@ -462,6 +472,26 @@ function initializeSOSSocket(io) {
 
   const adminLocationBatchTimer = setInterval(flushAdminLocationBatch, ADMIN_MAP_BATCH_MS);
   adminLocationBatchTimer.unref?.();
+
+  /**
+   * Socket still connected, GPS/heartbeat writes have gone quiet. Stamp
+   * lastHeartbeatAt only — lastLocationAt stays the real GPS measurement time.
+   */
+  async function refreshPresenceFromLiveSocket(technician) {
+    const id = technician._id.toString();
+    const lastHeartbeatAt = new Date();
+    await Technician.updateOne({ _id: id }, { lastHeartbeatAt });
+    technician.lastHeartbeatAt = lastHeartbeatAt;
+    const { latitude, longitude } = coordsFromTechnician(technician);
+    if (latitude === 0 && longitude === 0) return;
+    emitAdminTechnicianLocation(
+      id,
+      latitude,
+      longitude,
+      technician.lastLocationAt,
+      lastHeartbeatAt
+    );
+  }
 
   function emitAdminTechnicianLocation(
     technician_id,
@@ -1131,6 +1161,18 @@ function initializeSOSSocket(io) {
       // The grace timer only covers a disconnect this process is still holding.
       // A longer outage, or a redeploy, already flipped them Offline in the DB.
       await restoreAutoOfflinedTechnician(technicianId);
+      // Reconnect / FGS wake: the socket itself is the app-alive signal.
+      try {
+        const tech = await Technician.findById(technicianId).select(
+          "currentStatus currentLocation lastLocationAt lastHeartbeatAt"
+        );
+        if (tech && ["Online", "On Job"].includes(tech.currentStatus)) {
+          await refreshPresenceFromLiveSocket(tech);
+        }
+      } catch (err) {
+        console.error("Failed to refresh presence on technician register:", err);
+        captureException(err);
+      }
     });
 
     socket.on("updateLocation", async (data) => {
