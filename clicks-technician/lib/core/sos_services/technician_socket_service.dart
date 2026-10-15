@@ -118,8 +118,13 @@ class TechnicianSocketService {
   /// Server maps technician id from JWT on every connect/reconnect.
   void _onSocketReady() {
     _connectErrorReported = false;
-    _socket?.emit('register');
+    _socket?.emit('register', {'lifecycle': true});
     onConnected?.call();
+  }
+
+  void emitAppLifecycle(String state) {
+    if (_socket == null || !isConnected) return;
+    _socket!.emit('appLifecycle', {'state': state});
   }
 
   /// Call when app returns to foreground to ensure socket is alive.

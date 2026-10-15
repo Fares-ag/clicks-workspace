@@ -22,6 +22,7 @@ router.post("/reset-password", otpLimiter, technicianController.resetPassword);
 router.get("/dashboard", approvedTechnician, technicianController.getDashboard);
 router.patch("/status", approvedTechnician, technicianController.toggleStatus);
 router.patch("/location", approvedTechnician, technicianController.updateLocation);
+router.patch("/lifecycle", approvedTechnician, technicianController.updateAppLifecycle);
 router.get("/jobs", approvedTechnician, technicianController.getJobs);
 router.post("/jobs", approvedTechnician, technicianController.createTechnicianJob);
 router.post("/jobs/:id/accept", approvedTechnician, technicianController.acceptJob);

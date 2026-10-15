@@ -83,6 +83,22 @@ const TechnicianSchema = new mongoose.Schema(
       default: null,
     },
     /**
+     * True once this technician's app has sent appLifecycle (or register.lifecycle).
+     * Old builds never set this — disconnects stay the legacy "App closed" row.
+     */
+    appLifecycleCapable: {
+      type: Boolean,
+      default: false,
+    },
+    lastAppLifecycle: {
+      type: String,
+      default: null,
+    },
+    lastAppLifecycleAt: {
+      type: Date,
+      default: null,
+    },
+    /**
      * Set when the server INFERRED Offline (socket gone / heartbeat stale)
      * rather than the technician choosing it. A reconnect restores them to
      * Online and clears this; an explicit toggle clears it without restoring.

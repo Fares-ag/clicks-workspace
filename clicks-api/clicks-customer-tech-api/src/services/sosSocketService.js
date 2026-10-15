@@ -27,6 +27,10 @@ const {
   recordTechnicianActivity,
 } = require("../../../clicks-shared/services/technicianActivityLog");
 const { durationEnv } = require("../../../clicks-shared/utils/durationEnv");
+const {
+  applyTechnicianAppLifecycle,
+  recordTechnicianDisconnectActivity,
+} = require("../../../clicks-shared/utils/technicianAppLifecycle");
 const { sendAdminDispatchPush } = require("./fcmService");
 const {
   recordAdminNotificationFireAndForget,
@@ -1140,7 +1144,7 @@ function initializeSOSSocket(io) {
     devLog("Technician connected:", socket.id);
 
     // Technician registers their ID (from JWT — ignore client-supplied id)
-    socket.on("register", async () => {
+    socket.on("register", async (data) => {
       const technicianId = String(socket.user.id);
       // Cancel pending offline mark from a brief disconnect
       if (technicianOfflineTimers.has(technicianId)) {
@@ -1161,6 +1165,17 @@ function initializeSOSSocket(io) {
       // The grace timer only covers a disconnect this process is still holding.
       // A longer outage, or a redeploy, already flipped them Offline in the DB.
       await restoreAutoOfflinedTechnician(technicianId);
+      if (data && typeof data === "object" && data.lifecycle === true) {
+        try {
+          await Technician.updateOne(
+            { _id: technicianId },
+            { appLifecycleCapable: true }
+          );
+        } catch (err) {
+          console.error("Failed to mark technician lifecycle-capable:", err);
+          captureException(err);
+        }
+      }
       // Reconnect / FGS wake: the socket itself is the app-alive signal.
       try {
         const tech = await Technician.findById(technicianId).select(
@@ -1171,6 +1186,21 @@ function initializeSOSSocket(io) {
         }
       } catch (err) {
         console.error("Failed to refresh presence on technician register:", err);
+        captureException(err);
+      }
+    });
+
+    socket.on("appLifecycle", async (data) => {
+      try {
+        const technicianId = String(socket.user.id);
+        await applyTechnicianAppLifecycle({
+          Technician,
+          technicianId,
+          state: data?.state,
+          recordTechnicianActivity,
+        });
+      } catch (err) {
+        console.error("Error recording technician app lifecycle:", err);
         captureException(err);
       }
     });
@@ -1602,15 +1632,19 @@ function initializeSOSSocket(io) {
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
       if (socket.technicianId) {
         const technicianId = socket.technicianId;
         devLog(`Technician ${technicianId} disconnected`);
-        recordTechnicianActivity({
+        recordTechnicianDisconnectActivity({
+          Technician,
           technicianId,
-          event: "session.app_closed",
-          message: "App went to background or lost connection",
-          metadata: { socket_id: socket.id },
+          reason,
+          socketId: socket.id,
+          recordTechnicianActivity,
+        }).catch((err) => {
+          console.error("Failed to record technician disconnect activity:", err);
+          captureException(err);
         });
 
         // Grace window: if the tech reconnects quickly (or their REST heartbeats keep arriving)

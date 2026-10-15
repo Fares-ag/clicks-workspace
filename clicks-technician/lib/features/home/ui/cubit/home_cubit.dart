@@ -69,6 +69,9 @@ class HomeCubit extends Cubit<HomeState> {
   /// When we last used the REST transport (see _shouldSendRest).
   DateTime? _lastRestSentAt;
 
+  /// Last lifecycle state reported to the server (dedupes paused + hidden).
+  bool _appInBackground = false;
+
   /// Dashboard balance for Home pill (totalEarnings).
   double? balanceQar;
 
@@ -259,6 +262,9 @@ class HomeCubit extends Cubit<HomeState> {
       socketConnected = true;
       _emitLoaded();
       fetchSession();
+      if (_appInBackground) {
+        _socketService.emitAppLifecycle('background');
+      }
       if (isOnline) {
         _sendCurrentPositionNow();
       }
@@ -1887,6 +1893,7 @@ class HomeCubit extends Cubit<HomeState> {
 
   // Called by the home shell's WidgetsBindingObserver when app is resumed.
   void onAppResumed() {
+    _reportLifecycle('foreground');
     _socketService.ensureConnected();
     if (isOnline || activeJob != null) {
       _sendCurrentPositionNow();
@@ -1897,8 +1904,31 @@ class HomeCubit extends Cubit<HomeState> {
 
   /// Last chance to ping dispatch before the OS may freeze Dart.
   void onAppBackgrounded() {
+    _reportLifecycle('background');
     if (!isOnline && activeJob == null) return;
     _sendCurrentPositionNow();
+  }
+
+  void _reportLifecycle(String state) {
+    final goingBackground = state == 'background';
+    if (goingBackground == _appInBackground) return;
+    _appInBackground = goingBackground;
+    _socketService.emitAppLifecycle(state);
+    _sendLifecycleRest(state);
+  }
+
+  void _sendLifecycleRest(String state) {
+    Future<void> doSend() async {
+      try {
+        await DioHelper.patchData(
+          url: EndPoints.lifecycle,
+          data: {'state': state},
+        );
+      } catch (_) {
+        // best-effort — socket path is the primary signal
+      }
+    }
+    doSend();
   }
 
   /// Clear location warning after user returns from Android Settings.

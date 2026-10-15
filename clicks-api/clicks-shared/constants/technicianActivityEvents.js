@@ -68,6 +68,26 @@ const TECHNICIAN_ACTIVITY_EVENTS = {
   },
   "session.app_opened": { category: "session", label: "App opened", severity: "info" },
   "session.app_closed": { category: "session", label: "App closed", severity: "info" },
+  "session.app_backgrounded": {
+    category: "session",
+    label: "Went to background",
+    severity: "info",
+  },
+  "session.app_foregrounded": {
+    category: "session",
+    label: "Returned to app",
+    severity: "info",
+  },
+  "session.app_force_closed": {
+    category: "session",
+    label: "Force closed / crashed",
+    severity: "warn",
+  },
+  "session.app_closed_in_background": {
+    category: "session",
+    label: "Closed while backgrounded",
+    severity: "warn",
+  },
 
   // ── Device ──────────────────────────────────────────────────────────────
   "device.push_token_registered": {

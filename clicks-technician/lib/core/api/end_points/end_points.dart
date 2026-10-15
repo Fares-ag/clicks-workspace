@@ -30,6 +30,9 @@ class EndPoints {
   //! Background location heartbeat (REST — always sent even when socket is down)
   static const String location = "/api/technicians/location";
 
+  //! App lifecycle (background / foreground) so logs can tell force-quit from pause
+  static const String lifecycle = "/api/technicians/lifecycle";
+
   //! Jobs (technician-scoped)
   static const String technicianJobs = "/api/technicians/jobs";
   static const String createTechnicianJob = "/api/technicians/jobs";

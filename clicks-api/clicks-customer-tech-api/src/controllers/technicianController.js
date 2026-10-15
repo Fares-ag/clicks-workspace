@@ -28,6 +28,9 @@ const {
 const {
   notifyAdminJobStatusFromReq,
 } = require("../../../clicks-shared/utils/adminJobStatus");
+const {
+  applyTechnicianAppLifecycle,
+} = require("../../../clicks-shared/utils/technicianAppLifecycle");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -428,6 +431,26 @@ const getDashboard = async (req, res) => {
     res.json(payload);
   } catch (err) {
     res.status(500).json({ error: "Dashboard fetch failed", details: err.message });
+  }
+};
+
+const updateAppLifecycle = async (req, res) => {
+  try {
+    const result = await applyTechnicianAppLifecycle({
+      Technician,
+      technicianId: String(req.user.id),
+      state: req.body?.state,
+      recordTechnicianActivity: (entry) =>
+        recordTechnicianActivity({ ...entry, req }),
+    });
+    if (!result.ok) {
+      return res.status(400).json({ error: "Invalid lifecycle state" });
+    }
+    return res.json({ ok: true, skipped: result.skipped === true });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ error: "Lifecycle update failed", details: err.message });
   }
 };
 
@@ -1752,6 +1775,7 @@ module.exports = {
   deleteAccount,
   getVehicle,
   updateLocation,
+  updateAppLifecycle,
   uploadHomeHero,
   createTechnicianSubscription,
   saveFcmToken,

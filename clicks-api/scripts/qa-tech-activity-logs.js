@@ -83,6 +83,8 @@ function runStatic() {
       events.includes("auth.login.success") &&
       events.includes("auth.logout") &&
       events.includes("session.online") &&
+      events.includes("session.app_backgrounded") &&
+      events.includes("session.app_force_closed") &&
       events.includes("job.completed") &&
       events.includes("device.push_token_registered")
   );
@@ -143,7 +145,8 @@ function runStatic() {
     "L-S7",
     "Socket presence records app open/close and location",
     socket.includes('event: "session.app_opened"') &&
-      socket.includes('event: "session.app_closed"') &&
+      socket.includes("recordTechnicianDisconnectActivity") &&
+      socket.includes('socket.on("appLifecycle"') &&
       socket.includes('event: "location.updated"')
   );
   step(
