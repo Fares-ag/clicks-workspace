@@ -24,6 +24,7 @@ const TECH_PROJECTION = {
   expertise: 1,
   currentLocation: 1,
   lastLocationAt: 1,
+  lastHeartbeatAt: 1,
 };
 
 let techRoster = null;
@@ -55,6 +56,7 @@ function mapTech(tech) {
     expertise: tech.expertise || [],
     currentLocation: tech.currentLocation,
     lastLocationAt: tech.lastLocationAt,
+    lastHeartbeatAt: tech.lastHeartbeatAt,
   };
 }
 

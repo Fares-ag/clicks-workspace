@@ -122,8 +122,8 @@ async function loadStateFromDb(Technician, technicianId) {
  * @param {number} params.longitude
  * @param {number} [params.accuracy]
  * @param {string|Date} [params.fixTime] when the GPS fix was measured (not received)
- * @param {(technicianId: string, lat: number, lng: number, lastLocationAt: Date) => void} [params.onAdminBroadcast]
- * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, coordsChanged?: boolean, heartbeat?: boolean, lat: number, lng: number, lastLocationAt?: Date }>}
+ * @param {(technicianId: string, lat: number, lng: number, lastLocationAt: Date, lastHeartbeatAt: Date) => void} [params.onAdminBroadcast]
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, coordsChanged?: boolean, heartbeat?: boolean, lat: number, lng: number, lastLocationAt?: Date, lastHeartbeatAt?: Date }>}
  */
 async function applyTechnicianLocationWrite({
   Technician,
@@ -154,6 +154,7 @@ async function applyTechnicianLocationWrite({
   }
 
   const now = Date.now();
+  const lastHeartbeatAt = new Date(now);
   let state = stateByTechId.get(id);
   if (!state) {
     state = await loadStateFromDb(Technician, id);
@@ -168,6 +169,7 @@ async function applyTechnicianLocationWrite({
       {
         "currentLocation.coordinates": [lng, lat],
         lastLocationAt,
+        lastHeartbeatAt,
       }
     );
     stateByTechId.set(id, {
@@ -177,7 +179,7 @@ async function applyTechnicianLocationWrite({
       lastHeartbeatAt: now,
     });
     if (typeof onAdminBroadcast === "function") {
-      onAdminBroadcast(id, lat, lng, lastLocationAt);
+      onAdminBroadcast(id, lat, lng, lastLocationAt, lastHeartbeatAt);
     }
     return {
       ok: true,
@@ -185,6 +187,7 @@ async function applyTechnicianLocationWrite({
       lat,
       lng,
       lastLocationAt,
+      lastHeartbeatAt,
     };
   }
 
@@ -198,9 +201,9 @@ async function applyTechnicianLocationWrite({
       return { ok: false, skipped: true, reason: "heartbeat_throttle", lat, lng };
     }
     state.lastHeartbeatAt = now;
-    await Technician.updateOne({ _id: id }, { lastLocationAt });
+    await Technician.updateOne({ _id: id }, { lastLocationAt, lastHeartbeatAt });
     if (typeof onAdminBroadcast === "function") {
-      onAdminBroadcast(id, lat, lng, lastLocationAt);
+      onAdminBroadcast(id, lat, lng, lastLocationAt, lastHeartbeatAt);
     }
     return {
       ok: true,
@@ -209,6 +212,7 @@ async function applyTechnicianLocationWrite({
       lat,
       lng,
       lastLocationAt,
+      lastHeartbeatAt,
     };
   }
 
@@ -220,30 +224,32 @@ async function applyTechnicianLocationWrite({
     return { ok: false, skipped: true, reason: "throttle", lat, lng };
   }
 
-  await Technician.updateOne(
-    { _id: id },
-    {
-      "currentLocation.coordinates": [lng, lat],
-      lastLocationAt,
+    await Technician.updateOne(
+      { _id: id },
+      {
+        "currentLocation.coordinates": [lng, lat],
+        lastLocationAt,
+        lastHeartbeatAt,
+      }
+    );
+    state.lat = lat;
+    state.lng = lng;
+    state.lastWriteAt = now;
+    state.lastHeartbeatAt = now;
+
+    if (typeof onAdminBroadcast === "function") {
+      onAdminBroadcast(id, lat, lng, lastLocationAt, lastHeartbeatAt);
     }
-  );
-  state.lat = lat;
-  state.lng = lng;
-  state.lastWriteAt = now;
-  state.lastHeartbeatAt = now;
 
-  if (typeof onAdminBroadcast === "function") {
-    onAdminBroadcast(id, lat, lng, lastLocationAt);
+    return {
+      ok: true,
+      coordsChanged: true,
+      lat,
+      lng,
+      lastLocationAt,
+      lastHeartbeatAt,
+    };
   }
-
-  return {
-    ok: true,
-    coordsChanged: true,
-    lat,
-    lng,
-    lastLocationAt,
-  };
-}
 
 module.exports = {
   applyTechnicianLocationWrite,

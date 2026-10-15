@@ -7,6 +7,7 @@ import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
 import '../../core/config/app_config.dart';
 import '../../core/socket/admin_socket_service.dart';
+import '../../core/routing/routes.dart';
 import '../../core/theme/admin_typography.dart';
 import '../../core/theme/app_colors.dart';
 import 'live_map_utils.dart';
@@ -61,7 +62,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   Future<void> _loadMarkerIcon() async {
     try {
       _markerIcon = await BitmapDescriptor.asset(
-        const ImageConfiguration(size: Size(48, 48)),
+        const ImageConfiguration(size: Size(112, 112)),
         'assets/icons/map_icon.png',
       );
     } catch (_) {
@@ -140,7 +141,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     if (raw is! Map) return;
     final id = raw['technician_id']?.toString() ?? raw['_id']?.toString() ?? '';
     if (id.isEmpty) return;
-    _patchTech(id, {'locationStale': true});
+    _patchTech(id, {'locationStale': true, 'presenceStale': true});
   }
 
   void _onOnline(dynamic raw) {
@@ -182,7 +183,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       final lat = (loc['latitude'] as num).toDouble();
       final lng = (loc['longitude'] as num).toDouble();
       final name = '${tech['firstName'] ?? ''} ${tech['lastName'] ?? ''}'.trim();
-      final stale = isTechLocationStale(tech);
+      final stale = isTechPresenceStale(tech);
       final vehicle = tech['vehicle'];
       var vehicleLabel = '';
       if (vehicle is Map) {
@@ -196,11 +197,16 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           title: stale ? '$name (!)' : name,
           snippet: [
             tech['currentStatus']?.toString(),
-            formatLastSeen(tech),
+            formatPresenceLabel(tech),
             if (vehicleLabel.isNotEmpty) vehicleLabel,
           ].where((s) => s != null && s.toString().isNotEmpty).join(' · '),
+          onTap: id.isEmpty
+              ? null
+              : () => Navigator.of(context).pushNamed(Routes.technicianDetailPath(id)),
         ),
-        onTap: () {},
+        onTap: id.isEmpty
+            ? null
+            : () => Navigator.of(context).pushNamed(Routes.technicianDetailPath(id)),
       );
     }).toSet();
   }
@@ -253,7 +259,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    '${_visibleTechs.where((t) => isTechLocationStale(t)).length} stale',
+                    '${_visibleTechs.where((t) => isTechPresenceStale(t)).length} disconnected',
                     style: AdminTypography.caption.copyWith(color: AppColors.warning),
                   ),
                 ],

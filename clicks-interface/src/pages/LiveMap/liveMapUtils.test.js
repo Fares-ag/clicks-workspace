@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import {
   LOCATION_STALE_MS,
   REST_POLL_MS,
+  formatPresenceLabel,
   mergeApiTechnicianWithSocketState,
   isSocketOnlyPreserved,
+  isTechGpsStale,
   isTechLocationStale,
+  isTechPresenceStale,
 } from "./liveMapUtils.js";
 
 describe("liveMapUtils", () => {
@@ -26,6 +29,23 @@ describe("liveMapUtils", () => {
   it("isTechLocationStale is true when lastLocationAt exceeds window", () => {
     const ts = new Date(now - LOCATION_STALE_MS - 1).toISOString();
     assert.equal(isTechLocationStale({ lastLocationAt: ts }, now), true);
+  });
+
+  it("parked technician with a live heartbeat is connected, GPS-stale only", () => {
+    const gps = new Date(now - 5 * 60_000).toISOString();
+    const heard = new Date(now - 8_000).toISOString();
+    const tech = { lastLocationAt: gps, lastHeartbeatAt: heard, locationStale: true };
+    assert.equal(isTechGpsStale(tech, now), true);
+    assert.equal(isTechPresenceStale(tech, now), false);
+    assert.equal(isTechLocationStale(tech, now), false);
+    assert.equal(formatPresenceLabel(tech, now), "Connected · GPS 5m ago");
+  });
+
+  it("heartbeat older than the window is disconnected even if GPS looks recent", () => {
+    const gps = new Date(now - 10_000).toISOString();
+    const heard = new Date(now - LOCATION_STALE_MS - 1).toISOString();
+    const tech = { lastLocationAt: gps, lastHeartbeatAt: heard };
+    assert.equal(isTechPresenceStale(tech, now), true);
   });
 
   it("mergeApiTechnicianWithSocketState prefers fresh socket coords", () => {

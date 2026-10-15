@@ -13,8 +13,10 @@ import {
   REST_POLL_MS,
   countVisibleStaleTechnicians,
   formatLastSeen,
+  formatPresenceLabel,
   isSocketOnlyPreserved,
-  isTechLocationStale,
+  isTechGpsStale,
+  isTechPresenceStale,
   mergeApiTechnicianWithSocketState,
 } from "./liveMapUtils.js";
 import {
@@ -80,13 +82,15 @@ function buildLocationPatch(data) {
     location: { latitude: data.latitude, longitude: data.longitude },
     _locationUpdatedAt,
     lastLocationAt: data.lastLocationAt || _locationUpdatedAt,
+    lastHeartbeatAt: data.lastHeartbeatAt || new Date().toISOString(),
     locationStale: data.locationStale === true,
+    presenceStale: data.presenceStale === true,
     _socketPresenceAt: new Date().toISOString(),
   };
 }
 
 function getMarkerLabel(tech) {
-  if (isTechLocationStale(tech)) {
+  if (isTechPresenceStale(tech)) {
     return { text: "!", color: "#ffffff", fontSize: "11px", fontWeight: "700" };
   }
   if (tech.currentStatus === "On Job") {
@@ -96,16 +100,17 @@ function getMarkerLabel(tech) {
 }
 
 const TechMapMarker = React.memo(function TechMapMarker({ tech, onSelect }) {
-  const stale = isTechLocationStale(tech);
+  const disconnected = isTechPresenceStale(tech);
+  const gpsStale = isTechGpsStale(tech);
   const onJob = tech.currentStatus === "On Job";
   return (
     <Marker
       position={{ lat: tech.location.latitude, lng: tech.location.longitude }}
-      opacity={stale ? 0.45 : 1}
+      opacity={disconnected ? 0.45 : 1}
       icon={getMarkerIcon(tech)}
       label={getMarkerLabel(tech)}
       onClick={() => onSelect(String(tech._id))}
-      title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${stale ? " (stale location)" : ""}`}
+      title={`${tech.firstName} ${tech.lastName}${onJob ? " (On Job)" : ""}${disconnected ? " (disconnected)" : gpsStale ? " (connected, GPS parked)" : ""}`}
     />
   );
 });
@@ -349,6 +354,7 @@ function LiveMap() {
             ? {
                 ...t,
                 locationStale: true,
+                presenceStale: true,
                 lastLocationAt: lastLocationAt || t.lastLocationAt,
                 _socketPresenceAt: new Date().toISOString(),
               }
@@ -601,8 +607,8 @@ function LiveMap() {
             {socketConnected ? "Connected" : "Connecting…"}
           </span>
           {staleCount > 0 && (
-            <span className="live-map-stale-count" title="Technicians with stale GPS">
-              {staleCount} stale
+            <span className="live-map-stale-count" title="Technicians whose app is not checking in">
+              {staleCount} disconnected
             </span>
           )}
           <div className="live-map-breadcrumb">
@@ -724,14 +730,16 @@ function LiveMap() {
                 </p>
                 <p className={`tech-popup-status ${selectedTech.currentStatus === "On Job" ? "on-job" : "online"}`}>
                   {selectedTech.currentStatus}
-                  {!isTechLocationStale(selectedTech) ? (
-                    <span className="tech-popup-fresh"> · Live</span>
+                  {isTechPresenceStale(selectedTech) ? (
+                    <span className="tech-popup-stale"> · Disconnected</span>
+                  ) : isTechGpsStale(selectedTech) ? (
+                    <span className="tech-popup-parked"> · Connected</span>
                   ) : (
-                    <span className="tech-popup-stale"> · Stale location</span>
+                    <span className="tech-popup-fresh"> · Live</span>
                   )}
                 </p>
                 <p className="tech-popup-lastseen">
-                  Last seen: {formatLastSeen(selectedTech)}
+                  {formatPresenceLabel(selectedTech)}
                 </p>
                 <p className="tech-popup-vehicle">
                   {selectedTech.vehicle
@@ -775,13 +783,15 @@ function LiveMap() {
                   <div className="lm-tech-info">
                     <div className="lm-tech-name">
                       {t.firstName} {t.lastName}
-                      {isTechLocationStale(t) ? (
-                        <span className="lm-tech-stale-label"> · stale</span>
+                      {isTechPresenceStale(t) ? (
+                        <span className="lm-tech-stale-label"> · disconnected</span>
+                      ) : isTechGpsStale(t) ? (
+                        <span className="lm-tech-parked-label"> · GPS {formatLastSeen(t)}</span>
                       ) : null}
                     </div>
                     <div className="lm-tech-phone">
                       {t.phone}
-                      {!isTechLocationStale(t) ? (
+                      {!isTechPresenceStale(t) && !isTechGpsStale(t) ? (
                         <span className="lm-tech-fresh-label"> · {formatLastSeen(t)}</span>
                       ) : null}
                     </div>

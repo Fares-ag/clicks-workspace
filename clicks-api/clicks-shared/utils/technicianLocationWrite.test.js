@@ -58,6 +58,9 @@ function createMockTechnician(initial) {
       if (update.lastLocationAt) {
         doc.lastLocationAt = update.lastLocationAt;
       }
+      if (update.lastHeartbeatAt) {
+        doc.lastHeartbeatAt = update.lastHeartbeatAt;
+      }
       docs.set(key, doc);
       return { acknowledged: true };
     },
@@ -364,8 +367,13 @@ describe("liveness heartbeat freshness", () => {
       "heartbeat must not stamp a frozen position as freshly measured"
     );
 
-    const ageMs = Date.now() - Technician.get("tech1").lastLocationAt.getTime();
+    const stored = Technician.get("tech1");
+    const ageMs = Date.now() - stored.lastLocationAt.getTime();
     assert.ok(ageMs > 60000, `stored position should read stale, was ${ageMs}ms old`);
+    assert.ok(
+      Date.now() - stored.lastHeartbeatAt.getTime() < 5000,
+      "heartbeat receive time must stay fresh so dispatch can tell app-alive from GPS-dead"
+    );
   });
 
   it("a parked technician with live GPS still reads fresh", async () => {

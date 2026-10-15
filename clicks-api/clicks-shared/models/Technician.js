@@ -77,6 +77,11 @@ const TechnicianSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Server receive time of the last accepted location write (including heartbeat). */
+    lastHeartbeatAt: {
+      type: Date,
+      default: null,
+    },
     /**
      * Set when the server INFERRED Offline (socket gone / heartbeat stale)
      * rather than the technician choosing it. A reconnect restores them to

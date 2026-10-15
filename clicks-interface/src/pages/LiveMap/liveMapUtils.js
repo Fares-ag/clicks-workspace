@@ -15,20 +15,62 @@ export function getTechLastLocationAt(tech) {
   return tech?.lastLocationAt || tech?._locationUpdatedAt || null;
 }
 
-export function isTechLocationStale(tech, nowMs = Date.now()) {
-  if (tech?.locationStale === true) return true;
-  const ts = getTechLastLocationAt(tech);
-  if (!ts) return true;
-  return nowMs - new Date(ts).getTime() >= LOCATION_STALE_MS;
+export function getTechLastHeartbeatAt(tech) {
+  return tech?.lastHeartbeatAt || tech?._socketPresenceAt || null;
 }
 
-export function formatLastSeen(tech, nowMs = Date.now()) {
+function isTimestampStale(value, nowMs) {
+  const ms = toMs(value);
+  if (ms == null) return true;
+  return nowMs - ms >= LOCATION_STALE_MS;
+}
+
+/** GPS measurement is older than the window (van may still be connected). */
+export function isTechGpsStale(tech, nowMs = Date.now()) {
   const ts = getTechLastLocationAt(tech);
-  if (!ts) return "Unknown";
-  const sec = Math.max(0, Math.floor((nowMs - new Date(ts).getTime()) / 1000));
+  if (!ts) return true;
+  return isTimestampStale(ts, nowMs);
+}
+
+/**
+ * App is not checking in. Parked techs with a live heartbeat are NOT presence-stale
+ * even if GPS has not produced a new point.
+ */
+export function isTechPresenceStale(tech, nowMs = Date.now()) {
+  if (tech?.presenceStale === true) return true;
+  const heard = getTechLastHeartbeatAt(tech);
+  if (heard) return isTimestampStale(heard, nowMs);
+  // Legacy payloads without lastHeartbeatAt — same as GPS age.
+  if (tech?.locationStale === true) return true;
+  return isTechGpsStale(tech, nowMs);
+}
+
+/** @deprecated Use isTechPresenceStale for marker fade; isTechGpsStale for GPS age. */
+export function isTechLocationStale(tech, nowMs = Date.now()) {
+  return isTechPresenceStale(tech, nowMs);
+}
+
+export function formatAge(value, nowMs = Date.now()) {
+  const ms = toMs(value);
+  if (ms == null) return "Unknown";
+  const sec = Math.max(0, Math.floor((nowMs - ms) / 1000));
   if (sec < 60) return `${sec}s ago`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
   return `${Math.floor(sec / 3600)}h ago`;
+}
+
+export function formatLastSeen(tech, nowMs = Date.now()) {
+  return formatAge(getTechLastLocationAt(tech), nowMs);
+}
+
+export function formatPresenceLabel(tech, nowMs = Date.now()) {
+  if (isTechPresenceStale(tech, nowMs)) {
+    return `Disconnected · last GPS ${formatLastSeen(tech, nowMs)}`;
+  }
+  if (isTechGpsStale(tech, nowMs)) {
+    return `Connected · GPS ${formatLastSeen(tech, nowMs)}`;
+  }
+  return "Live";
 }
 
 /**
@@ -40,13 +82,33 @@ export function formatLastSeen(tech, nowMs = Date.now()) {
  * REST snapshots were discarded — with the badge still reading "Connected".
  * Comparing measurement times makes the stale path self-correcting.
  */
+function newerIso(a, b) {
+  const am = toMs(a);
+  const bm = toMs(b);
+  if (am == null) return b || null;
+  if (bm == null) return a || null;
+  return am >= bm ? a : b;
+}
+
 export function mergeApiTechnicianWithSocketState(apiTech, existing, nowMs = Date.now()) {
   const id = String(apiTech._id);
+  const lastHeartbeatAt = newerIso(
+    apiTech.lastHeartbeatAt,
+    newerIso(existing?.lastHeartbeatAt, existing?._socketPresenceAt)
+  );
+  const heartbeatMs = toMs(lastHeartbeatAt);
+  const presenceStale =
+    heartbeatMs == null
+      ? apiTech.presenceStale === true
+      : nowMs - heartbeatMs >= LOCATION_STALE_MS;
+
   const base = {
     ...apiTech,
     _id: id,
     lastLocationAt: apiTech.lastLocationAt,
+    lastHeartbeatAt,
     locationStale: apiTech.locationStale,
+    presenceStale,
   };
 
   if (!existing?._locationUpdatedAt || !existing.location) {
@@ -66,7 +128,9 @@ export function mergeApiTechnicianWithSocketState(apiTech, existing, nowMs = Dat
     location: existing.location,
     _locationUpdatedAt: existing._locationUpdatedAt,
     lastLocationAt: existing.lastLocationAt || apiTech.lastLocationAt,
+    lastHeartbeatAt,
     locationStale: existing.locationStale ?? apiTech.locationStale,
+    presenceStale,
     _socketPresenceAt: existing._socketPresenceAt,
   };
 }
@@ -82,6 +146,6 @@ export function isSocketOnlyPreserved(tech, apiIds, nowMs = Date.now()) {
 
 export function countVisibleStaleTechnicians(technicians, nowMs = Date.now()) {
   return technicians.filter(
-    (t) => ["Online", "On Job"].includes(t.currentStatus) && isTechLocationStale(t, nowMs)
+    (t) => ["Online", "On Job"].includes(t.currentStatus) && isTechPresenceStale(t, nowMs)
   ).length;
 }

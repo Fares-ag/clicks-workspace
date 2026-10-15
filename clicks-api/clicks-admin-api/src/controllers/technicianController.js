@@ -31,11 +31,19 @@ function isLocationStaleForMap(lastLocationAt) {
   return Date.now() - new Date(lastLocationAt).getTime() >= LOCATION_STALE_MS;
 }
 
+function isPresenceStaleForMap(lastHeartbeatAt, lastLocationAt) {
+  if (lastHeartbeatAt) return isLocationStaleForMap(lastHeartbeatAt);
+  return isLocationStaleForMap(lastLocationAt);
+}
+
 function toLiveMapTechnician(t) {
   const [longitude = 0, latitude = 0] = t.currentLocation?.coordinates || [0, 0];
   const v = t.assignedVehicle;
   const lastLocationAt = t.lastLocationAt
     ? new Date(t.lastLocationAt).toISOString()
+    : null;
+  const lastHeartbeatAt = t.lastHeartbeatAt
+    ? new Date(t.lastHeartbeatAt).toISOString()
     : null;
   return {
     _id: t._id,
@@ -46,7 +54,9 @@ function toLiveMapTechnician(t) {
     profilePicture: t.profilePicture,
     location: { latitude, longitude },
     lastLocationAt,
+    lastHeartbeatAt,
     locationStale: isLocationStaleForMap(t.lastLocationAt),
+    presenceStale: isPresenceStaleForMap(t.lastHeartbeatAt, t.lastLocationAt),
     vehicle: v
       ? {
           _id: v._id,

@@ -150,6 +150,22 @@ function isLocationStale(lastLocationAt, staleMs = DEFAULT_LOCATION_STALE_MS) {
   return locationAgeMs(lastLocationAt) >= staleMs;
 }
 
+/** App-alive signal. Falls back to GPS time for technicians who predate lastHeartbeatAt. */
+function isPresenceStale(technician, staleMs = DEFAULT_LOCATION_STALE_MS) {
+  return locationAgeMs(technician?.lastHeartbeatAt || technician?.lastLocationAt) >=
+    staleMs;
+}
+
+function presenceStaleMongoFilter(cutoff) {
+  return {
+    $or: [
+      { lastHeartbeatAt: { $lt: cutoff } },
+      { lastHeartbeatAt: null, lastLocationAt: { $lt: cutoff } },
+      { lastHeartbeatAt: null, lastLocationAt: null },
+    ],
+  };
+}
+
 function coordsFromTechnician(technician) {
   const [longitude = 0, latitude = 0] =
     technician?.currentLocation?.coordinates || [0, 0];
@@ -162,6 +178,9 @@ function buildAdminTechnicianPayload(technician) {
   const lastLocationAt = technician.lastLocationAt
     ? new Date(technician.lastLocationAt).toISOString()
     : null;
+  const lastHeartbeatAt = technician.lastHeartbeatAt
+    ? new Date(technician.lastHeartbeatAt).toISOString()
+    : null;
   return {
     technician_id: technician._id.toString(),
     firstName: technician.firstName,
@@ -171,7 +190,9 @@ function buildAdminTechnicianPayload(technician) {
     currentStatus: technician.currentStatus,
     location: { latitude, longitude },
     lastLocationAt,
+    lastHeartbeatAt,
     locationStale: isLocationStale(technician.lastLocationAt),
+    presenceStale: isPresenceStale(technician),
     vehicle: v
       ? {
           _id: v._id,
@@ -291,8 +312,8 @@ function initializeSOSSocket(io) {
       const staleOnJob = await Technician.find({
         currentStatus: "On Job",
         isActive: true,
-        $or: [{ lastLocationAt: { $lt: cutoff } }, { lastLocationAt: null }],
-      }).select("_id lastLocationAt");
+        ...presenceStaleMongoFilter(cutoff),
+      }).select("_id lastLocationAt lastHeartbeatAt");
       for (const t of staleOnJob) {
         const id = t._id.toString();
         if (!staleLocationEmittedFor.has(id)) {
@@ -360,7 +381,7 @@ function initializeSOSSocket(io) {
       const ghosts = await Technician.find({
         currentStatus: "Online",
         isActive: true,
-        $or: [{ lastLocationAt: { $lt: cutoff } }, { lastLocationAt: null }],
+        ...presenceStaleMongoFilter(cutoff),
       });
       for (const tech of ghosts) {
         const technicianId = tech._id.toString();
@@ -388,6 +409,7 @@ function initializeSOSSocket(io) {
         ? new Date(lastLocationAt).toISOString()
         : null,
       locationStale: true,
+      presenceStale: true,
     });
   }
 
@@ -441,19 +463,33 @@ function initializeSOSSocket(io) {
   const adminLocationBatchTimer = setInterval(flushAdminLocationBatch, ADMIN_MAP_BATCH_MS);
   adminLocationBatchTimer.unref?.();
 
-  function emitAdminTechnicianLocation(technician_id, latitude, longitude, updatedAt) {
+  function emitAdminTechnicianLocation(
+    technician_id,
+    latitude,
+    longitude,
+    lastLocationAt,
+    lastHeartbeatAt
+  ) {
     const id = technician_id.toString();
     if (offlineTechnicians.has(id)) return;
     staleLocationEmittedFor.delete(id);
-    const iso = updatedAt ? new Date(updatedAt).toISOString() : new Date().toISOString();
+    const heardIso = lastHeartbeatAt
+      ? new Date(lastHeartbeatAt).toISOString()
+      : new Date().toISOString();
+    const gpsIso = lastLocationAt
+      ? new Date(lastLocationAt).toISOString()
+      : heardIso;
+    const gpsStale = isLocationStale(gpsIso);
 
     adminLocationBatch.set(id, {
       technician_id: id,
       latitude,
       longitude,
-      updatedAt: iso,
-      lastLocationAt: iso,
-      locationStale: false,
+      updatedAt: heardIso,
+      lastLocationAt: gpsIso,
+      lastHeartbeatAt: heardIso,
+      locationStale: gpsStale,
+      presenceStale: false,
     });
 
     if (ADMIN_MAP_LEGACY_EVENTS) {
@@ -461,9 +497,11 @@ function initializeSOSSocket(io) {
         technician_id: id,
         latitude,
         longitude,
-        updatedAt: iso,
-        lastLocationAt: iso,
-        locationStale: false,
+        updatedAt: heardIso,
+        lastLocationAt: gpsIso,
+        lastHeartbeatAt: heardIso,
+        locationStale: gpsStale,
+        presenceStale: false,
       });
     }
   }
@@ -474,10 +512,10 @@ function initializeSOSSocket(io) {
       if (await userHasLiveSockets(technicianNamespace, technicianId)) return;
       try {
         const t = await Technician.findById(technicianId).select(
-          "currentStatus lastLocationAt"
+          "currentStatus lastLocationAt lastHeartbeatAt"
         );
         if (!t || t.currentStatus !== "On Job") return;
-        if (locationAgeMs(t.lastLocationAt) >= LOCATION_STALE_MS) {
+        if (isPresenceStale(t, LOCATION_STALE_MS)) {
           emitAdminTechnicianLocationStale(technicianId, t.lastLocationAt);
         }
       } catch (err) {
@@ -514,7 +552,7 @@ function initializeSOSSocket(io) {
 
       const technician = await Technician.findById(technicianId)
         .select(
-          "firstName lastName phone profilePicture currentStatus currentLocation assignedVehicle lastLocationAt"
+          "firstName lastName phone profilePicture currentStatus currentLocation assignedVehicle lastLocationAt lastHeartbeatAt"
         )
         .populate({
           path: "assignedVehicle",
@@ -1534,7 +1572,7 @@ function initializeSOSSocket(io) {
         });
 
         // Grace window: if the tech reconnects quickly (or their REST heartbeats keep arriving)
-        // we don't want to flip them Offline. Check lastLocationAt before acting.
+        // we don't want to flip them Offline. Check lastHeartbeatAt before acting.
         if (technicianOfflineTimers.has(technicianId)) {
           clearTimeout(technicianOfflineTimers.get(technicianId));
         }
@@ -1549,9 +1587,9 @@ function initializeSOSSocket(io) {
               await emitAdminTechnicianPresence(technicianId, "Offline");
               return;
             }
-            const locationAge = tech.lastLocationAt
-              ? Date.now() - new Date(tech.lastLocationAt).getTime()
-              : Infinity;
+            const locationAge = locationAgeMs(
+              tech.lastHeartbeatAt || tech.lastLocationAt
+            );
 
             // On Job: never auto-Offline — surface stale location instead.
             if (tech.currentStatus === "On Job") {
@@ -1571,16 +1609,16 @@ function initializeSOSSocket(io) {
                   const t2 = await Technician.findById(technicianId);
                   if (!t2 || t2.currentStatus === "On Job") {
                     if (t2?.currentStatus === "On Job") {
-                      const ageOnJob = t2.lastLocationAt
-                        ? Date.now() - new Date(t2.lastLocationAt).getTime()
-                        : Infinity;
+                      const ageOnJob = locationAgeMs(
+                        t2.lastHeartbeatAt || t2.lastLocationAt
+                      );
                       scheduleOnJobStaleCheck(technicianId, ageOnJob);
                     }
                     return;
                   }
-                  const age2 = t2.lastLocationAt
-                    ? Date.now() - new Date(t2.lastLocationAt).getTime()
-                    : Infinity;
+                  const age2 = locationAgeMs(
+                    t2.lastHeartbeatAt || t2.lastLocationAt
+                  );
                   if (age2 < LOCATION_STALE_MS) return; // still heartbeating
                   await markTechnicianAutoOffline(t2);
                   await emitAdminTechnicianPresence(technicianId, "Offline");
