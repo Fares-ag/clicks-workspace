@@ -1,67 +1,88 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'colors_manager.dart';
 import 'font_weight_helper.dart';
 
-/// A class that provides predefined text styles for the application.
+/// Predefined text styles. Poppins is bundled (see pubspec) so the first
+/// launch does not download it.
 class TextStyles {
-  /// A bold text style with a font size of 32.
+  static const String _family = 'Poppins';
 
-  /// A regular text style with a font size of 14.
-  static TextStyle get font14Regular => GoogleFonts.poppins(
+  static TextStyle _style({
+    required double fontSize,
+    required FontWeight fontWeight,
+    Color? color,
+  }) {
+    return TextStyle(
+      fontFamily: _family,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+    );
+  }
+
+  static TextStyle get font14Regular => _style(
     fontSize: 14.sp,
     fontWeight: FontWeightHelper.regular,
   );
 
-  static TextStyle get font14Medium =>
-      GoogleFonts.poppins(fontSize: 14.sp, fontWeight: FontWeightHelper.medium);
+  static TextStyle get font14Medium => _style(
+    fontSize: 14.sp,
+    fontWeight: FontWeightHelper.medium,
+  );
 
-  /// A regular grey text style with a font size of 14.
-  static TextStyle get font14RegularGrey => GoogleFonts.poppins(
+  static TextStyle get font14RegularGrey => _style(
     fontSize: 14.sp,
     fontWeight: FontWeight.w400,
     color: Colors.grey,
   );
 
-  static TextStyle get font14MediumGrey => GoogleFonts.poppins(
+  static TextStyle get font14MediumGrey => _style(
     fontSize: 14.sp,
     fontWeight: FontWeightHelper.medium,
     color: Colors.grey,
   );
 
-  /// A regular black text style with a font size of 16.
-  static TextStyle get font16RegularBlack =>
-      GoogleFonts.poppins(fontSize: 16.sp, fontWeight: FontWeight.w400);
+  static TextStyle get font16RegularBlack => _style(
+    fontSize: 16.sp,
+    fontWeight: FontWeight.w400,
+  );
 
-  /// A regular black text style with a font size of 12.
-  static TextStyle get font12RegularBlack =>
-      GoogleFonts.poppins(fontSize: 12.sp, fontWeight: FontWeight.w400);
+  static TextStyle get font12RegularBlack => _style(
+    fontSize: 12.sp,
+    fontWeight: FontWeight.w400,
+  );
 
-  static TextStyle get font12SemiBoldMainColor => GoogleFonts.poppins(
+  static TextStyle get font12SemiBoldMainColor => _style(
     fontSize: 12.sp,
     fontWeight: FontWeightHelper.semiBold,
     color: ColorsManager.mainColor,
   );
 
-  /// A medium text style with a font size of 24.
-  static TextStyle get font24Medium =>
-      GoogleFonts.poppins(fontSize: 24.sp, fontWeight: FontWeight.w500);
+  static TextStyle get font24Medium => _style(
+    fontSize: 24.sp,
+    fontWeight: FontWeight.w500,
+  );
 
-  /// A regular grey text style with a font size of 12.
-  static TextStyle get font12RegularGrey => GoogleFonts.poppins(
+  static TextStyle get font12RegularGrey => _style(
     fontSize: 12.sp,
     fontWeight: FontWeight.w400,
     color: Colors.grey,
   );
-  static TextStyle get font28Bold =>
-      GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeightHelper.bold);
 
-  static TextStyle get font10Regular =>
-      GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeightHelper.regular);
+  static TextStyle get font28Bold => _style(
+    fontSize: 28,
+    fontWeight: FontWeightHelper.bold,
+  );
 
-  /// A medium text style for app buttons with a font size of 16.
-  static TextStyle get fontAppButton =>
-      GoogleFonts.poppins(fontSize: 16.sp, fontWeight: FontWeight.w500);
+  static TextStyle get font10Regular => _style(
+    fontSize: 10,
+    fontWeight: FontWeightHelper.regular,
+  );
+
+  static TextStyle get fontAppButton => _style(
+    fontSize: 16.sp,
+    fontWeight: FontWeight.w500,
+  );
 }

@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:bloc/bloc.dart';
 import 'package:dio/dio.dart';
 import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -58,6 +58,11 @@ class HomeCubit extends Cubit<HomeState> {
   double? lastLatitude;
   double? lastLongitude;
 
+  /// Bumped when the van marker and start-job distance should redraw.
+  /// This does not emit [HomeLoaded], so Home and the bottom bar stay still
+  /// while GPS wanders. Server heartbeats are unchanged.
+  final ValueNotifier<int> locationUiTick = ValueNotifier<int>(0);
+
   /// Last coordinates sent to dispatch (Live Map pin).
   double? _lastDispatchedLat;
   double? _lastDispatchedLng;
@@ -66,6 +71,8 @@ class HomeCubit extends Cubit<HomeState> {
   DateTime? _lastFixAt;
   /// When we last sent any location/liveness payload (socket or REST).
   DateTime? _lastHeartbeatSentAt;
+  /// When Home last rebuilt because the pin moved. Independent of heartbeat.
+  DateTime? _lastLocationUiEmitAt;
   /// When we last used the REST transport (see _shouldSendRest).
   DateTime? _lastRestSentAt;
 
@@ -102,6 +109,10 @@ class HomeCubit extends Cubit<HomeState> {
   /// Bumped on every history load so a newer reset can discard the response of
   /// an older in-flight append instead of interleaving the two.
   int _historyRequestToken = 0;
+
+  /// Same idea for session. Socket connect, the 45s poll, and Accept can all
+  /// be in flight together; the slower reply must not rewind a newer status.
+  int _sessionRequestToken = 0;
   DateTime? _lastHomeMetaAt;
 
   void _emitLoaded() {
@@ -401,9 +412,11 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> fetchSession() async {
+    final token = ++_sessionRequestToken;
     sessionLoadFailed = false;
     try {
       final response = await DioHelper.getData(url: EndPoints.technicianSession);
+      if (token != _sessionRequestToken || isClosed) return;
       if (response.statusCode == 200) {
         final data = response.data as Map;
         final status = data['technician']?['status']?.toString();
@@ -450,10 +463,13 @@ class HomeCubit extends Cubit<HomeState> {
         emit(HomeActionError(err ?? 'Failed to load session'));
       }
     } catch (_) {
+      if (token != _sessionRequestToken || isClosed) return;
       sessionLoadFailed = true;
-      if (isClosed) return;
-      emit(HomeActionError('Failed to load session. Pull to retry.'));
+      if (activeJob == null && activeJobs.isEmpty) {
+        emit(HomeActionError('Failed to load session. Pull to retry.'));
+      }
     }
+    if (token != _sessionRequestToken || isClosed) return;
     _emitLoaded();
     _syncLocationTracking();
     _syncSessionPoll();
@@ -1750,9 +1766,19 @@ class HomeCubit extends Cubit<HomeState> {
       _dispatchHeartbeatIfDue();
     }
 
-    if (locationWarning || moved) {
+    if (locationWarning) {
       locationWarning = false;
+      _lastLocationUiEmitAt = DateTime.now();
       _emitLoaded();
+    } else if (moved &&
+        LocationTracking.shouldRefreshLocationUi(
+          DateTime.now(),
+          _lastLocationUiEmitAt,
+        )) {
+      _lastLocationUiEmitAt = DateTime.now();
+      if (!isClosed) {
+        locationUiTick.value = locationUiTick.value + 1;
+      }
     }
   }
 
@@ -2004,6 +2030,7 @@ class HomeCubit extends Cubit<HomeState> {
   Future<void> close() {
     _stopLocationStream();
     _sessionPollTimer?.cancel();
+    locationUiTick.dispose();
     _socketService.clearHandlers();
     _socketService.disconnect();
     return super.close();

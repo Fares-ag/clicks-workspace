@@ -177,6 +177,14 @@ class _ActivityTabState extends State<ActivityTab> {
               if (_filterDay != null) {
                 return local != null && _sameDay(local, _filterDay!);
               }
+              // Open work stays visible even when its scheduled date is in
+              // another month — otherwise an accepted job disappears until
+              // the technician happens to page the calendar forward.
+              final status = _jobStatus(j).toLowerCase();
+              final open = status.isNotEmpty &&
+                  status != 'completed' &&
+                  status != 'cancelled';
+              if (open) return true;
               if (local == null) return true;
               return local.year == _month.year && local.month == _month.month;
             }).toList();

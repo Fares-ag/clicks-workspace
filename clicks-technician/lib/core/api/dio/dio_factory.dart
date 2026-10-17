@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 
 import '../end_points/end_points.dart';
@@ -58,12 +59,14 @@ class DioFactory {
         },
       ),
     );
-    dio?.interceptors.add(
-      PrettyDioLogger(
-        requestBody: true,
-        requestHeader: true,
-        responseHeader: true,
-      ),
-    );
+    if (!kReleaseMode) {
+      dio?.interceptors.add(
+        PrettyDioLogger(
+          requestBody: true,
+          requestHeader: true,
+          responseHeader: true,
+        ),
+      );
+    }
   }
 }

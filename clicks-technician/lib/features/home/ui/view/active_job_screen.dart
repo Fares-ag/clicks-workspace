@@ -104,7 +104,14 @@ class _ActiveJobScreenState extends State<ActiveJobScreen> {
       listener: (context, state) {
         if (state is HomeLoaded) _collapseIfEnRoute();
       },
-      builder: (context, _) => _buildScreen(context),
+      builder: (context, _) {
+        // GPS ticks update the van and the start-distance label without
+        // rebuilding Home or the shell.
+        return ValueListenableBuilder<int>(
+          valueListenable: cubit.locationUiTick,
+          builder: (context, _, __) => _buildScreen(context),
+        );
+      },
     );
   }
 

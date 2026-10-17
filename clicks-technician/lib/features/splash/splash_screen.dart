@@ -27,7 +27,10 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _go(String route) async {
     if (!mounted) return;
-    context.offNamed(route);
+    // offAllNamed, not a single replacement: initialRoute '/splash' also
+    // pushes a '/' route, and leaving it under the stack makes Back land on
+    // the "under development" placeholder.
+    context.offAllNamed(route);
   }
 
   Future<void> _route() async {

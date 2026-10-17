@@ -53,11 +53,6 @@ Future<void> _bootstrap() async {
   await JobNotificationService.instance.init();
   // Full permission wizard runs after login (MainShell) and before going Online.
 
-  // Prefer dart-define; on Android fall back to Manifest Maps key.
-  final mapsKey = await MapsApiKey.resolve();
-  // Flutter web: inject Maps JS with the same key as admin Live Map.
-  await ensureGoogleMapsLoaded(mapsKey);
-
   setupGetIt();
   runApp(
     EasyLocalization(
@@ -67,4 +62,13 @@ Future<void> _bootstrap() async {
       child: const AppRoot(),
     ),
   );
+
+  // Maps JS is web-only and the native key is read again when a map opens.
+  // Do not block the first frame on it.
+  _warmMaps();
+}
+
+Future<void> _warmMaps() async {
+  final mapsKey = await MapsApiKey.resolve();
+  await ensureGoogleMapsLoaded(mapsKey);
 }

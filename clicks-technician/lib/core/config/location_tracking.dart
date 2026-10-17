@@ -35,4 +35,16 @@ class LocationTracking {
     if (lastSentAt == null) return true;
     return now.difference(lastSentAt) >= heartbeatInterval;
   }
+
+  /// How often a GPS jitter may redraw the live map and start-job distance.
+  ///
+  /// The server still gets the 12s heartbeat and movement dispatches. Home and
+  /// the bottom bar do not rebuild for this. The gate only stops the map
+  /// updating several times a second while the van is parked.
+  static const Duration locationUiInterval = Duration(seconds: 2);
+
+  static bool shouldRefreshLocationUi(DateTime now, DateTime? lastEmitAt) {
+    if (lastEmitAt == null) return true;
+    return now.difference(lastEmitAt) >= locationUiInterval;
+  }
 }

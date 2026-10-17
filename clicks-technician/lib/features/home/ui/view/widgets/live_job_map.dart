@@ -112,19 +112,15 @@ class _LiveJobMapState extends State<LiveJobMap> {
       _fitBounds();
     } else if (oldWidget.techLat != widget.techLat ||
         oldWidget.techLng != widget.techLng) {
-      // Keep tech marker moving with cubit updates.
+      // Keep the van marker moving. Do not animate the camera or refit bounds
+      // on later ticks — that was three camera animations per GPS update and
+      // hitching the Active Job screen. Route refresh stays on its own timer.
       if (widget.techLat != null && widget.techLng != null) {
         setState(() {
           _localTechPos = LatLng(widget.techLat!, widget.techLng!);
         });
-        // Refresh driving route occasionally as tech moves.
         if (_destination != null && !_fetchingRoute) {
           _fetchRoute(_localTechPos!);
-        }
-        // Low-end GPUs hitch on animateCamera every GPS tick. Fit once at
-        // start; later movement only updates the marker.
-        if (!DeviceCapability.isLowEnd) {
-          _fitBounds();
         }
       }
     }
