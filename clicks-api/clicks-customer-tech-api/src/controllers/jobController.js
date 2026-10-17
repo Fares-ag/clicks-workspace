@@ -40,7 +40,6 @@ const {
   notifyAdminJobStatusFromReq,
 } = require("../../../clicks-shared/utils/adminJobStatus");
 const {
-  getCachedPayload,
   deletePayloadCacheKey,
 } = require("../../../clicks-shared/utils/payloadCache");
 
@@ -248,6 +247,7 @@ const updateJobStatus = async (req, res) => {
     job.job_status = job_status;
     if (job_status === "en_route") job.en_route_at = new Date();
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
 
     notifyAdminJobStatusFromReq(req, job);
 
@@ -668,6 +668,7 @@ const markArrived = async (req, res) => {
     job.job_status = "arrived";
     job.arrived_at = new Date();
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
 
     notifyAdminJobStatusFromReq(req, job);
 
@@ -762,6 +763,7 @@ const startJob = async (req, res) => {
     job.job_status = "in_progress";
     job.started_at = new Date();
     await job.save();
+    invalidateTechSessionCache(job.assignedTechnician);
 
     notifyAdminJobStatusFromReq(req, job);
 
@@ -1304,52 +1306,46 @@ const getTechnicianSession = async (req, res) => {
   try {
     const technician_id = req.user.id;
 
-    const payload = await getCachedPayload(
-      `clicks:tech:payload:session:${technician_id}`,
-      12000,
-      async () => {
-        const [technician, activeJobsRaw] = await Promise.all([
-          Technician.findById(technician_id)
-            .select("firstName lastName currentStatus isActive applicationStatus phone")
-            .lean(),
-          Job.find({
-            assignedTechnician: technician_id,
-            $or: [
-              {
-                job_status: {
-                  $in: TECH_SESSION_ACTIVE_STATUSES,
-                },
-              },
-              { job_status: "completed", payment_status: { $ne: "paid" } },
-            ],
-          })
-            .select(SESSION_JOB_SELECT)
-            .populate(sessionJobPopulate)
-            .sort({ createdAt: -1 })
-            .limit(25)
-            .lean(),
-        ]);
-
-        const active_jobs = sortActiveJobs(activeJobsRaw);
-        const activeJob = active_jobs[0] || null;
-
-        return {
-          technician: {
-            id: technician?._id,
-            name: technician ? `${technician.firstName} ${technician.lastName}` : null,
-            status: technician?.currentStatus,
-            is_active: technician?.isActive,
-            applicationStatus: technician?.applicationStatus,
-            phone: technician?.phone,
+    // Live path — do not cache. The payload cache stale window (up to 2 min)
+    // hid new assignments and status changes after admin dispatch / accept.
+    const [technician, activeJobsRaw] = await Promise.all([
+      Technician.findById(technician_id)
+        .select("firstName lastName currentStatus isActive applicationStatus phone")
+        .lean(),
+      Job.find({
+        assignedTechnician: technician_id,
+        $or: [
+          {
+            job_status: {
+              $in: TECH_SESSION_ACTIVE_STATUSES,
+            },
           },
-          active_job: activeJob,
-          active_jobs,
-          has_active_job: !!activeJob,
-        };
-      }
-    );
+          { job_status: "completed", payment_status: { $ne: "paid" } },
+        ],
+      })
+        .select(SESSION_JOB_SELECT)
+        .populate(sessionJobPopulate)
+        .sort({ createdAt: -1 })
+        .limit(25)
+        .lean(),
+    ]);
 
-    res.json(payload);
+    const active_jobs = sortActiveJobs(activeJobsRaw);
+    const activeJob = active_jobs[0] || null;
+
+    res.json({
+      technician: {
+        id: technician?._id,
+        name: technician ? `${technician.firstName} ${technician.lastName}` : null,
+        status: technician?.currentStatus,
+        is_active: technician?.isActive,
+        applicationStatus: technician?.applicationStatus,
+        phone: technician?.phone,
+      },
+      active_job: activeJob,
+      active_jobs,
+      has_active_job: !!activeJob,
+    });
   } catch (err) {
     res.status(500).json({ error: "Fetch technician session failed", details: err.message });
   }

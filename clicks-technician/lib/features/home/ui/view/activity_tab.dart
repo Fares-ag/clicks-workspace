@@ -1,3 +1,4 @@
+import 'package:clicks_technician/core/constants/job_status_labels.dart';
 import 'package:clicks_technician/core/theme/colors_manager.dart';
 import 'package:clicks_technician/core/theme/text_styles.dart';
 import 'package:clicks_technician/features/home/ui/cubit/home_cubit.dart';
@@ -25,7 +26,7 @@ class _ActivityTabState extends State<ActivityTab> {
   int _page = 0;
   DateTime? _filterDay;
   late DateTime _month;
-  _ActivityStatusFilter _statusFilter = _ActivityStatusFilter.active;
+  _ActivityStatusFilter _statusFilter = _ActivityStatusFilter.all;
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -34,6 +35,14 @@ class _ActivityTabState extends State<ActivityTab> {
     final now = DateTime.now();
     _month = DateTime(now.year, now.month);
     _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant ActivityTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible && !oldWidget.visible) {
+      context.read<HomeCubit>().fetchHistory();
+    }
   }
 
   @override
@@ -76,13 +85,41 @@ class _ActivityTabState extends State<ActivityTab> {
       (job['job_status'] ?? job['status'] ?? '').toString();
 
   bool _matchesStatusFilter(Map<String, dynamic> job) {
-    final status = _jobStatus(job);
+    final status = _jobStatus(job).toLowerCase();
     switch (_statusFilter) {
+      case _ActivityStatusFilter.all:
+        return true;
       case _ActivityStatusFilter.active:
-        return status != 'completed';
+        return status != 'completed' && status != 'cancelled';
+      case _ActivityStatusFilter.pending:
+        return status == 'pending';
+      case _ActivityStatusFilter.assigned:
+        return status == 'assigned';
+      case _ActivityStatusFilter.accepted:
+        return status == 'accepted';
+      case _ActivityStatusFilter.enRoute:
+        return status == 'en_route';
+      case _ActivityStatusFilter.arrived:
+        return status == 'arrived';
+      case _ActivityStatusFilter.inProgress:
+        return status == 'in_progress';
+      case _ActivityStatusFilter.onHold:
+        return status == 'on_hold';
       case _ActivityStatusFilter.completed:
         return status == 'completed';
+      case _ActivityStatusFilter.cancelled:
+        return status == 'cancelled';
     }
+  }
+
+  String _emptyStatusLabel() {
+    if (_statusFilter == _ActivityStatusFilter.all) {
+      return 'No jobs in this period.';
+    }
+    if (_statusFilter == _ActivityStatusFilter.active) {
+      return 'No active jobs right now.';
+    }
+    return 'No ${_statusFilter.label.toLowerCase()} jobs.';
   }
 
   List<Map<String, dynamic>> _filterByStatus(
@@ -126,13 +163,21 @@ class _ActivityTabState extends State<ActivityTab> {
           buildWhen: (_, __) => widget.visible,
           builder: (context, state) {
             final cubit = context.read<HomeCubit>();
-            final allJobs = List<Map<String, dynamic>>.from(cubit.jobHistory);
+            final seen = <String>{};
+            final allJobs = <Map<String, dynamic>>[];
+            for (final job in [...cubit.activeJobs, ...cubit.jobHistory]) {
+              final id = (job['_id'] ?? job['job_id'])?.toString();
+              if (id == null || id.isEmpty || !seen.add(id)) continue;
+              allJobs.add(job);
+            }
             final statusFilteredJobs = _filterByStatus(allJobs);
 
             var jobs = statusFilteredJobs.where((j) {
               final local = _jobDate(j);
-              if (local == null) return false;
-              if (_filterDay != null) return _sameDay(local, _filterDay!);
+              if (_filterDay != null) {
+                return local != null && _sameDay(local, _filterDay!);
+              }
+              if (local == null) return true;
               return local.year == _month.year && local.month == _month.month;
             }).toList();
 
@@ -150,9 +195,7 @@ class _ActivityTabState extends State<ActivityTab> {
             final emptyLabel = allJobs.isEmpty
                 ? 'No activities yet.'
                 : statusFilteredJobs.isEmpty
-                    ? (_statusFilter == _ActivityStatusFilter.completed
-                        ? 'No completed jobs yet.'
-                        : 'No active jobs right now.')
+                    ? _emptyStatusLabel()
                     : _filterDay != null
                         ? 'No jobs on ${DateFormat('d MMM').format(_filterDay!)}'
                         : 'No jobs in ${DateFormat('MMMM yyyy').format(_month)}';
@@ -275,7 +318,60 @@ class _ActivityTabState extends State<ActivityTab> {
   }
 }
 
-enum _ActivityStatusFilter { active, completed }
+enum _ActivityStatusFilter {
+  all,
+  active,
+  pending,
+  assigned,
+  accepted,
+  enRoute,
+  arrived,
+  inProgress,
+  onHold,
+  completed,
+  cancelled;
+
+  String get label {
+    switch (this) {
+      case _ActivityStatusFilter.all:
+        return 'All';
+      case _ActivityStatusFilter.active:
+        return 'Active';
+      case _ActivityStatusFilter.pending:
+        return JobStatusLabels.labelFor('pending');
+      case _ActivityStatusFilter.assigned:
+        return JobStatusLabels.labelFor('assigned');
+      case _ActivityStatusFilter.accepted:
+        return JobStatusLabels.labelFor('accepted');
+      case _ActivityStatusFilter.enRoute:
+        return JobStatusLabels.labelFor('en_route');
+      case _ActivityStatusFilter.arrived:
+        return JobStatusLabels.labelFor('arrived');
+      case _ActivityStatusFilter.inProgress:
+        return JobStatusLabels.labelFor('in_progress');
+      case _ActivityStatusFilter.onHold:
+        return JobStatusLabels.labelFor('on_hold');
+      case _ActivityStatusFilter.completed:
+        return JobStatusLabels.labelFor('completed');
+      case _ActivityStatusFilter.cancelled:
+        return JobStatusLabels.labelFor('cancelled');
+    }
+  }
+
+  static const filterOptions = [
+    _ActivityStatusFilter.all,
+    _ActivityStatusFilter.active,
+    _ActivityStatusFilter.pending,
+    _ActivityStatusFilter.assigned,
+    _ActivityStatusFilter.accepted,
+    _ActivityStatusFilter.enRoute,
+    _ActivityStatusFilter.arrived,
+    _ActivityStatusFilter.inProgress,
+    _ActivityStatusFilter.onHold,
+    _ActivityStatusFilter.completed,
+    _ActivityStatusFilter.cancelled,
+  ];
+}
 
 class _ActivityStatusFilterBar extends StatelessWidget {
   const _ActivityStatusFilterBar({
@@ -288,20 +384,20 @@ class _ActivityStatusFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _FilterChip(
-          label: 'Active',
-          selected: selected == _ActivityStatusFilter.active,
-          onTap: () => onChanged(_ActivityStatusFilter.active),
-        ),
-        SizedBox(width: 8.w),
-        _FilterChip(
-          label: 'Completed',
-          selected: selected == _ActivityStatusFilter.completed,
-          onTap: () => onChanged(_ActivityStatusFilter.completed),
-        ),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final filter in _ActivityStatusFilter.filterOptions) ...[
+            _FilterChip(
+              label: filter.label,
+              selected: selected == filter,
+              onTap: () => onChanged(filter),
+            ),
+            SizedBox(width: 8.w),
+          ],
+        ],
+      ),
     );
   }
 }

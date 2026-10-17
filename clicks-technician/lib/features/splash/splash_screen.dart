@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clicks_technician/core/api/dio_helper.dart';
 import 'package:clicks_technician/core/api/end_points/end_points.dart';
 import 'package:clicks_technician/core/helper/assets_manager.dart';
@@ -29,7 +31,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _route() async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    await Future.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
 
     final token = CacheHelper.getAuthToken();
@@ -38,10 +40,23 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    // Revalidate against API — don't trust stale cached application_status alone
+    final cached = CacheHelper.get('application_status')?.toString() ?? '';
+    if (cached == 'Approved') {
+      await _go(Routes.home);
+      return;
+    }
+    if (cached.isNotEmpty) {
+      await _go(Routes.status);
+      return;
+    }
+
+    // First launch after login: confirm approval, but never sit on splash
+    // if the session endpoint is slow (it used to wait the full 30s Dio
+    // timeout and look frozen).
     try {
-      final session =
-          await DioHelper.getData(url: EndPoints.technicianSession);
+      final session = await DioHelper.getData(
+        url: EndPoints.technicianSession,
+      ).timeout(const Duration(seconds: 5));
       if (!mounted) return;
 
       if (session.statusCode == 401) {
@@ -68,40 +83,10 @@ class _SplashScreenState extends State<SplashScreen> {
         await _go(resolved == 'Approved' ? Routes.home : Routes.status);
         return;
       }
-    } catch (_) {
-      // Fall through to status endpoint / cache
-    }
-
-    try {
-      final phone = CacheHelper.get('technician_phone')?.toString();
-      if (phone != null && phone.isNotEmpty) {
-        final res = await DioHelper.getData(
-          url: EndPoints.applicationStatus,
-          query: {'phone': phone},
-          auth: false,
-        );
-        if (!mounted) return;
-        if (res.statusCode == 200) {
-          final status = (res.data['applicationStatus'] ??
-                  res.data['status'] ??
-                  '')
-              .toString();
-          if (status.isNotEmpty) {
-            await CacheHelper.save('application_status', status);
-          }
-          await _go(status == 'Approved' ? Routes.home : Routes.status);
-          return;
-        }
-      }
     } catch (_) {}
 
     if (!mounted) return;
-    final cached = CacheHelper.get('application_status')?.toString() ?? '';
-    if (cached == 'Approved') {
-      await _go(Routes.home);
-    } else {
-      await _go(Routes.status);
-    }
+    await _go(Routes.home);
   }
 
   @override

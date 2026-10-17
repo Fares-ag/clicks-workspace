@@ -211,9 +211,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   _visited.add(1);
                   _index = 1;
                 });
-                if (cubit.jobHistory.isEmpty) {
-                  cubit.fetchHistory();
-                }
+                cubit.fetchHistory();
               },
             ),
             _NavItem(

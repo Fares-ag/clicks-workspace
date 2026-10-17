@@ -111,10 +111,12 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   Future<void> _init() async {
-    emit(HomeLoading());
     _wireNotificationCallbacks();
     _connectSocket();
-    await fetchSession();
+    _emitLoaded();
+    // Session is live and can be slow — do not leave Home on a spinner.
+    // ignore: discarded_futures
+    fetchSession();
     // Notification accept reconciliation can trigger a second session fetch —
     // do not block the first Home paint on it.
     // ignore: discarded_futures
@@ -313,10 +315,11 @@ class HomeCubit extends Cubit<HomeState> {
         // Keep beeping until Accept — start alarm even if FCM was missed.
         // ignore: discarded_futures
         JobNotificationService.instance.startInsistentAlarm(jobId: incomingId);
-      } else if (incomingStatus != 'assigned' && !hasIncomingAssignedJob) {
+      } else       if (incomingStatus != 'assigned' && !hasIncomingAssignedJob) {
         // ignore: discarded_futures
         JobNotificationService.instance.cancelUrgentJobNotification();
       }
+      _upsertHistoryJob(incoming);
       _emitLoaded();
       _syncLocationTracking();
       _syncSessionPoll();
@@ -389,6 +392,7 @@ class HomeCubit extends Cubit<HomeState> {
           // ignore: discarded_futures
           JobNotificationService.instance.cancelUrgentJobNotification();
         }
+        _upsertHistoryJob(activeJob!);
       }
     }
     isLoadingAction = false;
@@ -432,6 +436,9 @@ class HomeCubit extends Cubit<HomeState> {
           }
         }
         sessionLoadFailed = false;
+        for (final job in activeJobs) {
+          _upsertHistoryJob(job);
+        }
       } else if (response.statusCode == 401) {
         await CacheHelper.clear();
         sessionLoadFailed = true;
@@ -580,7 +587,8 @@ class HomeCubit extends Cubit<HomeState> {
     if (reset) {
       historyPage = 1;
       historyHasMore = true;
-      if (!historyLoadingMore) jobHistory = [];
+      // Keep the last list visible until the new page lands — clearing here
+      // made Activity flash empty whenever the tab refreshed.
     }
     var ok = false;
     try {
@@ -902,6 +910,7 @@ class HomeCubit extends Cubit<HomeState> {
         CacheHelper.remove(kPendingJobIdKey);
         // ignore: discarded_futures
         JobNotificationService.instance.cancelUrgentJobNotification(jobId: id);
+        _upsertHistoryJob(activeJob!);
       },
     );
   }
@@ -952,6 +961,22 @@ class HomeCubit extends Cubit<HomeState> {
       activeJobs[idx] = {...activeJobs[idx], ...job};
     } else {
       activeJobs.add(Map<String, dynamic>.from(job));
+    }
+    _upsertHistoryJob(job);
+  }
+
+  /// Keep Activity in sync with accept / socket updates without waiting for
+  /// the next GET /technicians/jobs.
+  void _upsertHistoryJob(Map<String, dynamic> job) {
+    final id = (job['_id'] ?? job['job_id'])?.toString();
+    if (id == null || id.isEmpty) return;
+    final idx = jobHistory.indexWhere(
+      (j) => (j['_id'] ?? j['job_id'])?.toString() == id,
+    );
+    if (idx >= 0) {
+      jobHistory[idx] = {...jobHistory[idx], ...job};
+    } else {
+      jobHistory = [Map<String, dynamic>.from(job), ...jobHistory];
     }
   }
 
