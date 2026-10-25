@@ -144,6 +144,7 @@ function createAdminApp() {
   app.use("/api/technician-activity", require("./routes/technicianActivity"));
   app.use("/api/partners", require("./routes/partners"));
   app.use("/api/partner", require("./routes/partnerPortal"));
+  app.use("/api/data-analysis", require("./routes/dataAnalysis"));
 
   app.use(sentryErrorMiddleware());
   app.use(errorHandler);

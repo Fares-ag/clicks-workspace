@@ -14,6 +14,7 @@ const { getBusinessFreshness, isNotModifiedSince } = require("../utils/businessF
 // Same earnings definition as the business dashboard and admin business stats:
 // a "profit" cut is a share of the audited net profit, not of revenue.
 const { cutAmountExpr } = require("../../../clicks-shared/utils/businessCut");
+const { applyCanonicalJobFields } = require("../../../clicks-shared/utils/dataCleaning");
 
 const DEFAULT_COUNTRY_CODE = "+974";
 
@@ -218,7 +219,7 @@ async function createLead(req, res) {
     const source = await resolveDefaultSource(business);
     const locationStr = String(location).trim();
 
-    const lead = await Lead.create({
+    const leadPayload = {
       clientName: String(clientName).trim(),
       clientMobileNumber: toE164(local, cc),
       clientEmail: clientEmail ? String(clientEmail).trim() : "",
@@ -244,7 +245,23 @@ async function createLead(req, res) {
       businessCutPercent: business.cutPercent,
       created_by_business_user: user._id,
       proposedPrice: priceNum,
-    });
+    };
+    const cleaned = {
+      vehicleMake: leadPayload.vehicleMake,
+      vehicleModel: leadPayload.vehicleModel,
+      vehicleYear: leadPayload.vehicleYear,
+      licensePlate: leadPayload.licensePlate,
+      issue: leadPayload.inquiry,
+      jobType: leadPayload.serviceType,
+    };
+    applyCanonicalJobFields(cleaned);
+    leadPayload.vehicleMake = cleaned.vehicleMake;
+    leadPayload.vehicleModel = cleaned.vehicleModel;
+    leadPayload.vehicleYear = cleaned.vehicleYear;
+    leadPayload.licensePlate = cleaned.licensePlate;
+    if (String(issue).trim().length <= 40) leadPayload.inquiry = cleaned.issue;
+    if (cleaned.jobType) leadPayload.serviceType = cleaned.jobType;
+    const lead = await Lead.create(leadPayload);
 
     const populated = await Lead.findById(lead._id)
       .populate("source", "mainSourceName")

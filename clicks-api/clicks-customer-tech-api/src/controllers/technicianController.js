@@ -31,6 +31,7 @@ const {
 const {
   applyTechnicianAppLifecycle,
 } = require("../../../clicks-shared/utils/technicianAppLifecycle");
+const { applyCanonicalJobFields } = require("../../../clicks-shared/utils/dataCleaning");
 
 // OTP send/verify
 const { sendSMS } = require("../services/smsService");
@@ -1574,7 +1575,7 @@ const createTechnicianJob = async (req, res) => {
     const locationDisplay =
       formatGeoPointAsLocationString(locationCoordinates) || locationStr;
 
-    const job = await Job.create({
+    const jobPayload = {
       clientName: String(clientName).trim(),
       clientMobileNumber: toE164(local, cc),
       clientEmail: clientEmail ? String(clientEmail).trim() : "",
@@ -1598,7 +1599,9 @@ const createTechnicianJob = async (req, res) => {
       payment_status: "unpaid",
       created_by_technician: technician._id,
       createdByTechnicianName: techName,
-    });
+    };
+    applyCanonicalJobFields(jobPayload);
+    const job = await Job.create(jobPayload);
 
     await setTechnicianStatus(technician._id, "On Job");
 

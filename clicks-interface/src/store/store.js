@@ -7,6 +7,7 @@ import "./serviceRequestApi";
 import "./leadApi";
 import "./financeApi";
 import "./notificationApi";
+import "./dataAnalysisApi";
 
 // TODO: follow-up: move to httpOnly cookies — do not persist tokens in localStorage long-term.
 // Load auth state from localStorage

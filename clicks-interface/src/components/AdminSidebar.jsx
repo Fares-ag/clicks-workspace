@@ -44,6 +44,11 @@ const navItems = [
     to: "/heat-map",
   },
   {
+    label: "Data Analysis",
+    icon: "/icons/performance.svg",
+    to: "/data-analysis",
+  },
+  {
     label: "Job Management",
     icon: "/icons/job.svg",
     to: "/jobs",

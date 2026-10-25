@@ -8,6 +8,11 @@ const {
   parseJobLocationToGeoPoint,
 } = require("./parseJobLocation");
 const { computeJobSearchFields } = require("./searchFields");
+const {
+  normalizeJobIssue,
+  normalizeJobType,
+  applyCanonicalJobFields,
+} = require("./dataCleaning");
 
 function parseDate(value) {
   if (value == null || value === "") return null;
@@ -52,12 +57,9 @@ function mapStatus(status) {
 }
 
 function mapJobType(issue) {
-  const i = String(issue || "").trim().toLowerCase();
-  if (i === "tire repair") return "Tires";
-  if (i === "change tire") return "tire_change";
-  if (i === "lock door" || i === "key") return "keyless_car_opening";
-  if (i === "gear" || i.includes("gearbox")) return "Gearbox";
-  return "Engines";
+  const issueNorm = normalizeJobIssue(issue);
+  const type = normalizeJobType("", issueNorm);
+  return type.canonicalJobType || "Mechanical";
 }
 
 function mapPaymentMethod(pmethod) {
@@ -168,6 +170,7 @@ function mapHistoricalRow(row) {
     // digests have to be part of the inserted document.
     ...computeJobSearchFields({ clientName, clientMobileNumber }),
   };
+  applyCanonicalJobFields(doc);
 
   return { doc, error: null, techName: techName || null };
 }

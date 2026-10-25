@@ -49,6 +49,9 @@ const MAKE_ALIASES = {
   "range rover": "Land Rover",
   moris: "MG",
   mg: "MG",
+  tyota: "Toyota",
+  toyta: "Toyota",
+  toyoto: "Toyota",
 };
 
 const LEGACY_TYPO_MAP = {
@@ -415,9 +418,32 @@ function matchLegacyVehicleFromCatalog(cmodel) {
   return { vehicleMake: "", vehicleModel: text, vehicleYear };
 }
 
+function isKnownMake(makeName) {
+  const name = String(makeName || "").trim();
+  if (!name) return false;
+  const index = getCatalogIndex();
+  return index.makes.some((m) => m.makeName === name);
+}
+
+function isKnownModel(makeName, modelName) {
+  const make = String(makeName || "").trim();
+  const model = String(modelName || "").trim();
+  if (!make || !model) return false;
+  const index = getCatalogIndex();
+  const entry = index.makes.find((m) => m.makeName === make);
+  if (!entry) return false;
+  return entry.models.some((m) => m === model);
+}
+
 module.exports = {
   matchLegacyVehicleFromCatalog,
   getCatalogIndex,
   normalizeText,
+  compactText,
   similarity,
+  hasArabicScript,
+  findMake,
+  findModelForMake,
+  isKnownMake,
+  isKnownModel,
 };

@@ -46,6 +46,7 @@ const Performance = lazyPage(() => import("./pages/Performance/Performance.jsx")
 const Calls = lazyPage(() => import("./pages/Calls/Calls.jsx"));
 const LiveMap = lazyPage(() => import("./pages/LiveMap/LiveMap.jsx"));
 const HeatMap = lazyPage(() => import("./pages/HeatMap/HeatMap.jsx"));
+const DataAnalysis = lazyPage(() => import("./pages/DataAnalysis/DataAnalysis.jsx"));
 const Sources = lazyPage(() => import("./pages/SourceConfigurator/Sources.jsx"));
 const Businesses = lazyPage(() => import("./pages/BusinessManagement/Businesses.jsx"));
 const AddBusiness = lazyPage(() => import("./pages/BusinessManagement/AddBusiness.jsx"));
@@ -99,6 +100,7 @@ function App() {
         <Route path="/admin-management/:id" element={<AdminDetails />} />
         <Route path="/live-map" element={<LiveMap />} />
         <Route path="/heat-map" element={<HeatMap />} />
+        <Route path="/data-analysis" element={<DataAnalysis />} />
         <Route path="/clients" element={<ClientManagement />} />
         <Route path="/clients/:id" element={<ClientDetails />} />
         <Route path="/performance" element={<Performance />} />

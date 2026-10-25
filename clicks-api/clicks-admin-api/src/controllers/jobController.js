@@ -14,6 +14,7 @@ const {
 } = require("../../../clicks-shared/utils/resolveJobLocation");
 const { formatGeoPointAsLocationString } = require("../../../clicks-shared/utils/parseJobLocation");
 const { createJobRecord } = require("../../../clicks-shared/services/createJobRecord");
+const { applyCanonicalJobFields } = require("../../../clicks-shared/utils/dataCleaning");
 const { setTechnicianStatus } = require("../../../clicks-shared/services/technicianOnlineHours");
 const {
   putJobOnHold,
@@ -477,6 +478,32 @@ async function updateJob(req, res) {
       update.location =
         formatGeoPointAsLocationString(geo) || locationStr;
       update.locationCoordinates = geo;
+    }
+
+    if (
+      update.issue != null ||
+      update.vehicleMake != null ||
+      update.vehicleModel != null ||
+      update.jobType != null ||
+      update.licensePlate != null
+    ) {
+      const cleaned = {
+        issue: update.issue != null ? update.issue : currentJob.issue,
+        vehicleMake: update.vehicleMake != null ? update.vehicleMake : currentJob.vehicleMake,
+        vehicleModel: update.vehicleModel != null ? update.vehicleModel : currentJob.vehicleModel,
+        vehicleYear: update.vehicleYear != null ? update.vehicleYear : currentJob.vehicleYear,
+        jobType: update.jobType != null ? update.jobType : currentJob.jobType,
+        licensePlate: update.licensePlate != null ? update.licensePlate : currentJob.licensePlate,
+      };
+      applyCanonicalJobFields(cleaned);
+      if (update.issue != null) update.issue = cleaned.issue;
+      if (update.vehicleMake != null || update.vehicleModel != null) {
+        update.vehicleMake = cleaned.vehicleMake;
+        update.vehicleModel = cleaned.vehicleModel;
+        if (cleaned.vehicleYear != null) update.vehicleYear = cleaned.vehicleYear;
+      }
+      if (update.jobType != null) update.jobType = cleaned.jobType;
+      if (update.licensePlate != null) update.licensePlate = cleaned.licensePlate;
     }
 
     if (

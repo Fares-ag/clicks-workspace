@@ -5,6 +5,7 @@ const {
   resolveJobLocationToGeoPointRequired,
 } = require("../utils/resolveJobLocation");
 const { formatGeoPointAsLocationString } = require("../utils/parseJobLocation");
+const { applyCanonicalJobFields } = require("../utils/dataCleaning");
 
 /**
  * Validate and persist a Job from an admin-style payload.
@@ -88,6 +89,7 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
       businessCutPercent != null ? Number(businessCutPercent) : undefined,
     created_by_business_user: body.created_by_business_user || null,
   };
+  applyCanonicalJobFields(jobData);
 
   jobData.locationCoordinates = await resolveJobLocationToGeoPointRequired(
     jobData.location

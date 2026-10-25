@@ -83,6 +83,7 @@ export const apiSlice = createApi({
     "Business",
     "Customer",
     "Dashboard",
+    "DataAnalysis",
     "FinanceOverview",
     "FinanceUser",
     "Job",

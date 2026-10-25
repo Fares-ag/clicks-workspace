@@ -11,6 +11,28 @@ const { buildPrefixSearchFilter, computeLeadSearchFields } = require("../../../c
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
 const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
 const { computeChanges, recordAudit } = require("../utils/auditLog");
+const { applyCanonicalJobFields } = require("../../../clicks-shared/utils/dataCleaning");
+
+function applyCanonicalLeadFields(doc) {
+  const cleaned = {
+    vehicleMake: doc.vehicleMake,
+    vehicleModel: doc.vehicleModel,
+    vehicleYear: doc.vehicleYear,
+    licensePlate: doc.licensePlate,
+    issue: doc.inquiry,
+    jobType: doc.serviceType,
+  };
+  applyCanonicalJobFields(cleaned);
+  doc.vehicleMake = cleaned.vehicleMake;
+  doc.vehicleModel = cleaned.vehicleModel;
+  doc.vehicleYear = cleaned.vehicleYear;
+  doc.licensePlate = cleaned.licensePlate;
+  if (doc.inquiry && String(doc.inquiry).trim().length <= 40) {
+    doc.inquiry = cleaned.issue;
+  }
+  if (cleaned.jobType) doc.serviceType = cleaned.jobType;
+  return doc;
+}
 
 function mapLead(doc) {
   if (!doc) return null;
@@ -193,6 +215,7 @@ async function createLead(req, res) {
     if (customer_id) leadPayload.customer_id = customer_id;
     if (customer_vehicle_id) leadPayload.customer_vehicle_id = customer_vehicle_id;
     if (service_request_id) leadPayload.service_request_id = service_request_id;
+    applyCanonicalLeadFields(leadPayload);
 
     const lead = await Lead.create(leadPayload);
 
@@ -298,6 +321,7 @@ async function updateLead(req, res) {
     }
 
     Object.assign(lead, patch);
+    applyCanonicalLeadFields(lead);
     await lead.save();
 
     const populated = await Lead.findById(lead._id).populate(

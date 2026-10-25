@@ -25,6 +25,7 @@ export const FULL_ADMIN_ONLY_PREFIXES = [
   "/calls",
   // Login attempts, IPs and GPS pings — security data, not dispatch data.
   "/technician-logs",
+  "/data-analysis",
 ];
 
 /** Route prefixes allowed for ops roles (Job Dispatcher, etc.). */
