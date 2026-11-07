@@ -34,6 +34,43 @@ router.post("/notify-outcome", authenticateInternal, async (req, res) => {
   }
 });
 
+// Job cancelled from the admin API (POST /api/jobs/:id/cancel): tell the
+// customer and the technician, and refresh the technician on the Live Map.
+router.post("/notify-job-cancelled", authenticateInternal, async (req, res) => {
+  try {
+    const {
+      job_id,
+      customer_id,
+      technician_id,
+      technician_status,
+      payload,
+    } = req.body || {};
+    if (!job_id) {
+      return res.status(400).json({ message: "job_id is required" });
+    }
+    const data = { job_id: String(job_id), status: "cancelled", ...(payload || {}) };
+    const notifyCustomer = req.app.get("notifyCustomerJobEvent");
+    const notifyTech = req.app.get("notifyTechnicianJobEvent");
+    const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+    if (customer_id && typeof notifyCustomer === "function") {
+      await notifyCustomer(String(customer_id), "jobCancelled", data);
+    }
+    if (technician_id && typeof notifyTech === "function") {
+      await notifyTech(String(technician_id), "jobCancelled", data);
+    }
+    if (technician_id && technician_status && typeof notifyPresence === "function") {
+      await notifyPresence(String(technician_id), String(technician_status));
+    }
+    res.json({ message: "Cancellation notified" });
+  } catch (error) {
+    console.error("Error notifying job cancellation:", error);
+    res.status(500).json({
+      message: "Failed to notify cancellation",
+      error: error.message,
+    });
+  }
+});
+
 // Notify claim / in_call (called from admin-api after REST claim)
 router.post("/notify-claim", authenticateInternal, async (req, res) => {
   try {

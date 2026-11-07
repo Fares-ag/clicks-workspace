@@ -32,7 +32,10 @@ const {
   cancelHoldRequest,
 } = require("../../../clicks-shared/services/jobHold");
 const { buildCustomerSession } = require("../../../clicks-shared/utils/customerBookingGuard");
-const { customerCancelDecision } = require("../../../clicks-shared/utils/customerCancelPolicy");
+const {
+  customerCancelDecision,
+  customerCancelRefusalMessage,
+} = require("../../../clicks-shared/utils/customerCancelPolicy");
 const { sendJobToGarage } = require("../../../clicks-shared/services/jobGarage");
 const {
   MOBILE_JOB_LIST_SELECT,
@@ -909,46 +912,88 @@ const calculateTotal = async (req, res) => {
   }
 };
 
-// Proximity-based technician matching (2dsphere)
+/// Proximity-based technician matching (2dsphere).
+//
+// Customers used to get every online technician's name, phone and live
+// coordinates — with no radius cap, and the whole fleet when no coordinates
+// were sent. Customers now get only a count and the nearest distance;
+// technicians must send coordinates and are capped at NEARBY_MAX_KM.
+const NEARBY_MAX_KM = 50;
+
 const findNearbyTechnicians = async (req, res) => {
   try {
     const { lat, lng, longitude, latitude, maxDistanceKm = 25 } = req.query;
     const latN = Number(latitude ?? lat);
     const lngN = Number(longitude ?? lng);
-    const TechnicianModel = require("../../../clicks-shared/models/Technician");
-
-    if (Number.isFinite(latN) && Number.isFinite(lngN)) {
-      const maxMeters = Number(maxDistanceKm) * 1000;
-      const technicians = await TechnicianModel.find({
-        isActive: true,
-        currentStatus: "Online",
-        currentLocation: {
-          $near: {
-            $geometry: { type: "Point", coordinates: [lngN, latN] },
-            $maxDistance: maxMeters,
-          },
-        },
-      }).select(
-        "firstName lastName phone profilePicture currentStatus currentLocation expertise"
-      );
-      return res.json({ technicians });
+    if (!Number.isFinite(latN) || !Number.isFinite(lngN)) {
+      return res.status(400).json({
+        error: "latitude and longitude are required",
+        code: "NEARBY_LOCATION_REQUIRED",
+      });
     }
-
-    // Fallback when no coords provided
-    const technicians = await TechnicianModel.find({
+    const requestedKm = Number(maxDistanceKm);
+    const radiusKm = Math.min(
+      Number.isFinite(requestedKm) && requestedKm > 0 ? requestedKm : 25,
+      NEARBY_MAX_KM
+    );
+    const TechnicianModel = require("../../../clicks-shared/models/Technician");
+    const filter = {
       isActive: true,
       currentStatus: "Online",
-    }).select(
-      "firstName lastName phone profilePicture currentStatus currentLocation expertise"
-    );
-    res.json({ technicians });
+      currentLocation: {
+        $near: {
+          $geometry: { type: "Point", coordinates: [lngN, latN] },
+          $maxDistance: radiusKm * 1000,
+        },
+      },
+    };
+
+    if (req.user?.role === "customer") {
+      const nearest = await TechnicianModel.find(filter)
+        .select("currentLocation")
+        .limit(50)
+        .lean();
+      let nearestKm = null;
+      if (nearest.length) {
+        const [tLng, tLat] = nearest[0].currentLocation?.coordinates || [];
+        const km =
+          distanceBetween({ lat: latN, lng: lngN }, { lat: Number(tLat), lng: Number(tLng) }) /
+          1000;
+        // Rounded so the response can't be used to triangulate a technician.
+        nearestKm = Number.isFinite(km) ? Math.max(0.5, Math.round(km * 2) / 2) : null;
+      }
+      return res.json({
+        count: nearest.length,
+        nearest_km: nearestKm,
+        radius_km: radiusKm,
+      });
+    }
+
+    const technicians = await TechnicianModel.find(filter)
+      .select("firstName lastName profilePicture currentStatus currentLocation expertise")
+      .limit(100);
+    return res.json({ technicians, radius_km: radiusKm });
   } catch (err) {
     res.status(500).json({ error: "Find nearby technicians failed", details: err.message });
   }
 };
 
+function cancelNotifierFromReq(req) {
+  return {
+    technicianPresence: req.app.get("notifyAdminTechnicianPresence"),
+    customerJobEvent: req.app.get("notifyCustomerJobEvent"),
+    technicianJobEvent: req.app.get("notifyTechnicianJobEvent"),
+  };
+}
 
-/** Technician cancels an assigned job after arrival / mid-fulfill. */
+/**
+ * Technician can't finish (breakdown, accident) — scenario 48.
+ *
+ * Customer jobs go back to `pending` with no technician so dispatch can send
+ * someone else; the SOS stays linked, admins are alerted and the customer
+ * hears "finding another technician". Only a job the technician created
+ * themselves (no customer waiting on it) is actually cancelled.
+ */
 const cancelJobByTechnician = async (req, res) => {
   try {
     const { id } = req.params;
@@ -962,13 +1007,11 @@ const cancelJobByTechnician = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    const cancellable = [
-      "accepted",
-      "en_route",
-      "arrived",
-      "in_progress",
-    ];
-    if (!cancellable.includes(job.job_status)) {
+    const {
+      TECHNICIAN_RELEASE_STATUSES,
+      releaseJobForRedispatch,
+    } = require("../../../clicks-shared/services/jobReassign");
+    if (!TECHNICIAN_RELEASE_STATUSES.includes(job.job_status)) {
       return res.status(400).json({
         error: `Cannot cancel job in status ${job.job_status}`,
       });
@@ -981,75 +1024,83 @@ const cancelJobByTechnician = async (req, res) => {
           "Cannot cancel a job that has already been paid. Complete the job or request a refund.",
       });
     }
-    // Guarded CAS so a concurrent payment/complete cannot be cancelled out from
-    // under us, and so a repeated cancel does not double-count the counters.
-    const cancelled = await Job.findOneAndUpdate(
-      {
-        _id: id,
-        job_status: { $in: cancellable },
-        payment_status: { $ne: "paid" },
-      },
-      {
-        $set: {
-          job_status: "cancelled",
-          rejection_description: reason.slice(0, 500),
-        },
-        $push: { rejection_reasons: reason.slice(0, 200) },
-      },
-      { new: true }
-    );
-    if (!cancelled) {
+
+    const ownJobNoCustomer =
+      !job.customer_id &&
+      !job.sos_request_id &&
+      !job.service_request_id &&
+      job.created_by_technician &&
+      sameId(job.created_by_technician, req.user.id);
+
+    if (ownJobNoCustomer) {
+      const { cancelJob } = require("../../../clicks-shared/services/cancelJob");
+      const result = await cancelJob({
+        jobId: id,
+        actor: "technician",
+        actorId: req.user.id,
+        reason,
+        notifier: cancelNotifierFromReq(req),
+      });
+      invalidateTechSessionCache(req.user.id);
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: "job.cancelled",
+        message: "Cancelled the job",
+        statusCode: 200,
+        jobId: job._id,
+        jobReference: job.job_reference,
+        metadata: { reason },
+      });
+      return res.json({
+        message: "Job cancelled",
+        job_status: result.job.job_status,
+        reason,
+      });
+    }
+
+    const released = await releaseJobForRedispatch({
+      jobId: id,
+      technicianId: req.user.id,
+      reason,
+      note: reason,
+    });
+    if (!released) {
       const current = await Job.findById(id).select("job_status payment_status");
       if (!current) return res.status(404).json({ error: "Job not found" });
       return res.status(400).json({
         error: `Cannot cancel job in status ${current.job_status} (payment ${current.payment_status})`,
       });
     }
-    job.job_status = cancelled.job_status;
 
-    if (job.assignedTechnician) {
-      const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
-      await TechnicianEarnings.findOneAndUpdate(
-        { technician_id: job.assignedTechnician },
-        {
-          $inc: { "performance.total_cancelled_jobs": 1 },
-          $set: { updated_at: new Date() },
-        },
-        { upsert: true }
-      );
-      const technician = await Technician.findById(job.assignedTechnician);
-      if (technician) {
-        if (!technician.performance) technician.performance = {};
-        technician.performance.cancelledJobs =
-          (technician.performance.cancelledJobs || 0) + 1;
-        await technician.save();
-      }
+    const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
+    await TechnicianEarnings.findOneAndUpdate(
+      { technician_id: req.user.id },
+      {
+        $inc: { "performance.total_cancelled_jobs": 1 },
+        $set: { updated_at: new Date() },
+      },
+      { upsert: true }
+    );
+    await Technician.updateOne(
+      { _id: req.user.id },
+      { $inc: { "performance.cancelledJobs": 1 } }
+    );
+    await applyTechnicianPresence(req, req.user.id, job._id);
+    invalidateTechSessionCache(req.user.id);
 
-      // Only free the technician when they have no other live job.
-      const nextStatus = await resolveTechnicianStatusAfterJob(
-        job.assignedTechnician,
-        job._id
-      );
-      await setTechnicianStatus(job.assignedTechnician, nextStatus);
-      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-      if (typeof notifyPresence === "function") {
-        await notifyPresence(job.assignedTechnician, nextStatus);
-      }
-    }
-
-    // P2-05: notify customer that the technician cancelled
-    if (job.customer_id) {
+    const notifyRedispatch = req.app.get("notifyJobRedispatch");
+    if (typeof notifyRedispatch === "function") {
       try {
-        const notify = req.app.get("notifyCustomerJobEvent");
-        if (typeof notify === "function") {
-          await notify(job.customer_id.toString(), "jobCancelled", {
-            job_id: job._id,
-            status: "cancelled",
-            reason,
-          });
-        }
+        await notifyRedispatch({
+          job_id: String(job._id),
+          customer_id: job.customer_id ? String(job.customer_id) : null,
+          technician_id: String(req.user.id),
+          sos_id: job.sos_request_id ? String(job.sos_request_id) : null,
+          reason,
+        });
       } catch (notifyErr) {
-        console.error("Failed to notify customer of cancellation:", notifyErr.message);
+        console.error("Failed to notify redispatch:", notifyErr.message);
       }
     }
 
@@ -1057,23 +1108,24 @@ const cancelJobByTechnician = async (req, res) => {
       req,
       technicianId: req.user.id,
       event: "job.cancelled",
-      message: "Cancelled the job",
+      message: "Handed the job back for re-dispatch",
       statusCode: 200,
       jobId: job._id,
       jobReference: job.job_reference,
-      metadata: { reason },
+      metadata: { reason, redispatch: true },
     });
 
     res.json({
-      message: "Job cancelled",
-      job_status: job.job_status,
+      message: "Job released for re-dispatch",
+      job_status: released.job.job_status,
+      redispatch: true,
       reason,
     });
   } catch (err) {
-    res.status(500).json({ error: "Cancel job failed", details: err.message });
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || "Cancel job failed", details: err.message });
   }
 };
-
 const confirmPayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1240,12 +1292,11 @@ const getCustomerActiveJob = async (req, res) => {
   try {
     const customer_id = req.user.id;
     
-    // Find job that is NOT in a terminal state
-    // Note: 'paid' is not a valid job_status enum value — valid terminals are 'completed' and 'cancelled'
-    const activeJob = await Job.findOne({
-      customer_id,
-      job_status: { $nin: ['completed', 'cancelled'] }
-    })
+    // Same definition of "live" as the session: every non-terminal status,
+    // including a `pending` job awaiting a technician (scenario 45) — but a
+    // pending job for a future slot only from its scheduled window.
+    const { liveJobFilter } = require("../../../clicks-shared/utils/customerBookingGuard");
+    const activeJob = await Job.findOne(liveJobFilter(customer_id))
     .populate('assignedTechnician', 'firstName lastName phone profilePicture currentLocation currentStatus')
     .populate({
       path: 'customer_vehicle_id',
@@ -1704,93 +1755,39 @@ const cancelJobByCustomer = async (req, res) => {
     const decision = customerCancelDecision(job.job_status);
     if (!decision.allowed) {
       return res.status(400).json({
-        error: "Work has already started — please contact support",
+        error: customerCancelRefusalMessage(decision.code),
         code: decision.code,
       });
     }
 
-    const allowed = ["assigned", "accepted", "en_route", "arrived"];
-    const cancelled = await Job.findOneAndUpdate(
-      {
-        _id: id,
-        job_status: { $in: allowed },
-        payment_status: { $ne: "paid" },
-      },
-      {
-        $set: {
-          job_status: "cancelled",
-          cancelled_at: new Date(),
-          cancelled_by: "customer",
-          cancellation_reason: reason.slice(0, 500),
-          cancel_fee_due: decision.fee,
-        },
-      },
-      { new: true }
-    );
-    if (!cancelled) {
-      return res.status(400).json({
-        error: "Job is no longer cancellable",
-        code: "JOB_NOT_CANCELLABLE",
-      });
-    }
-
-    if (cancelled.assignedTechnician) {
-      const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
-      await TechnicianEarnings.findOneAndUpdate(
-        { technician_id: cancelled.assignedTechnician },
-        {
-          $inc: { "performance.total_cancelled_jobs": 1 },
-          $set: { updated_at: new Date() },
-        },
-        { upsert: true }
-      );
-      const nextStatus = await resolveTechnicianStatusAfterJob(
-        cancelled.assignedTechnician,
-        cancelled._id
-      );
-      await setTechnicianStatus(cancelled.assignedTechnician, nextStatus);
-      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-      if (typeof notifyPresence === "function") {
-        await notifyPresence(cancelled.assignedTechnician, nextStatus);
-      }
-    }
-
-    if (cancelled.sos_request_id) {
-      await SOSRequest.findByIdAndUpdate(cancelled.sos_request_id, {
-        status: "cancelled",
-        outcome: "cancelled",
-        cancel_reason: reason.slice(0, 500),
-      });
-    }
-
-    const payload = {
-      job_id: cancelled._id,
-      status: "cancelled",
-      reason,
-      cancelled_by: "customer",
-      cancel_fee_due: !!cancelled.cancel_fee_due,
-    };
+    const { cancelJob } = require("../../../clicks-shared/services/cancelJob");
+    let result;
     try {
-      const notifyCustomer = req.app.get("notifyCustomerJobEvent");
-      if (typeof notifyCustomer === "function" && cancelled.customer_id) {
-        await notifyCustomer(cancelled.customer_id.toString(), "jobCancelled", payload);
+      result = await cancelJob({
+        jobId: id,
+        actor: "customer",
+        actorId: req.user.id,
+        reason,
+        feeDue: decision.fee,
+        notifier: cancelNotifierFromReq(req),
+      });
+    } catch (cancelErr) {
+      if (cancelErr.status && cancelErr.status < 500) {
+        return res.status(400).json({
+          error:
+            cancelErr.code === "JOB_PAID"
+              ? cancelErr.message
+              : "Job is no longer cancellable",
+          code: cancelErr.code === "JOB_PAID" ? "JOB_PAID" : "JOB_NOT_CANCELLABLE",
+        });
       }
-      const notifyTech = req.app.get("notifyTechnicianJobEvent");
-      if (typeof notifyTech === "function" && cancelled.assignedTechnician) {
-        await notifyTech(
-          cancelled.assignedTechnician.toString(),
-          "jobCancelled",
-          payload
-        );
-      }
-    } catch (notifyErr) {
-      console.error("Failed to notify cancel-customer:", notifyErr.message);
+      throw cancelErr;
     }
 
     res.json({
       message: "Job cancelled",
-      job: cancelled,
-      cancel_fee_due: !!cancelled.cancel_fee_due,
+      job: result.job,
+      cancel_fee_due: !!result.job.cancel_fee_due,
     });
   } catch (err) {
     res.status(500).json({
