@@ -8,7 +8,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'job_price.dart';
 import 'rating_bottom_sheet.dart';
+import 'skipcash_api.dart';
 import 'skipcash_pay.dart';
 
 @immutable
@@ -39,7 +41,9 @@ class JobProgressArgs {
   // Actions
   final VoidCallback onCallTechnician;
   final VoidCallback onCallDispatch;
-  final int? price;
+  /// Amount to pay. Callers should pass the server's pricing.total; the
+  /// screen also refreshes it from the API on open.
+  final num? price;
   final String? paymentStatus;
   final String? paymentMethod;
 
@@ -91,6 +95,7 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
   late bool _paid;
   late bool _cashChosen;
   var _paying = false;
+  num? _total;
 
   JobProgressArgs get args => widget.args;
 
@@ -99,6 +104,16 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
     super.initState();
     _paid = args.paymentStatus?.toString() == 'paid';
     _cashChosen = args.paymentMethod?.toString() == 'cash';
+    _total = args.price;
+    _refreshTotal();
+  }
+
+  /// The server's total (base + repairs − membership) is what SkipCash charges.
+  Future<void> _refreshTotal() async {
+    if (args.jobId.isEmpty) return;
+    final total = await SkipcashApi.fetchTotal(args.jobId);
+    if (!mounted || total == null) return;
+    setState(() => _total = total);
   }
 
   Future<void> _payNow() async {
@@ -242,10 +257,10 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
                           color: Color(0xFF6B7280),
                         ),
                       ),
-                      if (args.price != null) ...[
+                      if (_total != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          '${'common.qar'.tr()} ${args.price}',
+                          '${'common.qar'.tr()} ${formatQarAmount(_total!)}',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -285,8 +300,8 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
                                     ),
                                   )
                                 : Text(
-                                    args.price != null
-                                        ? '${'home.pay_now'.tr()} · ${'common.qar'.tr()} ${args.price}'
+                                    _total != null
+                                        ? '${'home.pay_now'.tr()} · ${'common.qar'.tr()} ${formatQarAmount(_total!)}'
                                         : 'home.pay_now'.tr(),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,

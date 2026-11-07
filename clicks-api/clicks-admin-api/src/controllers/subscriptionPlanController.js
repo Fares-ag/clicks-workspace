@@ -2,6 +2,7 @@ const { SubscriptionPlan } = require("../../../clicks-shared/models");
 const {
   DISCOUNT_ELIGIBLE_TYPES,
 } = require("../../../clicks-shared/services/membershipPlans");
+const { recordAudit } = require("../utils/auditLog");
 
 function serialize(plan) {
   const o = plan.toObject ? plan.toObject() : plan;
@@ -14,6 +15,7 @@ function serialize(plan) {
     discountPercent: o.discountPercent,
     eligibleServiceTypes: o.eligibleServiceTypes || [],
     intervals: o.intervals || [],
+    coversEmergency: o.coversEmergency === true,
     active: o.active,
     sortOrder: o.sortOrder,
     createdAt: o.createdAt,
@@ -90,6 +92,7 @@ async function createPlan(req, res) {
       intervals,
       active,
       sortOrder,
+      coversEmergency,
     } = req.body || {};
     if (!code || !name_en) {
       return res.status(400).json({ message: "code and name_en are required" });
@@ -109,6 +112,14 @@ async function createPlan(req, res) {
       intervals: normalizeIntervals(intervals),
       active: active !== false,
       sortOrder: Number(sortOrder || 0),
+      coversEmergency: coversEmergency === true,
+    });
+    await recordAudit({
+      req,
+      action: "membership_plan.create",
+      entityType: "subscription_plan",
+      entityId: plan._id,
+      changes: { code: plan.code, coversEmergency: plan.coversEmergency },
     });
     res.status(201).json({ plan: serialize(plan) });
   } catch (err) {
@@ -131,7 +142,24 @@ async function updatePlan(req, res) {
     if (body.active != null) plan.active = Boolean(body.active);
     if (body.sortOrder != null) plan.sortOrder = Number(body.sortOrder);
     if (body.code != null) plan.code = String(body.code).trim().toLowerCase();
+    const coversBefore = plan.coversEmergency === true;
+    if (body.coversEmergency != null) plan.coversEmergency = body.coversEmergency === true;
+    const changedFields = plan.modifiedPaths();
     await plan.save();
+    if (changedFields.length) {
+      await recordAudit({
+        req,
+        action: "membership_plan.update",
+        entityType: "subscription_plan",
+        entityId: plan._id,
+        changes: {
+          fields: changedFields,
+          ...(coversBefore !== (plan.coversEmergency === true)
+            ? { coversEmergency: { from: coversBefore, to: plan.coversEmergency === true } }
+            : {}),
+        },
+      });
+    }
     res.json({ plan: serialize(plan) });
   } catch (err) {
     res.status(500).json({ message: "Failed to update plan", error: err.message });

@@ -91,7 +91,8 @@ class _MembershipPlansScreenState extends State<MembershipPlansScreen> {
                           style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
                         ),
                         subtitle: Text(
-                          '${_prices(plan)}\n${plan['discountPercent'] ?? 0}% off other services',
+                          '${_prices(plan)}\n${plan['discountPercent'] ?? 0}% off other services'
+                          '${plan['coversEmergency'] == true ? ' · emergencies covered' : ''}',
                         ),
                         isThreeLine: true,
                         trailing: Text(

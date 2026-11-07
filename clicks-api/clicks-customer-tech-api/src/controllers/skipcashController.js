@@ -6,7 +6,6 @@ const {
   getSkipcashConfig,
   formatAmount,
   amountsMatch,
-  isPaidStatus,
   isReusableStatus,
   verifyWebhookSignature,
   buildTransactionId,
@@ -16,13 +15,29 @@ const {
   getPayment,
   SkipcashError,
 } = require("../services/skipcashClient");
-const { applyJobPayment } = require("../services/applyJobPayment");
 const {
-  applyMembershipPayment,
+  isJobPaid,
+  settleJobAttempt,
+  liveCheckJobAttempts,
+  cancelPendingJobAttempts,
+  jobPricingPayload,
+} = require("../../../clicks-shared/services/jobPayment");
+const {
+  settleMembershipAttempt,
   findMembershipByWebhook,
-} = require("../services/applyMembershipPayment");
+} = require("../../../clicks-shared/services/membershipPayment");
+const {
+  recordCreatedAttempt,
+  ensureAttempt,
+  findAttemptByProviderId,
+  cancelAttemptLocally,
+  pendingAttempts,
+  alertOps,
+} = require("../../../clicks-shared/services/paymentAttempts");
 
 const PAYABLE_STATUSES = ["in_progress", "completed"];
+const CHECKOUT_LOCK_MS = 20 * 1000;
+const CHECKOUT_LOCK_WAIT_MS = 4000;
 
 function fetchImplFor(req) {
   return req.app.get("skipcashFetch") || fetch;
@@ -42,6 +57,14 @@ function skipcashSnapshot(result, amount) {
     amount: result.amount || amount,
     created_at: result.created ? new Date(result.created) : new Date(),
   };
+}
+
+function sendError(res, err, fallback) {
+  const status = err.status || 500;
+  return res.status(status).json({
+    error: err.message || fallback,
+    code: err.code || "SKIPCASH_ERROR",
+  });
 }
 
 async function loadPayableJob(req) {
@@ -72,30 +95,56 @@ async function jobAmount(job) {
   return { amount, pricing };
 }
 
-async function persistSkipcash(job, snapshot) {
-  job.skipcash = {
-    ...(job.skipcash?.toObject?.() || job.skipcash || {}),
-    ...snapshot,
+function paidResponse(job) {
+  return {
+    already_paid: true,
+    payment_status: job?.payment_status || "paid",
+    payment_method: job?.payment_method || "card",
   };
-  await job.save();
 }
 
-async function settleIfPaid(job, result, { amount, notify, notes }) {
-  if (!isPaidStatus(result.statusId)) return null;
-  if (amount && result.amount && !amountsMatch(result.amount, amount)) {
-    throw new SkipcashError("SkipCash amount does not match the job total", {
-      status: 409,
-      code: "SKIPCASH_AMOUNT_MISMATCH",
-    });
+/** Per-job checkout mutex: a conditional set of payment_lock_until. */
+async function acquireCheckoutLock(jobId) {
+  const deadline = Date.now() + CHECKOUT_LOCK_WAIT_MS;
+  for (;;) {
+    const now = new Date();
+    const locked = await Job.findOneAndUpdate(
+      {
+        _id: jobId,
+        $or: [{ payment_lock_until: null }, { payment_lock_until: { $lte: now } }],
+      },
+      { $set: { payment_lock_until: new Date(now.getTime() + CHECKOUT_LOCK_MS) } },
+      { new: true }
+    );
+    if (locked) return locked;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  return applyJobPayment(job, {
-    paymentMethod: "card",
-    notes,
-    skipcash: skipcashSnapshot(result, amount),
-    notify,
-  });
 }
 
+async function releaseCheckoutLock(jobId) {
+  await Job.updateOne({ _id: jobId }, { $set: { payment_lock_until: null } }).catch(() => {});
+}
+
+function sessionResponse(attempt, { amount, cfg, pricing, reused }) {
+  return {
+    already_paid: false,
+    pay_url: attempt.pay_url,
+    payment_id: attempt.provider_payment_id,
+    amount,
+    currency: attempt.currency || "QAR",
+    return_url: cfg.returnUrl,
+    reused: Boolean(reused),
+    pricing,
+  };
+}
+
+/**
+ * Open (or reuse) the card checkout for a job. Double taps, a second device
+ * and "Back, Pay again" all get the same live SkipCash link: the per-job lock
+ * serialises callers and the newest pending attempt is reused when SkipCash
+ * says it is still payable for the same amount. A new link freezes the price.
+ */
 const createSession = async (req, res) => {
   try {
     const cfg = getSkipcashConfig();
@@ -107,13 +156,7 @@ const createSession = async (req, res) => {
     }
 
     const job = await loadPayableJob(req);
-    if (job.payment_status === "paid") {
-      return res.json({
-        already_paid: true,
-        payment_status: "paid",
-        payment_method: job.payment_method,
-      });
-    }
+    if (isJobPaid(job)) return res.json(paidResponse(job));
     if (!PAYABLE_STATUSES.includes(job.job_status)) {
       return res.status(400).json({
         error: `Cannot pay for a job in status ${job.job_status}`,
@@ -121,256 +164,333 @@ const createSession = async (req, res) => {
       });
     }
 
-    const { amount } = await jobAmount(job);
-    const customer = job.customer_id
-      ? await Customer.findById(job.customer_id)
-      : null;
-    const fetchImpl = fetchImplFor(req);
-    const notify = notifyFor(req);
+    const locked = await acquireCheckoutLock(job._id);
+    if (!locked) {
+      return res.status(409).json({
+        error: "A payment is already being prepared for this job. Try again in a moment.",
+        code: "CHECKOUT_BUSY",
+      });
+    }
+    try {
+      const current = await Job.findById(job._id);
+      if (isJobPaid(current)) return res.json(paidResponse(current));
+      const { amount } = await jobAmount(current);
+      const pricing = await jobPricingPayload(current);
+      const fetchImpl = fetchImplFor(req);
+      const notify = notifyFor(req);
 
-    const existingId = job.skipcash?.payment_id;
-    if (existingId && job.skipcash?.amount === amount) {
-      try {
-        const existing = await getPayment(existingId, { fetchImpl });
-        const settled = await settleIfPaid(job, existing, { amount, notify });
-        if (settled) {
-          return res.json({
-            already_paid: true,
-            payment_status: "paid",
-            payment_method: settled.job?.payment_method || "card",
-          });
+      // Reuse the newest pending checkout when SkipCash says it is still live.
+      const open = await pendingAttempts({ jobId: current._id });
+      for (const attempt of open) {
+        let remote;
+        try {
+          remote = await getPayment(attempt.provider_payment_id, { fetchImpl });
+        } catch (lookupErr) {
+          // SkipCash unreachable: hand back the stored link rather than create
+          // a second live one the customer could also pay.
+          if (attempt === open[0] && attempt.pay_url && amountsMatch(attempt.amount, amount)) {
+            return res.json(sessionResponse(attempt, { amount, cfg, pricing, reused: true }));
+          }
+          continue;
         }
-        if (isReusableStatus(existing.statusId) && existing.payUrl) {
-          await persistSkipcash(job, skipcashSnapshot(existing, amount));
-          return res.json({
-            already_paid: false,
-            pay_url: existing.payUrl,
-            payment_id: existing.id,
-            amount,
-            currency: existing.currency || "QAR",
-            return_url: cfg.returnUrl,
-          });
+        const settled = await settleJobAttempt(attempt, {
+          source: "checkout",
+          statusId: remote.statusId,
+          amount: remote.amount,
+          transactionId: remote.transactionId,
+          visaId: remote.visaId,
+          payUrl: remote.payUrl,
+          notify,
+        });
+        if (settled.state === "paid") {
+          const paidJob = await Job.findById(current._id);
+          return res.json(paidResponse(paidJob));
         }
-      } catch (lookupErr) {
-        if (lookupErr instanceof SkipcashError && lookupErr.code === "SKIPCASH_AMOUNT_MISMATCH") {
-          throw lookupErr;
+        if (
+          settled.state === "pending" &&
+          isReusableStatus(remote.statusId) &&
+          (remote.payUrl || attempt.pay_url) &&
+          amountsMatch(attempt.amount, amount)
+        ) {
+          return res.json(
+            sessionResponse(settled.attempt, { amount, cfg, pricing, reused: true })
+          );
+        }
+        if (settled.state === "pending") {
+          // Live but for another amount (price changed before the lock
+          // existed): retire it; if it is ever paid it is still recorded.
+          await cancelAttemptLocally(attempt._id, "superseded by a new amount");
         }
       }
-    }
 
-    const created = await createPayment(
-      {
-        amount,
-        customer,
-        job,
-        transactionId: buildTransactionId(job._id),
-        custom1: job._id.toString(),
-      },
-      { fetchImpl }
-    );
+      const customer = current.customer_id ? await Customer.findById(current.customer_id) : null;
+      const created = await createPayment(
+        {
+          amount,
+          customer,
+          job: current,
+          transactionId: buildTransactionId(current._id),
+          custom1: current._id.toString(),
+        },
+        { fetchImpl }
+      );
+      if (!created.payUrl) {
+        return res.status(502).json({
+          error: "SkipCash did not return a payment URL",
+          code: "SKIPCASH_NO_PAY_URL",
+        });
+      }
 
-    if (!created.payUrl) {
-      return res.status(502).json({
-        error: "SkipCash did not return a payment URL",
-        code: "SKIPCASH_NO_PAY_URL",
+      const attempt = await recordCreatedAttempt({
+        kind: "job",
+        jobId: current._id,
+        customerId: current.customer_id,
+        result: created,
+        amount: Number(amount),
+        createdBy: { type: req.user.role, id: req.user.id },
       });
-    }
+      await Job.updateOne(
+        { _id: current._id },
+        {
+          $set: {
+            price_locked: true,
+            skipcash: {
+              ...(current.skipcash?.toObject?.() || current.skipcash || {}),
+              ...skipcashSnapshot(created, amount),
+            },
+          },
+        }
+      );
 
-    const settled = await settleIfPaid(job, created, { amount, notify });
-    if (settled) {
-      return res.json({
-        already_paid: true,
-        payment_status: "paid",
-        payment_method: settled.job?.payment_method || "card",
-      });
-    }
+      if (created.statusId != null && Number(created.statusId) === 2) {
+        const settled = await settleJobAttempt(attempt, {
+          source: "create",
+          statusId: created.statusId,
+          amount: created.amount || amount,
+          notify,
+        });
+        if (settled.state === "paid") {
+          return res.json(paidResponse(await Job.findById(current._id)));
+        }
+      }
 
-    await persistSkipcash(job, skipcashSnapshot(created, amount));
-    return res.json({
-      already_paid: false,
-      pay_url: created.payUrl,
-      payment_id: created.id,
-      amount,
-      currency: created.currency || "QAR",
-      return_url: cfg.returnUrl,
-    });
+      return res.json(sessionResponse(attempt, { amount, cfg, pricing, reused: false }));
+    } finally {
+      await releaseCheckoutLock(job._id);
+    }
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      error: err.message || "Failed to start card payment",
-      code: err.code || "SKIPCASH_ERROR",
-    });
+    return sendError(res, err, "Failed to start card payment");
   }
 };
 
+/**
+ * Customer polling, and the technician's "re-check card payment": ask
+ * SkipCash about every pending attempt for the job (not only the newest).
+ */
 const getStatus = async (req, res) => {
   try {
     const job = await loadPayableJob(req);
-    if (job.payment_status === "paid") {
+    if (isJobPaid(job)) {
       return res.json({
-        payment_status: "paid",
+        payment_status: job.payment_status,
         payment_method: job.payment_method,
-        amount: job.skipcash?.amount || formatAmount(job.price),
+        amount: formatAmount(job.paid_amount ?? job.skipcash?.amount ?? job.price) || "0.00",
+        pricing: await jobPricingPayload(job),
       });
     }
 
-    const paymentId = job.skipcash?.payment_id;
-    if (!paymentId) {
-      return res.json({
-        payment_status: "unpaid",
-        amount: (await jobAmount(job)).amount,
-      });
+    const open = await pendingAttempts({ jobId: job._id });
+    if (!open.length) {
+      // Pre-ledger jobs: a payment id stored on the job but no attempt row.
+      const legacyId = job.skipcash?.payment_id;
+      if (legacyId && !(await findAttemptByProviderId(legacyId))) {
+        await ensureAttempt({
+          kind: "job",
+          providerPaymentId: legacyId,
+          jobId: job._id,
+          customerId: job.customer_id,
+          amount: Number(job.skipcash?.amount) || 0,
+        });
+      }
     }
 
-    const { amount } = await jobAmount(job);
-    const remote = await getPayment(paymentId, { fetchImpl: fetchImplFor(req) });
-    const settled = await settleIfPaid(job, remote, {
-      amount,
+    const check = await liveCheckJobAttempts(job._id, {
+      fetchImpl: fetchImplFor(req),
       notify: notifyFor(req),
+      source: "poll",
     });
-    if (settled) {
+    const pricing = await jobPricingPayload(check.job || job);
+    if (check.paid) {
       return res.json({
-        payment_status: "paid",
-        payment_method: settled.job?.payment_method || "card",
-        amount,
+        payment_status: check.job?.payment_status || "paid",
+        payment_method: check.job?.payment_method || "card",
+        amount: formatAmount(pricing?.total) || "0.00",
+        pricing,
       });
     }
-
-    await persistSkipcash(job, skipcashSnapshot(remote, amount));
+    const latest = check.stillPending[0];
     return res.json({
       payment_status: "unpaid",
-      skipcash_status_id: remote.statusId,
-      amount,
+      skipcash_status_id: latest?.remote?.statusId ?? null,
+      pending_card_payment: check.stillPending.length > 0,
+      unverified: check.unverified.length > 0 || undefined,
+      amount: formatAmount(pricing?.total) || "0.00",
+      pricing,
     });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      error: err.message || "Failed to check payment status",
-      code: err.code || "SKIPCASH_ERROR",
-    });
+    return sendError(res, err, "Failed to check payment status");
   }
 };
 
+/**
+ * Technician cancels the customer's open card checkout (after a live check)
+ * so the price can change or cash can be taken.
+ */
+const cancelCheckout = async (req, res) => {
+  try {
+    const job = await loadPayableJob(req);
+    if (isJobPaid(job)) return res.json({ ...paidResponse(job), cancelled: 0 });
+    const result = await cancelPendingJobAttempts(job._id, {
+      fetchImpl: fetchImplFor(req),
+      notify: notifyFor(req),
+      note: `cancelled by ${req.user.role}`,
+    });
+    if (result.paid) {
+      return res.status(409).json({
+        error: "The customer has already paid by card.",
+        code: "CARD_PAYMENT_RECEIVED",
+        ...paidResponse(result.job),
+      });
+    }
+    if (result.unverified.length) {
+      return res.status(409).json({
+        error: "Could not reach SkipCash to confirm the payment was not made. Try again.",
+        code: "CARD_PAYMENT_UNVERIFIED",
+      });
+    }
+    return res.json({
+      cancelled: result.cancelled.length,
+      payment_status: result.job?.payment_status || "unpaid",
+      price_locked: Boolean(result.job?.price_locked),
+    });
+  } catch (err) {
+    return sendError(res, err, "Failed to cancel card payment");
+  }
+};
+
+async function handleMembershipWebhook(body, res) {
+  let attempt = await findAttemptByProviderId(body.PaymentId);
+  if (!attempt) {
+    const sub = await findMembershipByWebhook(body);
+    if (!sub) {
+      return res.status(404).json({ error: "Membership not found for SkipCash payment" });
+    }
+    attempt = await ensureAttempt({
+      kind: "membership",
+      providerPaymentId: body.PaymentId || sub.skipcash?.payment_id,
+      subscriptionId: sub._id,
+      customerId: sub.customer_id,
+      amount: Number(body.Amount || sub.priceQar) || 0,
+      transactionId: body.TransactionId,
+    });
+  }
+  if (!attempt) {
+    return res.status(404).json({ error: "Membership not found for SkipCash payment" });
+  }
+  const result = await settleMembershipAttempt(attempt, {
+    source: "webhook",
+    statusId: body.StatusId,
+    amount: body.Amount,
+    transactionId: body.TransactionId,
+    visaId: body.VisaId,
+  });
+  return res.json({
+    ok: true,
+    kind: "membership",
+    status: result.subscription?.status,
+    outcome: result.outcome || null,
+    already_paid: result.subscription?.status === "active",
+  });
+}
+
+/**
+ * SkipCash webhook. Looked up by payment id first, so a payment for ANY link
+ * ever issued (job or membership) is recorded. Recognised payments always get
+ * 200 — duplicates and amount mismatches are handled on our side (refund case,
+ * finance flag), never by making SkipCash retry forever.
+ */
 const handleWebhook = async (req, res) => {
   const cfg = getSkipcashConfig();
   const body = req.body || {};
   if (!verifyWebhookSignature(body, req.get("authorization"), cfg.webhookSecret)) {
+    alertOps("SkipCash webhook rejected: bad signature (check SKIPCASH_WEBHOOK_SECRET)", {
+      payment_id: body.PaymentId ? String(body.PaymentId) : null,
+    });
     return res.status(401).json({ error: "Invalid SkipCash signature" });
   }
 
   try {
+    const existing = await findAttemptByProviderId(body.PaymentId);
     const custom2 = String(body.Custom2 || "").toLowerCase();
-    if (custom2 === "membership") {
-      const sub = await findMembershipByWebhook(body);
-      if (!sub) {
-        return res.status(404).json({ error: "Membership not found for SkipCash payment" });
-      }
-      if (!isPaidStatus(body.StatusId)) {
-        sub.skipcash = {
-          ...(sub.skipcash?.toObject?.() || sub.skipcash || {}),
-          payment_id: body.PaymentId || sub.skipcash?.payment_id,
-          transaction_id: body.TransactionId || sub.skipcash?.transaction_id,
-          status_id: body.StatusId,
-          visa_id: body.VisaId || sub.skipcash?.visa_id,
-        };
-        await sub.save();
-        return res.json({ ok: true, status: sub.status });
-      }
-      const amount = formatAmount(sub.priceQar);
-      if (body.Amount && amount && !amountsMatch(body.Amount, amount)) {
-        return res.status(409).json({
-          error: "SkipCash amount does not match the membership price",
-          code: "SKIPCASH_AMOUNT_MISMATCH",
-        });
-      }
-      const settled = await applyMembershipPayment(sub, {
-        skipcash: {
-          payment_id: body.PaymentId,
-          transaction_id: body.TransactionId,
-          status_id: body.StatusId,
-          visa_id: body.VisaId,
-          amount,
-        },
-        amount,
-      });
-      return res.json({
-        ok: true,
-        kind: "membership",
-        status: settled.subscription?.status,
-        already_paid: settled.subscription?.status === "active",
-      });
+    if (existing?.kind === "membership" || (!existing && custom2 === "membership")) {
+      return handleMembershipWebhook(body, res);
     }
 
-    let job = null;
-    if (mongoose.isValidObjectId(body.Custom1)) {
-      job = await Job.findById(body.Custom1);
-    }
-    if (!job && body.PaymentId) {
-      job = await Job.findOne({ "skipcash.payment_id": String(body.PaymentId) });
-    }
-    if (!job && body.TransactionId) {
-      job = await Job.findOne({
-        "skipcash.transaction_id": String(body.TransactionId),
-      });
-    }
-    if (!job) {
-      const sub = await findMembershipByWebhook(body);
-      if (sub) {
-        body.Custom2 = "membership";
-        return handleWebhook(req, res);
+    let attempt = existing;
+    if (!attempt) {
+      let job = null;
+      if (mongoose.isValidObjectId(body.Custom1)) job = await Job.findById(body.Custom1);
+      if (!job && body.PaymentId) {
+        job = await Job.findOne({ "skipcash.payment_id": String(body.PaymentId) });
       }
-      return res.status(404).json({ error: "Job not found for SkipCash payment" });
-    }
-
-    if (!isPaidStatus(body.StatusId)) {
-      job.skipcash = {
-        ...(job.skipcash?.toObject?.() || job.skipcash || {}),
-        payment_id: body.PaymentId || job.skipcash?.payment_id,
-        transaction_id: body.TransactionId || job.skipcash?.transaction_id,
-        status_id: body.StatusId,
-        visa_id: body.VisaId || job.skipcash?.visa_id,
-      };
-      await job.save();
-      return res.json({ ok: true, payment_status: job.payment_status });
-    }
-
-    const { amount } = await jobAmount(job);
-    if (body.Amount && !amountsMatch(body.Amount, amount)) {
-      return res.status(409).json({
-        error: "SkipCash amount does not match the job total",
-        code: "SKIPCASH_AMOUNT_MISMATCH",
+      if (!job && body.TransactionId) {
+        job = await Job.findOne({ "skipcash.transaction_id": String(body.TransactionId) });
+      }
+      if (!job) {
+        const sub = await findMembershipByWebhook(body);
+        if (sub) return handleMembershipWebhook(body, res);
+        return res.status(404).json({ error: "Job not found for SkipCash payment" });
+      }
+      attempt = await ensureAttempt({
+        kind: "job",
+        providerPaymentId: body.PaymentId || job.skipcash?.payment_id,
+        jobId: job._id,
+        customerId: job.customer_id,
+        amount: Number(body.Amount || job.skipcash?.amount) || 0,
+        transactionId: body.TransactionId,
       });
+      if (!attempt) {
+        // No payment id at all: record nothing we can key on, but keep the old
+        // snapshot behaviour so the job still shows what SkipCash said.
+        return res.status(400).json({ error: "SkipCash webhook without PaymentId" });
+      }
     }
 
-    const settled = await applyJobPayment(job, {
-      paymentMethod: "card",
-      notes: "SkipCash card payment",
-      skipcash: {
-        payment_id: body.PaymentId,
-        transaction_id: body.TransactionId,
-        status_id: body.StatusId,
-        visa_id: body.VisaId,
-        amount,
-      },
+    const result = await settleJobAttempt(attempt, {
+      source: "webhook",
+      statusId: body.StatusId,
+      amount: body.Amount,
+      transactionId: body.TransactionId,
+      visaId: body.VisaId,
       notify: notifyFor(req),
     });
-
+    const job = result.job || (attempt.job_id ? await Job.findById(attempt.job_id) : null);
     return res.json({
       ok: true,
-      already_paid: settled.alreadyPaid,
-      payment_status: "paid",
+      outcome: result.outcome || null,
+      attempt_status: result.attempt?.status,
+      already_paid: Boolean(result.alreadyPaid),
+      payment_status: job?.payment_status || "unpaid",
     });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      error: err.message || "SkipCash webhook failed",
-      code: err.code || "SKIPCASH_ERROR",
-    });
+    console.error("SkipCash webhook failed:", err);
+    return sendError(res, err, "SkipCash webhook failed");
   }
 };
 
 module.exports = {
   createSession,
   getStatus,
+  cancelCheckout,
   handleWebhook,
 };

@@ -87,7 +87,14 @@ const JOB_STATUS_PRIORITY = {
   completed: 6,
 };
 
+/**
+ * Payment statuses that mean the customer owes nothing on the job. A refunded
+ * job is settled, not unpaid, so it must never trigger the unpaid-job hold.
+ */
+const SETTLED_PAYMENT_STATUSES = ["paid", "refunded", "partially_refunded"];
+
 module.exports = {
+  SETTLED_PAYMENT_STATUSES,
   JOB_STATUSES,
   TECH_BUSY_JOB_STATUSES,
   TECH_SESSION_ACTIVE_STATUSES,

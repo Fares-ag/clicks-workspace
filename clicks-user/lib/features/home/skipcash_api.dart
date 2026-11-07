@@ -57,6 +57,22 @@ class SkipcashApi {
     return SkipcashSession.fromJson(Map<String, dynamic>.from(data));
   }
 
+  /// Server total for the job (GET /api/jobs/:id/total), or null if unavailable.
+  static Future<num?> fetchTotal(String jobId) async {
+    try {
+      final response = await DioHelper.getData(
+        url: '/api/jobs/$jobId/total',
+        auth: true,
+      );
+      if (response.statusCode != 200 || response.data is! Map) return null;
+      final total = (response.data as Map)['total'];
+      if (total is num) return total;
+      return num.tryParse(total?.toString() ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<bool> isPaid(String jobId) async {
     final response = await DioHelper.getData(
       url: EndPoints.skipcashStatus(jobId),

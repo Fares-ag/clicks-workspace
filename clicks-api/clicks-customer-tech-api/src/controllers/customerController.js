@@ -458,19 +458,20 @@ const deleteAccount = async (req, res) => {
 
     // Open item 2: deleting the account deactivates the membership. No
     // automatic refund — finance can refund through the admin refund flow.
-    // INTEGRATION(ws-de): CustomerSubscription has no cancellation-reason
-    // field yet; the reason is written with strict:false so it persists
-    // without a schema change. Switch to the real field once ws-de adds one.
     const cancelled = await CustomerSubscription.updateMany(
       { customer_id: id, status: { $in: ["active", "pending_payment"] } },
       {
         $set: {
           status: "cancelled",
-          cancellation_reason: "account_deleted",
+          cancel_reason: "account_deleted",
           cancelled_at: now,
+          cancel_at_period_end: false,
+          cancelled_by: { type: "customer", id },
         },
-      },
-      { strict: false }
+        $push: {
+          history: { action: "cancel", at: now, note: "account_deleted", by_type: "customer", by_id: id },
+        },
+      }
     );
 
     res.json({

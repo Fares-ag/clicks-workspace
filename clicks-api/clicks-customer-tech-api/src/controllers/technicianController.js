@@ -1,4 +1,5 @@
 const bcrypt = require("bcryptjs");
+const { SETTLED_PAYMENT_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const jwt = require("jsonwebtoken");
 const { Technician, Job } = require("../../../clicks-shared/models");
 const { OTPVerification, TechnicianEarnings } = require("../../../clicks-shared/models");
@@ -547,7 +548,7 @@ const toggleStatus = async (req, res) => {
               $in: OFFLINE_BLOCKING_STATUSES,
             },
           },
-          { job_status: "completed", payment_status: { $ne: "paid" } },
+          { job_status: "completed", payment_status: { $nin: SETTLED_PAYMENT_STATUSES } },
         ],
       }).select("_id job_status payment_status");
       if (blockingJob) {

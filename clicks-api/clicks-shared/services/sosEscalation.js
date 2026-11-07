@@ -37,48 +37,21 @@ function escalationConfig() {
 }
 
 // ---------------------------------------------------------------------------
-// Lease (private). WS-D ships a shared clicks-shared/services/opsLease.js on
-// its branch; the integrator dedupes this into it after merge.
+// Lease: the shared ops lease (clicks-shared/services/opsLease.js), with this
+// sweeper's owner string as the lease holder.
 // ---------------------------------------------------------------------------
 
-function leaseCollection() {
-  return SOSRequest.db.collection("ops_leases");
-}
+const { acquireLease: acquireOpsLease } = require("./opsLease");
+const OpsLease = require("../models/OpsLease");
 
-/**
- * Take or renew the named lease. True when this owner holds it afterwards.
- * A held, unexpired lease makes the filter miss, the upsert then collides on
- * _id, and E11000 means "someone else has it".
- */
+/** Take or renew the named lease. True when this owner holds it afterwards. */
 async function acquireLease(name, owner, ttlMs, now = new Date()) {
-  try {
-    await leaseCollection().updateOne(
-      {
-        _id: name,
-        $or: [{ expires_at: { $lte: now } }, { owner }],
-      },
-      {
-        $set: {
-          owner,
-          expires_at: new Date(now.getTime() + ttlMs),
-          renewed_at: now,
-        },
-      },
-      { upsert: true }
-    );
-    return true;
-  } catch (err) {
-    if (err && err.code === 11000) return false;
-    throw err;
-  }
+  return Boolean(await acquireOpsLease(name, ttlMs, { holder: owner, now }));
 }
 
 async function releaseLease(name, owner) {
   try {
-    await leaseCollection().updateOne(
-      { _id: name, owner },
-      { $set: { expires_at: new Date(0) } }
-    );
+    await OpsLease.deleteOne({ _id: name, holder: owner });
   } catch (err) {
     console.error("[sos-escalation] lease release failed:", err.message);
   }

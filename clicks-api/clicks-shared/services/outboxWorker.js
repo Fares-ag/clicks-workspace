@@ -21,14 +21,19 @@ const BACKOFF_MS = [
   60 * 60 * 1000,
 ];
 
-async function enqueueOutboxEvent(type, payload) {
-  return OutboxEvent.create({
+async function enqueueOutboxEvent(type, payload, { session = null } = {}) {
+  const doc = {
     type,
     payload,
     status: "pending",
     attempts: 0,
     next_attempt_at: new Date(),
-  });
+  };
+  if (session) {
+    const [created] = await OutboxEvent.create([doc], { session });
+    return created;
+  }
+  return OutboxEvent.create(doc);
 }
 
 async function claimNextEvent(types) {
@@ -177,6 +182,81 @@ async function dispatchEvent(event) {
 }
 
 /**
+ * Try one just-enqueued event right away (after its transaction committed), so
+ * the common case is synchronous. If it fails it stays pending with backoff and
+ * the worker retries it; the claim stops the worker and this call both running it.
+ * @returns {Promise<boolean>} true when delivered
+ */
+async function runOutboxEventNow(eventId) {
+  if (!eventId) return false;
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - CLAIM_STALE_MS);
+  const event = await OutboxEvent.findOneAndUpdate(
+    {
+      _id: eventId,
+      status: "pending",
+      $or: [{ claimed_at: null }, { claimed_at: { $lt: staleBefore } }],
+    },
+    { $set: { claimed_at: now } },
+    { new: true }
+  );
+  if (!event) return false;
+  try {
+    await dispatchEvent(event);
+    await markSent(event);
+    return true;
+  } catch (err) {
+    await markFailedOrRetry(event, err);
+    return false;
+  }
+}
+
+/** Admin view: events that exhausted their retries. */
+async function listFailedOutboxEvents({ page = 1, limit = 50, type } = {}) {
+  const filter = { status: "failed" };
+  if (type) filter.type = String(type);
+  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 50));
+  const safePage = Math.max(1, Number(page) || 1);
+  const [events, total] = await Promise.all([
+    OutboxEvent.find(filter)
+      .sort({ created_at: -1 })
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit)
+      .lean(),
+    OutboxEvent.countDocuments(filter),
+  ]);
+  return { events, total, page: safePage, limit: safeLimit };
+}
+
+/**
+ * Put a failed event back in the queue with a fresh retry budget. Handlers are
+ * idempotent (credit ledger, partner earning rows), so a replay never double-pays.
+ * @param {{ runNow?: boolean }} options — also attempt delivery immediately
+ */
+async function replayOutboxEvent(eventId, { runNow = true } = {}) {
+  const event = await OutboxEvent.findOneAndUpdate(
+    { _id: eventId, status: "failed" },
+    {
+      $set: {
+        status: "pending",
+        attempts: 0,
+        next_attempt_at: new Date(),
+        claimed_at: null,
+      },
+    },
+    { new: true }
+  );
+  if (!event) return { replayed: false, event: await OutboxEvent.findById(eventId).lean() };
+  let delivered = false;
+  if (runNow) delivered = await runOutboxEventNow(event._id);
+  return {
+    replayed: true,
+    delivered,
+    event: await OutboxEvent.findById(event._id).lean(),
+  };
+}
+
+/**
  * Poll and dispatch due outbox events. Each API starts this with only the types it handles.
  * @param {number} intervalMs
  * @param {{ types: string[] }} options
@@ -256,6 +336,9 @@ async function stopOutboxWorker(handle) {
 module.exports = {
   OUTBOX_TYPES,
   enqueueOutboxEvent,
+  runOutboxEventNow,
+  listFailedOutboxEvents,
+  replayOutboxEvent,
   startOutboxWorker,
   stopOutboxWorker,
   dispatchTechnicianCredit,

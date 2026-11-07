@@ -1484,13 +1484,22 @@ class HomeCubit extends Cubit<HomeState> {
     return jobPrice;
   }
 
-  Future<void> confirmPayment({String paymentMethod = 'cash'}) async {
+  /// Technicians confirm CASH only (the API refuses card/wallet/Fawran).
+  /// [cancelCard] cancels the customer's open card checkout first — the API
+  /// checks SkipCash and refuses if the card payment already went through.
+  Future<void> confirmPayment({
+    String paymentMethod = 'cash',
+    bool cancelCard = false,
+  }) async {
     final id = jobId;
     if (id == null) return;
     await _runJobAction(
       () => DioHelper.postData(
         url: EndPoints.confirmPayment(id),
-        data: {'payment_method': paymentMethod},
+        data: {
+          'payment_method': paymentMethod,
+          if (cancelCard) 'cancel_card': true,
+        },
       ),
       onSuccess: () {
         // Best-effort customer socket notify; stay On Job until Complete.
@@ -1498,6 +1507,35 @@ class HomeCubit extends Cubit<HomeState> {
         if (activeJob != null) {
           activeJob!['payment_status'] = 'paid';
           activeJob!['payment_method'] = paymentMethod;
+        }
+        fetchHomeMeta();
+      },
+    );
+  }
+
+  /// "Re-check card payment": the API asks SkipCash now, so a payment whose
+  /// webhook was lost still unblocks completion.
+  Future<void> recheckCardPayment() async {
+    final id = jobId;
+    if (id == null) return;
+    dynamic body;
+    await _runJobAction(
+      () async {
+        final res = await DioHelper.postData(
+          url: '/api/jobs/$id/skipcash/recheck',
+          data: const {},
+        );
+        body = res.data;
+        return res;
+      },
+      onSuccess: () {
+        final paid = body is Map && body['payment_status']?.toString() == 'paid';
+        if (paid && activeJob != null) {
+          activeJob!['payment_status'] = 'paid';
+          activeJob!['payment_method'] = body['payment_method'] ?? 'card';
+        } else {
+          lastActionError = 'Card payment not received yet';
+          if (!isClosed) emit(HomeActionError(lastActionError!));
         }
         fetchHomeMeta();
       },

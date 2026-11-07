@@ -43,7 +43,8 @@ describe("Admin receipt download", () => {
     expect(pdf.body.toString("utf8", 0, 5)).toBe("%PDF-");
     expect(pdf.body.toString("latin1")).toMatch(/Sanadcom/);
     expect(pdf.body.toString("latin1")).toMatch(/1150\.00/);
-    expect(pdf.body.toString("latin1")).toMatch(/Unpaid/);
+    // The PDF prints the payment state in capitals ("UNPAID | ...").
+    expect(pdf.body.toString("latin1")).toMatch(/UNPAID/);
   });
 
   test("rejects download for an incomplete job without a receipt", async () => {

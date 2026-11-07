@@ -1289,7 +1289,7 @@ class _Actions extends StatelessWidget {
                           ),
                           SizedBox(height: 4.h),
                           Text(
-                            '${total.toStringAsFixed(0)} QAR',
+                            '${total.toStringAsFixed(2)} QAR',
                             style: TextStyles.font16RegularBlack.copyWith(
                               fontSize: 28.sp,
                               fontWeight: FontWeight.w800,
@@ -1298,19 +1298,33 @@ class _Actions extends StatelessWidget {
                           ),
                         ],
                         SizedBox(height: 12.h),
-                        ...[
-                          ('cash', 'Cash'),
-                          ('card', 'Card'),
-                          ('wallet', 'Wallet'),
-                          ('fawran', 'Fawran'),
-                        ].map(
-                          (method) => ListTile(
-                            title: Text(method.$2),
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              cubit.confirmPayment(paymentMethod: method.$1);
-                            },
-                          ),
+                        // Cash only: card, wallet and Fawran are confirmed by
+                        // SkipCash or by finance with a reference.
+                        ListTile(
+                          leading: const Icon(Icons.payments_outlined),
+                          title: const Text('Cash received'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            cubit.confirmPayment();
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.credit_card),
+                          title: const Text('Re-check card payment'),
+                          subtitle: const Text('Customer paid by card in the app'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            cubit.recheckCardPayment();
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.credit_card_off_outlined),
+                          title: const Text('Cancel card payment, take cash'),
+                          subtitle: const Text('Checks SkipCash first'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            cubit.confirmPayment(cancelCard: true);
+                          },
                         ),
                       ],
                     );

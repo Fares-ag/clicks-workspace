@@ -18,6 +18,13 @@ const PAYMENT_SIGN_KEYS = [
   "Custom1",
 ];
 
+/**
+ * Fields signed on a refund request, in order. ASSUMPTION: SkipCash signs the
+ * refund call the same way as create-payment (comma-joined Key=Value pairs,
+ * HMAC-SHA256 with the key secret). See refundPayment() in skipcashClient.
+ */
+const REFUND_SIGN_KEYS = ["Uid", "KeyId", "PaymentId", "Amount"];
+
 /** Fields SkipCash includes in the webhook Authorization HMAC, in order. */
 const WEBHOOK_SIGN_KEYS = [
   "PaymentId",
@@ -46,6 +53,10 @@ const PRODUCTION_BASE_URL = "https://api.skipcash.app";
 
 function isPaidStatus(statusId) {
   return Number(statusId) === SKIPCASH_STATUS.PAID;
+}
+
+function isRefundedStatus(statusId) {
+  return Number(statusId) === SKIPCASH_STATUS.REFUNDED;
 }
 
 function isReusableStatus(statusId) {
@@ -102,6 +113,10 @@ function signPaymentPayload(payload, secret) {
   return hmacBase64(combineSignedFields(payload, PAYMENT_SIGN_KEYS), secret);
 }
 
+function signRefundPayload(payload, secret) {
+  return hmacBase64(combineSignedFields(payload, REFUND_SIGN_KEYS), secret);
+}
+
 function signWebhookPayload(payload, secret) {
   return hmacBase64(combineSignedFields(payload, WEBHOOK_SIGN_KEYS), secret);
 }
@@ -156,10 +171,12 @@ function getSkipcashConfig(env = process.env) {
 module.exports = {
   PAYMENT_SIGN_KEYS,
   WEBHOOK_SIGN_KEYS,
+  REFUND_SIGN_KEYS,
   SKIPCASH_STATUS,
   SANDBOX_BASE_URL,
   PRODUCTION_BASE_URL,
   isPaidStatus,
+  isRefundedStatus,
   isReusableStatus,
   formatAmount,
   amountsMatch,
@@ -167,6 +184,7 @@ module.exports = {
   combineSignedFields,
   signPaymentPayload,
   signWebhookPayload,
+  signRefundPayload,
   verifyWebhookSignature,
   buildTransactionId,
   skipcashBaseUrl,

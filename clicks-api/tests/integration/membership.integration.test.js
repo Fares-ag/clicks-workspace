@@ -27,6 +27,18 @@ const CLIENT_ID = "skipcash-client-id";
 let techApp;
 let adminApp;
 
+/**
+ * A scheduled slot inside dispatch hours (06:00–22:00 Qatar). `now + 1h` was
+ * outside the window whenever the suite ran after ~21:00 Qatar, so these
+ * tests failed by time of day, not by code.
+ */
+function nextDispatchSlot() {
+  const QATAR_MS = 3 * 60 * 60 * 1000;
+  const q = new Date(Date.now() + QATAR_MS);
+  const tomorrow10 = Date.UTC(q.getUTCFullYear(), q.getUTCMonth(), q.getUTCDate() + 1, 10, 0, 0);
+  return new Date(tomorrow10 - QATAR_MS).toISOString();
+}
+
 function jsonResponse(body, status = 200) {
   return {
     ok: status >= 200 && status < 300,
@@ -35,10 +47,14 @@ function jsonResponse(body, status = 200) {
   };
 }
 
+let paySeq = 0;
+
 function skipcashCreateResult(overrides = {}) {
+  // SkipCash issues a new payment id per created payment; the ledger is keyed on it.
+  paySeq += 1;
   return {
     resultObj: {
-      id: "memb-pay-1111-2222-3333-444444444444",
+      id: `memb-pay-1111-2222-3333-${String(paySeq).padStart(12, "0")}`,
       statusId: 0,
       created: "2026-10-29T12:00:00Z",
       payUrl: "https://skipcashtest.azurewebsites.net/pay/memb-pay-1111",
@@ -169,7 +185,7 @@ describe("Customer memberships", () => {
       .send({
         service_type: "Car Wash - Exterior",
         timing: "scheduled",
-        scheduled_for: new Date(Date.now() + 3600_000).toISOString(),
+        scheduled_for: nextDispatchSlot(),
         latitude: JOB_LAT,
         longitude: JOB_LNG,
         customer_vehicle_id: vehicle._id.toString(),
@@ -236,7 +252,7 @@ describe("Customer memberships", () => {
       .send({
         service_type: "Car Wash - Interior",
         timing: "scheduled",
-        scheduled_for: new Date(Date.now() + 3600_000).toISOString(),
+        scheduled_for: nextDispatchSlot(),
         latitude: JOB_LAT,
         longitude: JOB_LNG,
         customer_vehicle_id: vehicle._id.toString(),
@@ -276,7 +292,7 @@ describe("Customer memberships", () => {
       .send({
         service_type: "Breakdown Vehicle",
         timing: "scheduled",
-        scheduled_for: new Date(Date.now() + 3600_000).toISOString(),
+        scheduled_for: nextDispatchSlot(),
         latitude: JOB_LAT,
         longitude: JOB_LNG,
         customer_vehicle_id: vehicle._id.toString(),

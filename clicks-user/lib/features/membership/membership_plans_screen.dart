@@ -192,11 +192,31 @@ class _PlanCard extends StatelessWidget {
                   MembershipBadge(label: 'membership.recommended'.tr()),
                 ],
                 SizedBox(height: 14.h),
+                Text(
+                  'membership.whats_covered'.tr(),
+                  style: TextStyles.font14RegularGrey.copyWith(
+                    color: const Color(0xFF344054),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: 6.h),
                 for (final line in benefits)
                   MembershipBenefitRow(
                     label: line,
                     emphasized: highlighted,
                   ),
+                SizedBox(height: 4.h),
+                Text(
+                  plan.coversEmergency
+                      ? 'membership.covers_emergency'.tr()
+                      : 'membership.not_covered'.tr(namedArgs: {
+                          'types': plan.excludedServiceTypes.join(', '),
+                        }),
+                  style: TextStyles.font14RegularGrey.copyWith(
+                    fontSize: 12.sp,
+                    color: const Color(0xFF667085),
+                  ),
+                ),
               ],
             ),
           ),

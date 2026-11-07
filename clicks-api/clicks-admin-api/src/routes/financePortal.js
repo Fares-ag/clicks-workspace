@@ -78,4 +78,16 @@ router.post(
   financePortalController.reopenAudit
 );
 
+// Card / wallet / Fawran confirmed outside SkipCash: reference required, audited.
+const paymentAdmin = require("../controllers/paymentAdminController");
+router.post("/jobs/:id/mark-paid", authenticateFinance, paymentAdmin.markJobPaidByFinance);
+// Refund cases: any finance user may request; approval needs the finance
+// "admin" role and a different person from the requester.
+router.get("/refunds", authenticateFinance, paymentAdmin.listRefundsHandler);
+router.post("/refunds", authenticateFinance, paymentAdmin.requestRefundHandler);
+router.get("/refunds/:id", authenticateFinance, paymentAdmin.getRefundHandler);
+router.post("/refunds/:id/approve", authenticateFinance, paymentAdmin.approveRefundHandler);
+router.post("/refunds/:id/reject", authenticateFinance, paymentAdmin.rejectRefundHandler);
+router.get("/refunds/:id/credit-note", authenticateFinance, paymentAdmin.creditNotePdfHandler);
+
 module.exports = router;

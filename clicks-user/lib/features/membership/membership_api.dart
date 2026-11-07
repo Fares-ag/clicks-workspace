@@ -18,6 +18,27 @@ class LaunchFlags {
       LaunchFlags(customerMembership: false, skipcash: false);
 }
 
+/// What the server says about one subscription. `subscriptionStatus` is the
+/// field to trust: "active" means covered; "paid_duplicate" means the money
+/// arrived but the vehicle already had a plan, so it is being refunded.
+class MembershipStatusResult {
+  const MembershipStatusResult({
+    required this.subscriptionStatus,
+    required this.paymentStatus,
+    this.message,
+  });
+
+  final String subscriptionStatus;
+  final String paymentStatus;
+  final String? message;
+
+  bool get isActive => subscriptionStatus == 'active';
+  bool get isPaidDuplicate => subscriptionStatus == 'paid_duplicate';
+
+  /// Payment finished one way or the other: stop polling the checkout.
+  bool get isSettled => isActive || isPaidDuplicate;
+}
+
 class MembershipApi {
   static Future<LaunchFlags> launchFlags() async {
     try {
@@ -96,22 +117,35 @@ class MembershipApi {
     );
   }
 
-  static Future<bool> isPaid(String subscriptionId) async {
+  static Future<MembershipStatusResult?> status(String subscriptionId) async {
     final response = await DioHelper.getData(
       url: EndPoints.membershipStatus(subscriptionId),
       auth: true,
     );
-    if (response.statusCode != 200 || response.data is! Map) return false;
+    if (response.statusCode != 200 || response.data is! Map) return null;
     final data = response.data as Map;
-    return data['payment_status']?.toString() == 'paid' ||
-        data['status']?.toString() == 'active';
+    return MembershipStatusResult(
+      // Older servers only send `status`.
+      subscriptionStatus:
+          (data['subscription_status'] ?? data['status'])?.toString() ?? '',
+      paymentStatus: data['payment_status']?.toString() ?? 'unpaid',
+      message: data['message']?.toString(),
+    );
   }
 
+  /// True only when the membership is actually active. A captured payment is
+  /// not enough: it may be a duplicate that is being refunded.
+  static Future<bool> isPaid(String subscriptionId) async {
+    final result = await status(subscriptionId);
+    return result?.isActive ?? false;
+  }
+
+  /// Cancels at the end of the paid period (the customer saw the terms).
   static Future<void> cancel(String subscriptionId) async {
     final response = await DioHelper.postData(
       url: EndPoints.membershipCancel(subscriptionId),
       auth: true,
-      data: const {},
+      data: const {'terms_accepted': true},
     );
     if (response.statusCode != 200) {
       throw Exception(DioHelper.errorMessage(response) ?? 'Failed to cancel');

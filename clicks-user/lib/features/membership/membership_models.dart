@@ -56,6 +56,10 @@ class MembershipPlan {
   final num discountPercent;
   final List<String> eligibleServiceTypes;
   final List<MembershipPlanInterval> intervals;
+  /// Admin-controlled: do roadside emergencies (SOS, towing, jump start) count?
+  final bool coversEmergency;
+  /// Service types this plan never covers (shown under "What's covered").
+  final List<String> excludedServiceTypes;
 
   const MembershipPlan({
     required this.id,
@@ -65,12 +69,24 @@ class MembershipPlan {
     required this.discountPercent,
     required this.eligibleServiceTypes,
     required this.intervals,
+    this.coversEmergency = false,
+    this.excludedServiceTypes = const ['SOS', 'Towing', 'Jump Start', 'Breakdown Vehicle'],
   });
 
   factory MembershipPlan.fromJson(Map<String, dynamic> json) {
     final intervals = json['intervals'];
     final eligible = json['eligibleServiceTypes'];
+    final coverage = json['coverage'];
+    final excluded = coverage is Map ? coverage['excluded_service_types'] : null;
+    final covers = json['coversEmergency'] == true ||
+        (coverage is Map && coverage['covers_emergency'] == true);
     return MembershipPlan(
+      coversEmergency: covers,
+      excludedServiceTypes: excluded is List
+          ? excluded.map((e) => e.toString()).toList()
+          : covers
+              ? const []
+              : const ['SOS', 'Towing', 'Jump Start', 'Breakdown Vehicle'],
       id: (json['id'] ?? json['_id'])?.toString() ?? '',
       code: json['code']?.toString() ?? '',
       nameEn: json['name_en']?.toString() ?? '',
@@ -244,6 +260,8 @@ class CustomerMembership {
   final String? endDate;
   final String? vehicleId;
   final String? vehiclePlate;
+  /// Cancelled by the customer: stays active until [endDate], then ends.
+  final bool cancelAtPeriodEnd;
 
   const CustomerMembership({
     required this.id,
@@ -260,6 +278,7 @@ class CustomerMembership {
     this.endDate,
     this.vehicleId,
     this.vehiclePlate,
+    this.cancelAtPeriodEnd = false,
   });
 
   factory CustomerMembership.fromJson(Map<String, dynamic> json) {
@@ -294,6 +313,7 @@ class CustomerMembership {
       vehicleId: json['customer_vehicle_id']?.toString() ??
           (vehicle is Map ? vehicle['id']?.toString() : null),
       vehiclePlate: vehicle is Map ? vehicle['plate']?.toString() : null,
+      cancelAtPeriodEnd: json['cancel_at_period_end'] == true,
     );
   }
 

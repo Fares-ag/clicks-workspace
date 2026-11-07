@@ -1,4 +1,5 @@
 const Job = require("../models/Job");
+const { SETTLED_PAYMENT_STATUSES } = require("../constants/jobStatuses");
 const SOSRequest = require("../models/SOSRequest");
 const ServiceRequest = require("../models/ServiceRequest");
 const RepairProcedure = require("../models/RepairProcedure");
@@ -48,7 +49,7 @@ function findUnpaidJob(customerId) {
   return Job.findOne({
     customer_id: customerId,
     job_status: "completed",
-    payment_status: { $ne: "paid" },
+    payment_status: { $nin: SETTLED_PAYMENT_STATUSES },
   }).sort({ createdAt: -1 });
 }
 
@@ -178,7 +179,7 @@ async function outstandingBalanceForCustomer(customerId) {
   const jobs = await Job.find({
     customer_id: customerId,
     job_status: "completed",
-    payment_status: { $ne: "paid" },
+    payment_status: { $nin: SETTLED_PAYMENT_STATUSES },
   })
     .select("_id price distance_km dateTime")
     .sort({ createdAt: -1 })

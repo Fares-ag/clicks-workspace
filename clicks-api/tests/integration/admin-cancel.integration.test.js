@@ -181,6 +181,27 @@ describe("paid job needs a refund decision (scenario 51)", () => {
     expect(stored.cancellation_refund.amount).toBe(80);
     expect(stored.cancellation_refund.reason).toBe("Only diagnosis was done");
     expect(String(stored.cancellation_refund.decided_by)).toBe(SUPER);
+
+    // The decision opens a refund case awaiting a second approver.
+    const Refund = require("../../clicks-shared/models/Refund");
+    const refund = await Refund.findOne({ job_id: job._id }).lean();
+    expect(refund).toBeTruthy();
+    expect(refund.amount).toBe(80);
+    expect(String(stored.cancellation_refund.refund_id)).toBe(String(refund._id));
+    expect(stored.cancellation_refund.request_error).toBeFalsy();
+  });
+
+  test("a full refund decision opens a refund case for the whole paid amount", async () => {
+    const job = await paidJob();
+    const res = await cancelCall(job._id, "Super Admin", SUPER, {
+      reason: "Customer was charged but nobody came",
+      refund: "full",
+    });
+    expect(res.status).toBe(200);
+    const Refund = require("../../clicks-shared/models/Refund");
+    const refund = await Refund.findOne({ job_id: job._id }).lean();
+    expect(refund).toBeTruthy();
+    expect(refund.amount).toBe(200);
   });
 });
 

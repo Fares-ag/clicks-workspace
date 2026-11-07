@@ -233,12 +233,44 @@ async function cancelJob({
     );
   }
 
+  let refundCase = null;
   if (refundDecision && refundDecision.decision !== "none") {
-    // INTEGRATION(ws-d): requestRefund({ jobId, amount, reason, requestedBy, source: "cancel" })
-    // jobId: job._id, amount: refundDecision.amount, reason: refundDecision.reason,
-    // requestedBy: actorId. The decision is already persisted on
-    // job.cancellation_refund so finance can see it until the refund service lands.
+    // Open a refund case (it still needs approval by a second person). The
+    // cancellation itself has already happened, so a refund-service failure
+    // is recorded on the job for finance instead of undoing the cancel.
+    try {
+      const { requestRefund } = require("./refunds");
+      refundCase = await requestRefund({
+        jobId: job._id,
+        amount: refundDecision.decision === "full" ? null : refundDecision.amount,
+        reason: refundDecision.reason,
+        requestedBy: actorId || null,
+        source: "cancel",
+      });
+      await Job.updateOne(
+        { _id: job._id },
+        { $set: { "cancellation_refund.refund_id": refundCase._id } }
+      );
+    } catch (err) {
+      console.error("[cancelJob] refund request failed:", err.message);
+      await Job.updateOne(
+        { _id: job._id },
+        {
+          $set: {
+            "cancellation_refund.request_error": String(err.message || err).slice(0, 500),
+            "cancellation_refund.request_error_code": err.code || null,
+          },
+        }
+      ).catch(() => {});
+    }
   }
+
+  // Give back a member's included visit held by this job.
+  await require("./membershipEntitlement")
+    .releaseMembershipQuota(job)
+    .catch((err) => {
+      console.error("[cancelJob] membership quota release failed:", err.message);
+    });
 
   if (job.sos_request_id) {
     await SOSRequest.updateOne(
@@ -324,6 +356,7 @@ async function cancelJob({
     technicianId,
     technicianNextStatus,
     refund: refundDecision,
+    refundCase,
     payload,
   };
 }

@@ -144,7 +144,8 @@ describe("successful deletion", () => {
     for (const id of [sub._id, pending._id]) {
       const raw = await CustomerSubscription.collection.findOne({ _id: id });
       expect(raw.status).toBe("cancelled");
-      expect(raw.cancellation_reason).toBe("account_deleted");
+      expect(raw.cancel_reason).toBe("account_deleted");
+      expect(raw.history.at(-1)).toMatchObject({ action: "cancel", note: "account_deleted" });
     }
 
     const stale = await request(techApp).get("/api/customers/profile").set(bearer(token));
