@@ -226,8 +226,32 @@ function jobServiceCandidates(job) {
   return [job?.issue, job?.jobType].map((v) => String(v || "").trim()).filter(Boolean);
 }
 
-function includedRowForJob(sub, job) {
-  for (const serviceType of jobServiceCandidates(job)) {
+/**
+ * Service types to match a job against plan rows. The linked service
+ * request's `service_type` comes first: job.issue is canonicalised on save
+ * ("Car Wash - Exterior" becomes "Car wash"), so it no longer matches the
+ * plan's exact service-type names.
+ */
+async function jobServiceTypes(job, session = null) {
+  const list = [];
+  if (job?.service_request_id) {
+    try {
+      const ServiceRequest = require("../models/ServiceRequest");
+      const sr = await ServiceRequest.findById(job.service_request_id)
+        .select("service_type")
+        .session(session)
+        .lean();
+      if (sr?.service_type) list.push(String(sr.service_type).trim());
+    } catch (err) {
+      console.error("membership service type lookup failed:", err.message);
+    }
+  }
+  for (const t of jobServiceCandidates(job)) if (!list.includes(t)) list.push(t);
+  return list;
+}
+
+function includedRowFor(sub, serviceTypes) {
+  for (const serviceType of serviceTypes) {
     const row = findIncludedRow(sub, serviceType);
     if (row) return row;
   }
@@ -257,10 +281,34 @@ async function ensureUsageRow(subId, includedRow, session) {
   );
 }
 
+/**
+ * Filter: usage[idx] still has exactly these counters (missing counts as 0).
+ * Must be $expr: a dotted "usage.0.reserved" query is ambiguous in MongoDB
+ * (index 0, or a field named "0" in every element), so a null/0 match on it
+ * is always true and would let concurrent writers all "win".
+ */
+function usageCountersAre(idx, used, reserved) {
+  const field = (name) => ({
+    $let: {
+      vars: { row: { $arrayElemAt: [{ $ifNull: ["$usage", []] }, idx] } },
+      in: { $ifNull: [`$$row.${name}`, 0] },
+    },
+  });
+  return {
+    $expr: {
+      $and: [
+        { $gt: [{ $size: { $ifNull: ["$usage", []] } }, idx] },
+        { $eq: [field("used"), used] },
+        { $eq: [field("reserved"), reserved] },
+      ],
+    },
+  };
+}
+
 /** Job keeps no free visit: fall back to the member discount, or no cover. */
-async function downgradeJobCover(job, sub, session) {
+async function downgradeJobCover(job, sub, session, serviceTypes) {
   const Job = require("../models/Job");
-  const candidates = jobServiceCandidates(job);
+  const candidates = serviceTypes || jobServiceCandidates(job);
   const discount =
     sub &&
     sub.resolveStatus?.() === "active" &&
@@ -305,13 +353,14 @@ async function reserveMembershipQuota(job, { session = null } = {}) {
     if (mem.reserved_at) return { reserved: true, reason: "already_reserved" };
 
     const Job = require("../models/Job");
+    const types = await jobServiceTypes(job, session);
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const sub = await CustomerSubscription.findById(mem.subscription_id).session(session);
       if (!sub || sub.resolveStatus() !== "active") {
-        return downgradeJobCover(job, sub, session);
+        return downgradeJobCover(job, sub, session, types);
       }
-      const includedRow = includedRowForJob(sub, job);
-      if (!includedRow) return downgradeJobCover(job, sub, session);
+      const includedRow = includedRowFor(sub, types);
+      if (!includedRow) return downgradeJobCover(job, sub, session, types);
       const key = usageKey(includedRow);
       const idx = usageIndex(sub, key);
       if (idx < 0) {
@@ -322,14 +371,10 @@ async function reserveMembershipQuota(job, { session = null } = {}) {
       const used = Number(row.used || 0);
       const reserved = Number(row.reserved || 0);
       if (used + reserved >= Number(includedRow.quota || 0)) {
-        return downgradeJobCover(job, sub, session);
+        return downgradeJobCover(job, sub, session, types);
       }
       const res = await CustomerSubscription.updateOne(
-        {
-          _id: sub._id,
-          [`usage.${idx}.used`]: used === 0 ? { $in: [0, null] } : used,
-          [`usage.${idx}.reserved`]: reserved === 0 ? { $in: [0, null] } : reserved,
-        },
+        { _id: sub._id, ...usageCountersAre(idx, used, reserved) },
         { $set: { [`usage.${idx}.reserved`]: reserved + 1 } },
         sessionOpts(session)
       );
@@ -348,7 +393,7 @@ async function reserveMembershipQuota(job, { session = null } = {}) {
       }
     }
     const sub = await CustomerSubscription.findById(mem.subscription_id).session(session);
-    return downgradeJobCover(job, sub, session);
+    return downgradeJobCover(job, sub, session, types);
   } catch (err) {
     console.error("reserveMembershipQuota failed:", err.message);
     return { reserved: false, reason: "error", error: err.message };
@@ -433,7 +478,7 @@ async function consumeOnComplete(job, { session = null } = {}) {
 
   const sub = await CustomerSubscription.findById(subId).session(session);
   if (!sub || (!held?.reserved_at && sub.resolveStatus() !== "active")) return false;
-  const includedRow = includedRowForJob(sub, job);
+  const includedRow = includedRowFor(sub, await jobServiceTypes(job, session));
   if (!includedRow) return false;
   const key = usageKey(includedRow);
   await ensureUsageRow(sub._id, includedRow, session);
@@ -585,4 +630,5 @@ module.exports = {
   remainingQuota,
   usageKey,
   usageIndex,
+  usageCountersAre,
 };

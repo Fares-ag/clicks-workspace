@@ -6,7 +6,10 @@ const {
   Refund,
 } = require("../../../clicks-shared/models");
 const { findInterval, addMonths } = require("../../../clicks-shared/services/membershipPlans");
-const { pushHistory } = require("../../../clicks-shared/services/membershipEntitlement");
+const {
+  pushHistory,
+  usageCountersAre,
+} = require("../../../clicks-shared/services/membershipEntitlement");
 const { requestRefund } = require("../../../clicks-shared/services/refunds");
 const { recordAudit, serializeAuditValue } = require("../utils/auditLog");
 
@@ -430,11 +433,8 @@ async function adjustUsage(req, res) {
       {
         _id: sub._id,
         ...(idx < (sub.usage || []).length
-          ? {
-              [`usage.${idx}.used`]: before.used === 0 ? { $in: [0, null] } : before.used,
-              [`usage.${idx}.reserved`]: before.reserved === 0 ? { $in: [0, null] } : before.reserved,
-            }
-          : { "usage.bucket": { $ne: key } }),
+          ? usageCountersAre(idx, before.used, before.reserved)
+          : { $expr: { $eq: [{ $size: { $ifNull: ["$usage", []] } }, (sub.usage || []).length] } }),
       },
       {
         $set: { usage },

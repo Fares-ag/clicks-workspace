@@ -34,15 +34,19 @@ const {
   isEmergencyServiceType,
   pushHistory,
 } = require("../../../clicks-shared/services/membershipEntitlement");
-const { acquireLease } = require("../../../clicks-shared/services/opsLease");
+const { randomUUID } = require("crypto");
+const { acquireLease, PROCESS_HOLDER } = require("../../../clicks-shared/services/opsLease");
 
 const CHECKOUT_LOCK_MS = 20 * 1000;
 const EMERGENCY_TYPES = ["SOS", "Towing", "Jump Start", "Breakdown Vehicle"];
 
 async function waitForLease(name, ttlMs, waitMs = 4000) {
+  // A holder per request, not per process: two requests on the same instance
+  // must exclude each other too.
+  const holder = `${PROCESS_HOLDER}:${randomUUID()}`;
   const deadline = Date.now() + waitMs;
   for (;;) {
-    const lease = await acquireLease(name, ttlMs);
+    const lease = await acquireLease(name, ttlMs, { holder });
     if (lease) return lease;
     if (Date.now() >= deadline) return null;
     await new Promise((resolve) => setTimeout(resolve, 150));

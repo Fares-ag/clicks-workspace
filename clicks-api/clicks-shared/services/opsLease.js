@@ -15,6 +15,10 @@ const PROCESS_HOLDER = `${os.hostname()}:${process.pid}:${crypto.randomBytes(4).
  *   if (!lease) return;           // another instance has it
  *   try { ...work... } finally { await lease.release(); }
  *
+ * The default holder is this process, so a sweeper re-acquiring its own lease
+ * renews it. For a mutex between concurrent requests pass a unique `holder`
+ * per request (e.g. `${PROCESS_HOLDER}:${randomUUID()}`).
+ *
  * @param {string} name
  * @param {number} ttlMs
  * @param {{ holder?: string, now?: Date }} [options]
