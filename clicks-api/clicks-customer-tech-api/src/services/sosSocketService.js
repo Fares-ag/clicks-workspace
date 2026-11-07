@@ -770,6 +770,18 @@ function initializeSOSSocket(io) {
       };
       try {
         const { job_id, reason, refund, refund_amount, refund_reason } = data || {};
+        // Same rule as the REST endpoint: only a full admin takes a refund
+        // decision on a paid job (dispatchers cannot move money).
+        if (refund && !["Super Admin", "Admin"].includes(String(socket.user?.role || ""))) {
+          const denied = {
+            message: "Only an admin can take a refund decision on a paid job",
+            code: "REFUND_DECISION_FORBIDDEN",
+            job_id,
+          };
+          socket.emit("error", denied);
+          reply({ ok: false, ...denied });
+          return;
+        }
         devLog(`Admin cancelling job ${job_id}`);
         const { cancelJob } = require("../../../clicks-shared/services/cancelJob");
         const result = await cancelJob({
@@ -1734,7 +1746,7 @@ function initializeSOSSocket(io) {
     // is notify-only when payment_status is already paid. Tech stays On Job until complete.
     socket.on("paymentReceived", async (data) => {
       try {
-        const { job_id, payment_method } = data;
+        const { job_id } = data || {};
         devLog(`Technician confirming payment for job ${job_id}`);
 
         const job = await Job.findById(job_id)
@@ -1777,26 +1789,6 @@ function initializeSOSSocket(io) {
           paid_at: job.paid_at,
         });
 
-        // Only the code path that changes the payment notifies the customer,
-        // with the server-priced total (scenario 71).
-        const notifyCustomerPaid = async (receiptData) => {
-          const customerId = job.customer_id?._id?.toString();
-          if (!customerId) return;
-          const { priceJob } = require("../../../clicks-shared/services/jobPayment");
-          const pricing = await priceJob(job).catch(() => null);
-          const total = pricing?.total ?? job.paid_amount ?? job.price;
-          await notifyCustomer(customerId, "paymentConfirmed", {
-            job_id: String(job._id),
-            job_status: job.job_status,
-            payment_status: "paid",
-            payment_method: job.payment_method,
-            paid_at: job.paid_at,
-            amount: total,
-            total_amount: total,
-            receipt: { ...receiptData, total_amount: total },
-          });
-        };
-
         // Already paid through REST confirmPayment, which notified the customer:
         // confirm to the technician only. Notifying here again sent a second
         // "paid" push with job.price instead of pricing.total (scenario 71).
@@ -1812,25 +1804,15 @@ function initializeSOSSocket(io) {
           return;
         }
 
-        // Legacy fallback: mutate payment if REST was not used
-        job.payment_status = "paid";
-        job.payment_method = payment_method || job.payment_method || "cash";
-        job.paid_at = new Date();
-        await job.save();
-
-        const receiptData = buildReceiptData();
-        receiptData.payment_method = job.payment_method;
-        receiptData.paid_at = job.paid_at;
-
-        socket.emit("paymentConfirmed", {
+        // Not paid yet: this socket never takes payment. It used to mark the job
+        // paid with any method, skipping the cash-only rule, the pending-card
+        // check, the payment ledger and the receipt. Payment goes through REST
+        // POST /api/jobs/:id/payment (the technician app calls it first).
+        socket.emit("error", {
+          message: "Confirm payment in the app first; this job is not marked paid.",
+          code: "USE_REST_CONFIRM_PAYMENT",
           job_id,
-          job_status: job.job_status,
-          payment_status: "paid",
-          receipt: receiptData,
-          message: "Payment confirmed successfully",
         });
-
-        await notifyCustomerPaid(receiptData);
       } catch (err) {
         console.error("Error confirming payment:", err);
         captureException(err);

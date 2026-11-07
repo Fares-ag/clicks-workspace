@@ -263,6 +263,48 @@ describe("exactly one notification per transition", () => {
     ).toBe(1);
   });
 
+  test("socket paymentReceived never marks an unpaid job paid (REST is the only payment path)", async () => {
+    const customer = await seedCustomer();
+    const technician = await seedTechnician();
+    const job = await seedCustomerJob({ customer, technician, jobStatus: "in_progress", price: 75 });
+    const techSocket = await technicianSocket(technician);
+
+    const refused = waitForEvent(techSocket, "error");
+    techSocket.emit("paymentReceived", { job_id: String(job._id), payment_method: "card" });
+    const err = await refused;
+    expect(err.code).toBe("USE_REST_CONFIRM_PAYMENT");
+
+    const fresh = await Job.findById(job._id).lean();
+    expect(fresh.payment_status).toBe("unpaid");
+    expect(fresh.payment_method || null).not.toBe("card");
+    expect(sendCustomerPush.mock.calls.filter(([, p]) => p.event === "paymentConfirmed")).toHaveLength(0);
+  });
+
+  test("socket adminCancelJob: a dispatcher cannot take a refund decision on a paid job", async () => {
+    const DISPATCHER = "507f1f77bcf86cd799439052";
+    await seedAdmin({ _id: DISPATCHER, role: "Job Dispatcher" });
+    const customer = await seedCustomer();
+    const job = await seedCustomerJob({ customer, jobStatus: "in_progress", price: 200 });
+    await Job.updateOne({ _id: job._id }, { $set: { payment_status: "paid", payment_method: "card" } });
+
+    const dispatcherSocket = await connectSocket({
+      baseUrl,
+      namespace: "/admin",
+      token: adminToken("Job Dispatcher", DISPATCHER),
+    });
+    openSockets.push(dispatcherSocket);
+    const ack = await new Promise((resolve) =>
+      dispatcherSocket.emit(
+        "adminCancelJob",
+        { job_id: String(job._id), reason: "No show", refund: "full" },
+        resolve
+      )
+    );
+    expect(ack.ok).toBe(false);
+    expect(ack.code).toBe("REFUND_DECISION_FORBIDDEN");
+    expect((await Job.findById(job._id).lean()).job_status).toBe("in_progress");
+  });
+
   test("technician reject: the customer hears jobReassigning (push + inbox, scenario 46)", async () => {
     const customer = await seedCustomer();
     const technician = await seedTechnician();

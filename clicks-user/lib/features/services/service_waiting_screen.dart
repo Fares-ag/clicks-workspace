@@ -6,6 +6,7 @@ import 'package:clicks_user/core/helper/technician_location.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
+import 'package:clicks_user/core/sos_services/sos_support_contact.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
@@ -17,6 +18,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ServiceWaitingArgs {
   final String requestId;
@@ -144,8 +146,11 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
 
     final sosCubit = context.read<SosCubit>();
     final pos = sosCubit.lastKnownPosition;
-    double customerLat = pos?.latitude ?? 25.2854;
-    double customerLng = pos?.longitude ?? 51.5310;
+    // The job's own pin first, then the phone's last fix. Never a made-up
+    // Doha point: with no coordinates the tracking screen hides the ETA
+    // (scenario 61).
+    double? customerLat = pos?.latitude;
+    double? customerLng = pos?.longitude;
     final loc = job['location'];
     if (loc is Map && loc['coordinates'] is List) {
       final coords = loc['coordinates'] as List;
@@ -172,8 +177,13 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
           technicianAvatarUrl: tech['photo'] ?? '',
           vehicleName: SessionResume.vehicleName(job),
           vehicleCode: '',
-          onCallDispatch: () async {},
-          onCallTechnician: () async {},
+          onCallDispatch: SosSupportContact.call,
+          onCallTechnician: () async {
+            final phone = tech['phone'] ?? '';
+            if (phone.isEmpty) return;
+            final uri = Uri.parse('tel:$phone');
+            if (await canLaunchUrl(uri)) await launchUrl(uri);
+          },
         ),
       );
       return;
