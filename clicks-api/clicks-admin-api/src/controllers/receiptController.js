@@ -27,7 +27,6 @@ function sendPdf(res, { receipt, job, repairs }) {
 async function loadJob(jobId) {
   return Job.findById(jobId)
     .populate("assignedTechnician", "firstName lastName")
-    .populate("membership.subscription_id", "planName planCode")
     .lean();
 }
 

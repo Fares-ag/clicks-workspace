@@ -78,6 +78,7 @@ describe("Admin account state is enforced, not just the token claim", () => {
     await Admin.deleteMany({});
 
     const res = await request(adminApp).get("/api/jobs").set(bearer(token));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
+    expect(res.body.message).toMatch(/session expired/i);
   });
 });

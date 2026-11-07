@@ -65,7 +65,6 @@ const downloadReceipt = async (req, res) => {
     const job = receipt.job_id
       ? await Job.findById(receipt.job_id)
           .populate("assignedTechnician", "firstName lastName")
-          .populate("membership.subscription_id", "planName planCode")
           .lean()
       : {};
     const repairs = receipt.job_id
