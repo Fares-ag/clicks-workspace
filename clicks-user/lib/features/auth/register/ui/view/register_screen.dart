@@ -28,7 +28,11 @@ class RegisterScreen extends StatelessWidget {
               if (state is ErrorRegisterState) {
                 AppSnackBars.errorSnackBar(state.message);
               } else if (state is SuccessRegisterState) {
-                AppSnackBars.successSnackBar('auth.account_created'.tr());
+                AppSnackBars.successSnackBar(
+                  context.read<RegisterCubit>().restoredAccount
+                      ? 'errors.ACCOUNT_RESTORED'.tr()
+                      : 'auth.account_created'.tr(),
+                );
                 context.offAllNamed(Routes.registerSuccess);
               } else if (context.read<RegisterCubit>().step == 4 &&
                   state is ChangeProgressRegister) {

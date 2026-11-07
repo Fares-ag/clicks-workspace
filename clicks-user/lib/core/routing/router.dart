@@ -29,7 +29,10 @@ import '../../features/main/ui/cubit/home_cubit.dart';
 import '../../features/main/ui/view/main_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/settings/ui/view/contact_us_success_screen.dart';
+import '../../features/settings/ui/view/my_requests_screen.dart';
 import '../../features/settings/ui/view/settings_screen.dart';
+import '../../features/splash/account_inactive_screen.dart';
+import '../../features/splash/force_update_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/welcome/ui/welcome_screen.dart';
 import '../theme/text_styles.dart';
@@ -127,7 +130,16 @@ class AppRouter {
         final job = settings.arguments as JobDto;
         return page(ActivityDetailsPage(job: job));
       case Routes.contactUsSuccess:
-        return page(ContactUsSuccessScreen());
+        final ticket = settings.arguments;
+        return page(ContactUsSuccessScreen(
+          ticketNumber: ticket is String ? ticket : null,
+        ));
+      case Routes.myRequests:
+        return page(const MyRequestsScreen());
+      case Routes.forceUpdate:
+        return page(const ForceUpdateScreen());
+      case Routes.accountInactive:
+        return page(const AccountInactiveScreen());
       case Routes.inCall:
         return page(InCallWithDispatcherScreen());
       case Routes.jobInProgress:

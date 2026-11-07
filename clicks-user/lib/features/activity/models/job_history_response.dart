@@ -148,8 +148,8 @@ class JobDto {
     // Parse total job time in minutes
     int? totalJobTimeMinutes;
     if (json['started_at'] != null && json['completed_at'] != null) {
-      final start = DateTime.tryParse(json['started_at'].toString());
-      final end = DateTime.tryParse(json['completed_at'].toString());
+      final start = DateTime.tryParse(json['started_at'].toString())?.toLocal();
+      final end = DateTime.tryParse(json['completed_at'].toString())?.toLocal();
       if (start != null && end != null) {
         totalJobTimeMinutes = end.difference(start).inMinutes;
       }
@@ -158,7 +158,10 @@ class JobDto {
     return JobDto(
       id: json['_id'] ?? '',
       jobReference: json['job_reference']?.toString(),
-      dateTime: DateTime.tryParse(json['dateTime'] ?? '') ?? DateTime.now(),
+      // Server dates are UTC; without toLocal() every time showed 3 hours
+      // early in Doha (scenario 99).
+      dateTime:
+          DateTime.tryParse(json['dateTime'] ?? '')?.toLocal() ?? DateTime.now(),
       jobType: json['jobType'] ?? '',
       issue: json['issue'] ?? '',
       location: json['location'] ?? '',

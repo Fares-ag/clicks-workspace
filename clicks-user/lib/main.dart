@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:clicks_user/core/api/auth_session.dart';
 import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/config/app_config.dart';
@@ -55,9 +56,13 @@ Future<void> _bootstrap() async {
   DioHelper.onUnauthorized = () {
     final nav = AppContext.navigatorKey.currentState;
     if (nav != null) {
+      // Login returns through splash, which resumes a live SOS/job.
       nav.pushNamedAndRemoveUntil(Routes.login, (_) => false);
     }
   };
+  DioHelper.onAccountInactive = AuthSession.openAccountInactive;
+  DioHelper.onUpdateRequired = AuthSession.openForceUpdate;
+  AuthLifecycleObserver.instance.attach();
 
   // Flutter web: inject Maps JS (same key as admin / tech apps).
   await ensureGoogleMapsLoaded(AppConfig.googleMapsApiKey);

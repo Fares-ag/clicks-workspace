@@ -1,10 +1,13 @@
 import 'package:clicks_user/core/helper/cache_helper.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../core/api/auth_session.dart';
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
+import '../../core/config/public_config.dart';
 import '../../core/helper/assets_manager.dart';
 import '../../core/helper/extensions.dart';
 import '../../core/services/fcm_notification_service.dart';
@@ -32,6 +35,11 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  /// Set when the session could not be loaded: we show "retrying" instead of
+  /// guessing — routing to Home on an error hid live jobs (scenario 67).
+  bool _sessionFailed = false;
+  bool _loading = true;
+
   @override
   void initState() {
     super.initState();
@@ -39,13 +47,30 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initData() async {
+    setState(() {
+      _loading = true;
+      _sessionFailed = false;
+    });
+
+    // Forced update first (scenario 19): an outdated build must not reach
+    // flows whose API it no longer matches.
+    await PublicConfig.load();
+    if (!mounted) return;
+    if (PublicConfig.updateRequired) {
+      AuthSession.openForceUpdate();
+      return;
+    }
+
     if (CacheHelper.getAuthToken() == null) {
       _log('🔓 No token found → navigating to welcome');
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
       context.offNamed(Routes.welcome);
       return;
     }
+
+    // Sliding session: renew a token that is close to expiry before using it.
+    await AuthSession.refreshIfNeeded();
 
     try {
       await _registerFcmToken();
@@ -85,27 +110,28 @@ class _SplashScreenState extends State<SplashScreen> {
 
       if (!mounted) return;
       await SessionResume.go(context, session);
-    } catch (e) {
-      _log('❌ Splash _initData error: $e');
-      // Only clear session on auth failure; keep token on transient network errors.
-      final msg = e.toString().toLowerCase();
-      final isAuth = msg.contains('401') || msg.contains('unauthorized');
-      if (isAuth) {
-        await CacheHelper.secureDelete(CacheHelper.authTokenKey);
-        // The FCM token is still on the expired account server-side; drop it
-        // with the session so the next account signing in on this device does
-        // not inherit the previous one's pushes.
-        try {
-          await FCMNotificationService.instance
-              .deleteToken()
-              .timeout(const Duration(seconds: 5));
-        } catch (_) {}
-        if (!mounted) return;
-        context.offNamed(Routes.welcome);
-      } else {
-        if (!mounted) return;
-        context.offNamed(Routes.home);
+    } on SessionFetchException catch (e) {
+      _log('❌ Splash session fetch failed: $e');
+      if (!mounted) return;
+      // DioHelper already handled these: 401 → one refresh, then Login
+      // (and login returns here, so a live job is resumed); 403 inactive →
+      // "contact support"; 426 → forced update.
+      if (e.isAccountInactive || e.isUnauthorized || e.statusCode == 426) {
+        return;
       }
+      setState(() {
+        _sessionFailed = true;
+        _loading = false;
+      });
+    } catch (e) {
+      // Network error / timeout: keep the token, offer a retry. Never route
+      // to Home on an error — the customer may have a technician on the way.
+      _log('❌ Splash _initData error: $e');
+      if (!mounted) return;
+      setState(() {
+        _sessionFailed = true;
+        _loading = false;
+      });
     }
   }
 
@@ -129,11 +155,45 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ColorsManager.mainColor,
-      body: Center(
-        child: SvgPicture.asset(
-          AssetsManager.loginIconSvg,
-          width: 160,
-          fit: BoxFit.contain,
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SvgPicture.asset(
+                AssetsManager.loginIconSvg,
+                width: 160,
+                fit: BoxFit.contain,
+              ),
+              if (_sessionFailed) ...[
+                const SizedBox(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    'errors.session_load_failed'.tr(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: ColorsManager.mainColor,
+                  ),
+                  onPressed: _loading ? null : _initData,
+                  child: Text('common.retry'.tr()),
+                ),
+                TextButton(
+                  onPressed: PublicConfig.callSupport,
+                  child: Text(
+                    'errors.call_support'.tr(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

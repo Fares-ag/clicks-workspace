@@ -1,3 +1,4 @@
+import '../../core/config/public_config.dart';
 import 'package:clicks_user/core/components/clicks_app_header.dart';
 import 'package:clicks_user/core/components/header_icon_button.dart';
 import 'package:clicks_user/core/constants/job_status_labels.dart';
@@ -372,10 +373,7 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
               vehicleName: vehicleName,
               vehicleCode: '',
               onCallDispatch: () async {
-                const number = 'tel:+97444444444';
-                if (await canLaunchUrl(Uri.parse(number))) {
-                  await launchUrl(Uri.parse(number));
-                }
+                await PublicConfig.callSupport();
               },
               onCallTechnician: () async {
                 final phone = techInfo['phone'] ?? '';

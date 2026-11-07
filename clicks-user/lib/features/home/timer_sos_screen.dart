@@ -1,3 +1,4 @@
+import '../../core/config/public_config.dart';
 import 'dart:math' as math;
 import 'package:clicks_user/core/components/app_button.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
@@ -149,8 +150,7 @@ class TimerSosScreen extends StatelessWidget {
                     child: MaterialButton(
                       elevation: 2,
                       onPressed: () async {
-                        final uri = Uri.parse('tel:70090220');
-                        await launchUrl(uri);
+                        await launchUrl(PublicConfig.supportPhoneUri);
                       },
                       color: ColorsManager.mainColor,
                       height: 55,

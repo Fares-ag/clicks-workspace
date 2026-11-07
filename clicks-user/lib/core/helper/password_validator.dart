@@ -1,3 +1,5 @@
+import 'package:easy_localization/easy_localization.dart';
+
 class PasswordValidator {
   static bool hasMinLength(String password) => password.length >= 8;
   static bool hasUppercase(String password) =>
@@ -16,25 +18,26 @@ class PasswordValidator {
         hasSpecialChar(password);
   }
 
+  /// Translated message (en/ar) for the first rule [value] breaks, or null.
   static String? validate(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Password is required';
+      return 'errors.password_required'.tr();
     }
 
     if (!hasMinLength(value)) {
-      return 'Password must be at least 8 characters';
+      return 'errors.password_min_length'.tr();
     }
     if (!hasUppercase(value)) {
-      return 'Password must contain at least one uppercase letter';
+      return 'errors.password_uppercase'.tr();
     }
     if (!hasLowercase(value)) {
-      return 'Password must contain at least one lowercase letter';
+      return 'errors.password_lowercase'.tr();
     }
     if (!hasNumber(value)) {
-      return 'Password must contain at least one number';
+      return 'errors.password_number'.tr();
     }
     if (!hasSpecialChar(value)) {
-      return 'Password must contain at least one special character (!@#\$%^&*)';
+      return 'errors.password_special'.tr();
     }
 
     return null;

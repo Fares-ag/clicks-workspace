@@ -6,6 +6,8 @@ import '../../../../core/api/dio_helper.dart';
 import '../../../../core/api/end_points.dart';
 import '../../../../core/components/app_button.dart';
 import '../../../../core/components/app_text_field.dart';
+import '../../../../core/helper/booking_errors.dart';
+import '../../../../core/helper/cache_helper.dart';
 import '../../../../core/theme/colors_manager.dart';
 import '../../../../core/theme/text_styles.dart';
 
@@ -50,19 +52,25 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
+        // The change revoked every other session; keep THIS device signed
+        // in with the fresh token the server returned (scenario 13).
+        final fresh = response.data is Map ? response.data['token'] : null;
+        if (fresh is String && fresh.isNotEmpty) {
+          await CacheHelper.secureWrite(CacheHelper.authTokenKey, fresh);
+        }
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('settings.password_changed'.tr()),
+            content: Text('errors.password_changed_signed_out_others'.tr()),
             backgroundColor: Colors.green,
           ),
         );
         Navigator.pop(context);
       } else {
-        final msg = response.data is Map
-            ? (response.data['message'] ??
-                response.data['error'] ??
-                'settings.failed_change_password'.tr())
-            : 'settings.failed_change_password'.tr();
+        final msg = errorMessageForResponse(
+          response,
+          fallbackKey: 'settings.failed_change_password',
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg), backgroundColor: Colors.red),
         );
@@ -70,7 +78,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(errorMessageForException(e,
+              fallbackKey: 'settings.failed_change_password')),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);

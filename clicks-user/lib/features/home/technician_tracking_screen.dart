@@ -1,3 +1,4 @@
+import '../../core/config/public_config.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -476,10 +477,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   }
 
   void _callDispatch() async {
-    const dispatchNumber = 'tel:+97444444444';
-    if (await canLaunchUrl(Uri.parse(dispatchNumber))) {
-      await launchUrl(Uri.parse(dispatchNumber));
-    }
+    await PublicConfig.callSupport();
   }
 
   void _callTechnician() async {
