@@ -67,7 +67,7 @@ class PrivacyPolicyModel {
       content: json['content'] ?? '',
       version: json['version'] ?? '',
       effectiveDate: json['effectiveDate'] != null
-          ? DateTime.tryParse(json['effectiveDate'])
+          ? DateTime.tryParse(json['effectiveDate'])?.toLocal()
           : null,
       isActive: json['isActive'] ?? true,
     );
@@ -109,7 +109,7 @@ class TermsConditionsModel {
       content: json['content'] ?? '',
       version: json['version'] ?? '',
       effectiveDate: json['effectiveDate'] != null
-          ? DateTime.tryParse(json['effectiveDate'])
+          ? DateTime.tryParse(json['effectiveDate'])?.toLocal()
           : null,
       isActive: json['isActive'] ?? true,
     );

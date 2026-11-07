@@ -112,7 +112,7 @@ class ForgetPasswordStepOneView extends StatelessWidget {
 
         AnimatedCrossFade(
           firstChild: Text(
-            "*Please enter valid phone number",
+            "*${'errors.phone_invalid'.tr()}",
             style: TextStyles.font14Regular.copyWith(color: Color(0xFFD92D20)),
           ),
           secondChild: SizedBox(),

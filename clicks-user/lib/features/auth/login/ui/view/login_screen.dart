@@ -148,7 +148,9 @@ class LoginScreen extends StatelessWidget {
         } else if (state is LoginSuccess) {
           AppSnackBars.successSnackBar('auth.login_success'.tr());
 
-          context.offAllNamed(Routes.home);
+          // Through splash, not Home: a customer who was signed out
+          // mid-job is resumed onto that job (scenario 12).
+          context.offAllNamed(Routes.splash);
         }
       },
       builder: (context, state) {

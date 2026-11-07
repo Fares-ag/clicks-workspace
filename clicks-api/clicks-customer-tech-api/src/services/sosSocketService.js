@@ -93,6 +93,23 @@ function attachNamespaceAuth(namespace, expectedRole) {
         if (!isAdmin) return next(new Error("Unauthorized"));
       } else if (decoded.role !== expectedRole) {
         return next(new Error("Unauthorized"));
+      } else if (expectedRole === "customer") {
+        // Same checks as REST `authenticate` (scenario 14): a blocked or
+        // deleted customer, or a token revoked by a password reset, must not
+        // keep a live socket. The distinct message lets the app stop
+        // retrying and show "contact support" instead of reconnecting forever.
+        if (!decoded.id) return next(new Error("Unauthorized"));
+        const customer = await Customer.findById(decoded.id).select(
+          "status deleted_at token_version"
+        );
+        if (!customer || customer.deleted_at || customer.status !== "Active") {
+          return next(new Error("ACCOUNT_INACTIVE"));
+        }
+        const tv = Number.isFinite(Number(decoded.tv)) ? Number(decoded.tv) : 0;
+        const current = Number.isFinite(Number(customer.token_version))
+          ? Number(customer.token_version)
+          : 0;
+        if (tv !== current) return next(new Error("TOKEN_REVOKED"));
       } else if (expectedRole === "technician") {
         // Mirror requireApprovedTechnician, which guards the REST location
         // endpoint. Without this a rejected, pending or deactivated technician

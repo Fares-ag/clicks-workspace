@@ -2,7 +2,9 @@ import 'package:bloc/bloc.dart';
 import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
 import 'package:easy_localization/easy_localization.dart';
+import '../../../../../../core/helper/booking_errors.dart';
 import '../../../../../../core/helper/password_validator.dart';
+import '../../../../../../core/helper/validation_helper.dart';
 import '../../../../../../features/auth/register/logic/services/phone_validation_service.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/cupertino.dart';
@@ -91,15 +93,19 @@ class RegisterCubit extends Cubit<RegisterState> {
       );
       if (response.statusCode == 200) {
         changeOTPview();
-      } else if (response.statusCode == 429) {
+      } else if (response.statusCode == 429 &&
+          DioHelper.errorCode(response) == null) {
         otpError = 'auth.too_many_otp_attempts'.tr();
         emit(ErrorRegisterState(otpError!));
       } else {
-        otpError = response.data["error"] ?? 'auth.please_try_again'.tr();
+        otpError = errorMessageForResponse(
+          response,
+          fallbackKey: 'errors.otp_send_failed',
+        );
         emit(ErrorRegisterState(otpError!));
       }
     } catch (e) {
-      otpError = 'auth.please_try_again'.tr();
+      otpError = errorMessageForException(e, fallbackKey: 'errors.otp_send_failed');
       emit(ErrorRegisterState(otpError!));
     } finally {
       isSendingOtp = false;
@@ -123,11 +129,11 @@ class RegisterCubit extends Cubit<RegisterState> {
       if (response.statusCode == 200) {
         nextStep();
       } else {
-        otpError = response.data["error"] ?? 'auth.invalid_otp'.tr();
+        otpError = errorMessageForResponse(response, fallbackKey: 'auth.invalid_otp');
         emit(ErrorRegisterState(otpError!));
       }
     } catch (e) {
-      otpError = 'auth.invalid_otp'.tr();
+      otpError = errorMessageForException(e, fallbackKey: 'errors.otp_verify_failed');
       emit(ErrorRegisterState(otpError!));
     } finally {
       isVerifyingOtp = false;
@@ -181,15 +187,20 @@ class RegisterCubit extends Cubit<RegisterState> {
     emit(StartValidationsRegisterSteps());
     stepThreeValid = false;
 
-    if (firstNameController.text.isEmpty) {
+    // Same rule as edit profile and the API (1–50 letters, ' and -).
+    final firstNameError =
+        ValidationHelper.nameErrorKey(firstNameController.text, first: true);
+    if (firstNameError != null) {
       stepThreeValid = false;
-      errorStepThree = "*First Name is Required";
+      errorStepThree = "*${firstNameError.tr()}";
       emit(EndValidationsRegisterSteps());
       return;
     }
-    if (lastNameController.text.isEmpty) {
+    final lastNameError =
+        ValidationHelper.nameErrorKey(lastNameController.text, first: false);
+    if (lastNameError != null) {
       stepThreeValid = false;
-      errorStepThree = "*Last Name is Required";
+      errorStepThree = "*${lastNameError.tr()}";
       emit(EndValidationsRegisterSteps());
       return;
     }
@@ -203,7 +214,7 @@ class RegisterCubit extends Cubit<RegisterState> {
 
     if (passwordController.text != confirmPasswordController.text) {
       stepThreeValid = false;
-      errorStepThree = "*Password does not match";
+      errorStepThree = "*${'settings.passwords_no_match'.tr()}";
       emit(EndValidationsRegisterSteps());
       return;
     }
@@ -214,6 +225,9 @@ class RegisterCubit extends Cubit<RegisterState> {
 
   bool stepFourValid = false;
 
+  /// True when the server restored a previously deleted account (scenario 3).
+  bool restoredAccount = false;
+
   void createAccount() async {
     emit(LoadingRegisterState());
     try {
@@ -222,20 +236,28 @@ class RegisterCubit extends Cubit<RegisterState> {
         auth: false,
         data: {
           "phone_number": _normalizedPhone(),
-          "first_name": firstNameController.text,
-          "last_name": lastNameController.text,
-          "email": emailController.text,
+          "first_name": firstNameController.text.trim(),
+          "last_name": lastNameController.text.trim(),
+          "email": emailController.text.trim().toLowerCase(),
           "password": passwordController.text,
+          // The server requires the code verified in step one (scenario 1).
+          "otp": otpController.text.trim(),
         },
       );
-     
+
       if (response.statusCode == 201) {
+        restoredAccount =
+            response.data is Map && response.data['restored'] == true;
         emit(SuccessRegisterState());
       } else {
-        emit(ErrorRegisterState(response.data["error"]));
+        emit(ErrorRegisterState(
+          errorMessageForResponse(response, fallbackKey: 'auth.please_try_again'),
+        ));
       }
     } catch (e) {
-      emit(ErrorRegisterState('auth.please_try_again'.tr()));
+      emit(ErrorRegisterState(
+        errorMessageForException(e, fallbackKey: 'auth.please_try_again'),
+      ));
     }
   }
 }

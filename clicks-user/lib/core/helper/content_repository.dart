@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import '../api/dio_helper.dart';
 import '../api/end_points.dart';
+import 'booking_errors.dart';
 import 'content_models.dart';
 
 class ContentRepository {
@@ -65,20 +66,50 @@ class ContentRepository {
 
   //! ==================== CONTACT US ====================
 
-  Future<void> submitContactUs({
+  /// Returns the ticket number the server assigned (e.g. "CU-000042").
+  /// [category] is the stable code; callers that only have a translated
+  /// label can omit it and the server maps the label (en or ar) to a code.
+  Future<String?> submitContactUs({
+    String? category,
     required String issue,
     required String description,
   }) async {
     try {
       final response = await DioHelper.postData(
         url: EndPoints.contactUs,
-        data: {'issue': issue, 'description': description},
+        data: {
+          if (category != null) 'category': category,
+          'issue': issue,
+          'description': description,
+        },
         auth: true,
       );
 
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw response.data['message'] ?? 'Failed to submit contact request';
+        // The API's message lives under `error`, and is shown via its code.
+        throw errorMessageForResponse(response);
       }
+      final data = response.data;
+      return data is Map ? data['ticket_number']?.toString() : null;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  //! ==================== MY REQUESTS ====================
+
+  Future<List<Map<String, dynamic>>> getMyRequests() async {
+    try {
+      final response = await DioHelper.getData(url: EndPoints.contactUs);
+      if (response.statusCode != 200) {
+        throw errorMessageForResponse(response);
+      }
+      final list = response.data is Map ? response.data['requests'] : null;
+      if (list is! List) return const [];
+      return list
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     } on DioException catch (e) {
       throw _handleError(e);
     }
@@ -86,20 +117,5 @@ class ContentRepository {
 
   //! ==================== ERROR HANDLER ====================
 
-  String _handleError(DioException e) {
-    if (e.response != null) {
-      final data = e.response!.data;
-      if (data is Map && data.containsKey('message')) {
-        return data['message'];
-      }
-      return 'Server error: ${e.response!.statusCode}';
-    } else if (e.type == DioExceptionType.connectionTimeout) {
-      return 'Connection timeout. Please check your internet.';
-    } else if (e.type == DioExceptionType.receiveTimeout) {
-      return 'Server took too long to respond.';
-    } else if (e.type == DioExceptionType.unknown) {
-      return 'No internet connection.';
-    }
-    return 'An unexpected error occurred.';
-  }
+  String _handleError(DioException e) => errorMessageForException(e);
 }

@@ -10,3 +10,11 @@ dockerfilePath = "Dockerfile.tech-api"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
+# WS-I item 4 (scenario 66): without REDIS_URL the Socket.IO adapter is
+# in-memory, so a second replica — or an overlapping zero-downtime deploy —
+# splits dispatchers and customers across processes. Pin one replica and no
+# overlap; the service must also set SINGLE_INSTANCE=true (boot refuses
+# production without REDIS_URL or SINGLE_INSTANCE). Remove both lines once
+# the Redis adapter is on.
+numReplicas = 1
+overlapSeconds = 0

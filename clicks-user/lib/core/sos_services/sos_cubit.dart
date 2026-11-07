@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../features/welcome/logic/services/welcome_service.dart';
+import 'package:easy_localization/easy_localization.dart';
 import '../helper/booking_errors.dart';
 import '../monitoring/sentry_config.dart';
 import 'customer_socket_service.dart';
@@ -286,7 +287,7 @@ class SosCubit extends Cubit<SosState> {
           : null;
       final code = map?['code']?.toString();
       if (isClosed) return;
-      emit(SosError(bookingErrorMessage(code, map?['message']?.toString())));
+      emit(SosError(errorMessageForCode(code, fallbackKey: 'errors.sos_failed')));
     };
 
     socketService.onJobCancelled = (data) {
@@ -342,7 +343,7 @@ class SosCubit extends Cubit<SosState> {
       if (!socketService.isConnected) {
         _log('❌ Socket reconnect failed');
         if (isClosed) return;
-        emit(SosError('Connection failed. Please check your internet and try again.'));
+        emit(SosError('errors.sos_connection_failed'.tr()));
         return;
       }
     }
@@ -363,9 +364,7 @@ class SosCubit extends Cubit<SosState> {
           position = lastKnownPosition!;
         } else {
           if (isClosed) return;
-          emit(SosError(
-            'Failed to get location. Allow location access and try again.',
-          ));
+          emit(SosError('errors.location_permission'.tr()));
           return;
         }
       }
@@ -385,7 +384,7 @@ class SosCubit extends Cubit<SosState> {
         tags: const {'component': 'sos_cubit'},
       );
       if (isClosed) return;
-      emit(SosError('Failed to get location. Please enable GPS and try again.'));
+      emit(SosError('errors.location_gps'.tr()));
     }
   }
 

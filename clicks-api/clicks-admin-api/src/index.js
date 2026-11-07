@@ -3,6 +3,13 @@
 const mongoose = require("../../clicks-shared/mongoose");
 const { createAdminApp } = require("./createApp");
 
+try {
+  require("../../clicks-shared/utils/assertProductionConfig").assertProductionConfig({ service: "admin" });
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+
 const app = createAdminApp();
 
 const PORT = process.env.PORT || 5000;

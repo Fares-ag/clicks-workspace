@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
+import '../api/auth_session.dart';
 import '../api/dio_helper.dart';
 import '../config/app_config.dart';
 import '../helper/cache_helper.dart';
@@ -52,14 +53,19 @@ class CustomerSocketService {
     }
 
     _customerId = customerId;
-    final token = CacheHelper.getAuthToken() ?? '';
+    _authRetries = 0;
 
     _socket?.dispose();
     _socket = sio.io(
       '${AppConfig.socketUrl}/customer',
       sio.OptionBuilder()
           .setTransports(['websocket', 'polling'])
-          .setAuth({'token': token})
+          // Callback-style auth: evaluated on EVERY (re)connect, so a token
+          // refreshed after this socket was built is picked up instead of
+          // retrying forever with the stale one (scenario 12).
+          .setAuthFn((callback) {
+            callback({'token': CacheHelper.getAuthToken() ?? ''});
+          })
           .enableForceNew()
           .enableReconnection()
           .setReconnectionAttempts(999)
@@ -72,6 +78,7 @@ class CustomerSocketService {
 
     _socket!.onConnect((_) {
       _log('✅ Customer WebSocket Connected');
+      _authRetries = 0;
       _socket!.emit('register');
     });
 
@@ -80,17 +87,47 @@ class CustomerSocketService {
     });
     _socket!.onConnectError((err) {
       _log('❌ Customer socket connect error: $err');
+      final message = err is Map ? err['message']?.toString() : err?.toString();
+      if (message == 'ACCOUNT_INACTIVE') {
+        // Blocked or deleted: stop reconnecting and show "contact support".
+        _handleAccountInactive();
+        return;
+      }
+      if (message == 'TOKEN_REVOKED' || message == 'Unauthorized') {
+        // The server refused the handshake token. Refresh once and retry;
+        // a middleware rejection does not auto-reconnect.
+        _retryWithRefreshedToken();
+        return;
+      }
       SentryConfig.captureException(
         StateError('Customer socket connect error'),
         tags: const {'component': 'customer_socket'},
       );
     });
+    _socket!.on('accountInactive', (_) => _handleAccountInactive());
     _socket!.onReconnect((_) {
       _log('🔄 Customer WebSocket reconnected');
       _socket!.emit('register');
     });
 
     _setupEventListeners();
+  }
+
+  int _authRetries = 0;
+
+  void _handleAccountInactive() {
+    disconnect();
+    _customerId = null;
+    AuthSession.openAccountInactive();
+  }
+
+  Future<void> _retryWithRefreshedToken() async {
+    if (_authRetries >= 2) return;
+    _authRetries++;
+    final ok = await AuthSession.refreshIfNeeded(force: true);
+    if (ok && _socket != null && !isConnected) {
+      _socket!.connect();
+    }
   }
 
   /// Call when app returns to foreground to ensure socket is alive.
@@ -278,13 +315,37 @@ class CustomerSocketService {
   }
 }
 
+/// The session endpoint answered with a non-2xx status.
+class SessionFetchException implements Exception {
+  final int statusCode;
+  final String? code;
+  const SessionFetchException(this.statusCode, this.code);
+
+  bool get isUnauthorized => statusCode == 401;
+  bool get isAccountInactive => statusCode == 403 && code == 'ACCOUNT_INACTIVE';
+
+  @override
+  String toString() => 'SessionFetchException($statusCode, $code)';
+}
+
 class SessionService {
+  /// Throws [SessionFetchException] on any non-2xx answer (scenario 67): a
+  /// `{error: "buffering timed out"}` body used to be returned as if it were
+  /// an empty session, so splash routed a customer with a technician on the
+  /// way to an empty Home and they raised a second SOS.
   static Future<Map<String, dynamic>> getCustomerSession() async {
     try {
       final response = await DioHelper.getData(
         url: '/api/jobs/customer/session',
       );
-      return response.data;
+      final status = response.statusCode ?? 0;
+      final data = response.data;
+      if (status < 200 || status >= 300 || data is! Map) {
+        throw SessionFetchException(status, DioHelper.errorCode(response));
+      }
+      final session = Map<String, dynamic>.from(data);
+      await AuthSession.rememberSession(session);
+      return session;
     } catch (e, st) {
       _log('❌ SessionService.getCustomerSession error: $e');
       SentryConfig.captureException(

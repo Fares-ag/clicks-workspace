@@ -1,5 +1,6 @@
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
+import '../../core/helper/booking_errors.dart';
 
 class SkipcashSession {
   final bool alreadyPaid;
@@ -46,12 +47,12 @@ class SkipcashApi {
     );
     if (response.statusCode != 200) {
       throw Exception(
-        DioHelper.errorMessage(response) ?? 'Failed to start card payment',
+        errorMessageForResponse(response, fallbackKey: 'errors.card_payment_start_failed'),
       );
     }
     final data = response.data;
     if (data is! Map) {
-      throw Exception('Failed to start card payment');
+      throw Exception(errorMessageForCode(null, fallbackKey: 'errors.card_payment_start_failed'));
     }
     return SkipcashSession.fromJson(Map<String, dynamic>.from(data));
   }

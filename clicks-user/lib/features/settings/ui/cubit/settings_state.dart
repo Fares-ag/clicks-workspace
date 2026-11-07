@@ -16,6 +16,21 @@ class SuccessDeleteAccountSettingsState extends SettingsState {}
 
 class ErrorSettingsState extends SettingsState {}
 
+/// Deletion refused (live SOS/job/booking, unpaid job) or failed.
+class ErrorDeleteAccountSettingsState extends SettingsState {
+  final String message;
+  final String? code;
+  final String? jobId;
+  const ErrorDeleteAccountSettingsState({
+    required this.message,
+    this.code,
+    this.jobId,
+  });
+
+  @override
+  List<Object> get props => [message, code ?? '', jobId ?? ''];
+}
+
 class LoadingUpdateProfileState extends SettingsState {}
 
 class SuccessUpdateProfileState extends SettingsState {}

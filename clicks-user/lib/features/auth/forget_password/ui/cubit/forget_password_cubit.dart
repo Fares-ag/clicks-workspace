@@ -1,6 +1,8 @@
 import 'package:bloc/bloc.dart';
 import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
+import 'package:clicks_user/core/helper/booking_errors.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
@@ -73,7 +75,7 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
   Future<void> sendResetOtp() async {
     validateStepOne();
     if (!stepOneValid) {
-      emit(ForgetPasswordError("Please enter a valid phone number"));
+      emit(ForgetPasswordError('errors.phone_invalid'.tr()));
       return;
     }
     isLoading = true;
@@ -89,12 +91,15 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
         showOTPView = true;
         emit(ShowOTPViewForgetPasswordSteps(true));
       } else {
-        final msg = res.data is Map ? res.data['error']?.toString() : null;
-        emit(ForgetPasswordError(msg ?? "Failed to send OTP"));
+        emit(ForgetPasswordError(
+          errorMessageForResponse(res, fallbackKey: 'errors.otp_send_failed'),
+        ));
       }
-    } catch (_) {
+    } catch (e) {
       isLoading = false;
-      emit(ForgetPasswordError("Failed to send OTP"));
+      emit(ForgetPasswordError(
+        errorMessageForException(e, fallbackKey: 'errors.otp_send_failed'),
+      ));
     }
   }
 
@@ -110,7 +115,7 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
   Future<void> verifyResetOtp() async {
     validateOTP();
     if (!stepOTPValid) {
-      emit(ForgetPasswordError("Please enter the 6-digit OTP"));
+      emit(ForgetPasswordError('errors.otp_six_digits'.tr()));
       return;
     }
     isLoading = true;
@@ -125,12 +130,15 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
       if (res.statusCode == 200) {
         nextStep();
       } else {
-        final msg = res.data is Map ? res.data['error']?.toString() : null;
-        emit(ForgetPasswordError(msg ?? "Invalid OTP"));
+        emit(ForgetPasswordError(
+          errorMessageForResponse(res, fallbackKey: 'auth.invalid_otp'),
+        ));
       }
-    } catch (_) {
+    } catch (e) {
       isLoading = false;
-      emit(ForgetPasswordError("OTP verification failed"));
+      emit(ForgetPasswordError(
+        errorMessageForException(e, fallbackKey: 'errors.otp_verify_failed'),
+      ));
     }
   }
 
@@ -149,7 +157,7 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
       return;
     }
     if (passwordController.text != confirmPasswordController.text) {
-      errorStepTwo = "*Password does not match";
+      errorStepTwo = "*${'settings.passwords_no_match'.tr()}";
       emit(EndValidationsForgetPasswordSteps());
       return;
     }
@@ -161,7 +169,7 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
   Future<void> resetPassword() async {
     validateStepTwo();
     if (!stepTwoValid) {
-      emit(ForgetPasswordError(errorStepTwo ?? "Invalid password"));
+      emit(ForgetPasswordError(errorStepTwo ?? 'errors.password_reset_failed'.tr()));
       return;
     }
     isLoading = true;
@@ -181,12 +189,15 @@ class ForgetPasswordCubit extends Cubit<ForgetPasswordState> {
       if (res.statusCode == 200) {
         emit(ForgetPasswordSuccess());
       } else {
-        final msg = res.data is Map ? res.data['error']?.toString() : null;
-        emit(ForgetPasswordError(msg ?? "Reset failed"));
+        emit(ForgetPasswordError(
+          errorMessageForResponse(res, fallbackKey: 'errors.password_reset_failed'),
+        ));
       }
-    } catch (_) {
+    } catch (e) {
       isLoading = false;
-      emit(ForgetPasswordError("Reset failed"));
+      emit(ForgetPasswordError(
+        errorMessageForException(e, fallbackKey: 'errors.password_reset_failed'),
+      ));
     }
   }
 }

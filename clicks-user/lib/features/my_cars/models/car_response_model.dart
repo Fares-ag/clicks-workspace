@@ -36,7 +36,7 @@ class CarResponseModel {
     final endDateStr = insuranceInfo!['endDate']?.toString();
     if (endDateStr == null) return false;
     try {
-      final endDate = DateTime.parse(endDateStr);
+      final endDate = DateTime.parse(endDateStr).toLocal();
       return endDate.isAfter(DateTime.now());
     } catch (_) {
       return false;

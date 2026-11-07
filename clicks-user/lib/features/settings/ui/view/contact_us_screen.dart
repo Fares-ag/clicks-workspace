@@ -17,15 +17,20 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
   final _descCtrl = TextEditingController();
   final ContentRepository _repository = ContentRepository();
 
+  /// Selected category CODE (stable across languages, scenario 100); the
+  /// label is only for display.
   String? _issue;
   bool _submitting = false;
 
-  List<String> get _issues => [
-    'settings.technical_issue'.tr(),
-    'settings.emergency_requests'.tr(),
-    'settings.technician_dispute'.tr(),
-    'settings.general_inquiry'.tr(),
+  static const List<String> _issueCodes = [
+    'technical_issue',
+    'emergency_requests',
+    'technician_dispute',
+    'billing',
+    'general_inquiry',
   ];
+
+  String _label(String code) => 'settings.$code'.tr();
   @override
   void initState() {
     super.initState();
@@ -43,13 +48,18 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
     if (!valid) return;
     setState(() => _submitting = true);
     try {
-      await _repository.submitContactUs(
-        issue: _issue!,
+      final ticketNumber = await _repository.submitContactUs(
+        category: _issue!,
+        issue: _label(_issue!),
         description: _descCtrl.text.trim(),
       );
       if (!mounted) return;
       // Navigate to contact us success screen and remove contact us screen
-      Navigator.pushReplacementNamed(context, '/contactUsSuccess');
+      Navigator.pushReplacementNamed(
+        context,
+        '/contactUsSuccess',
+        arguments: ticketNumber,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -144,15 +154,15 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                   controller: _issueController,
 
                   title: Text(
-                    _issue ?? 'settings.select_option'.tr(),
+                    _issue != null ? _label(_issue!) : 'settings.select_option'.tr(),
                     style: TextStyle(
                       color: _issue == null ? Colors.grey : Colors.black,
                     ),
                   ),
                   children:
-                      _issues.map((issue) {
+                      _issueCodes.map((issue) {
                         return ListTile(
-                          title: Text(issue),
+                          title: Text(_label(issue)),
                           onTap: () {
                             setState(() => _issue = issue);
                             _issueController.collapse();

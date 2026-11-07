@@ -175,11 +175,16 @@ function customerPushCopyForEvent(event, data = {}) {
   return base;
 }
 
-async function invalidateCustomerToken(customerId) {
-  if (!customerId) return;
+async function invalidateCustomerToken(customerId, failedToken) {
+  if (!customerId || !failedToken) return;
   try {
     const { Customer } = require("../../../clicks-shared/models");
-    await Customer.findByIdAndUpdate(customerId, { fcm_token: null });
+    // Conditional (scenario 70): a late "not-registered" for a token that has
+    // since rotated must not wipe the customer's NEW, valid token.
+    await Customer.updateOne(
+      { _id: customerId, fcm_token: failedToken },
+      { $unset: { fcm_token: 1 } }
+    );
   } catch (_) {
     /* ignore */
   }
@@ -259,7 +264,7 @@ async function sendCustomerPush(customer, payload) {
       err.code === "messaging/registration-token-not-registered" ||
       err.code === "messaging/invalid-registration-token"
     ) {
-      await invalidateCustomerToken(customerId);
+      await invalidateCustomerToken(customerId, token);
     }
     return false;
   }

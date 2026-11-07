@@ -38,7 +38,7 @@ class RegisterStepTwoView extends StatelessWidget {
 
         AnimatedCrossFade(
           firstChild: Text(
-            "*Please enter valid Email Address",
+            "*${'errors.email_invalid'.tr()}",
             style: TextStyles.font14Regular.copyWith(color: Color(0xFFD92D20)),
           ),
           secondChild: SizedBox(),

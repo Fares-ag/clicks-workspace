@@ -5,6 +5,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/helper/assets_manager.dart';
+import '../../../../core/helper/validation_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -62,8 +63,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // _phoneCtrl.text.trim() != '+974 3367 7310';
 
   bool get _canSave {
-    final firstNameOk = _firstNameCtrl.text.trim().length >= 3;
-    final lastNameOk = _lastNameCtrl.text.trim().length >= 3;
+    // One rule with register and the API (scenario 17).
+    final firstNameOk = ValidationHelper.isName(_firstNameCtrl.text);
+    final lastNameOk = ValidationHelper.isName(_lastNameCtrl.text);
     final emailOk = _isValidEmail(_emailCtrl.text);
     // final phoneOk = RegExp(
     //   r'^\+974(\s?\d){8,}$',
@@ -176,12 +178,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 decoration: _fieldDec(
                   hint: 'auth.first_name'.tr(),
                 ),
-                validator: (v) {
-                  final t = v?.trim() ?? '';
-                  if (t.isEmpty) return 'settings.please_enter_name'.tr();
-                  if (t.length < 3) return 'settings.name_too_short'.tr();
-                  return null;
-                },
+                validator: (v) =>
+                    ValidationHelper.nameErrorKey(v, first: true)?.tr(),
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 16),
@@ -194,12 +192,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 decoration: _fieldDec(
                   hint: 'auth.last_name'.tr(),
                 ),
-                validator: (v) {
-                  final t = v?.trim() ?? '';
-                  if (t.isEmpty) return 'settings.please_enter_name'.tr();
-                  if (t.length < 3) return 'settings.name_too_short'.tr();
-                  return null;
-                },
+                validator: (v) =>
+                    ValidationHelper.nameErrorKey(v, first: false)?.tr(),
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 16),

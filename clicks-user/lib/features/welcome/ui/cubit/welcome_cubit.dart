@@ -1,4 +1,5 @@
 import 'package:bloc/bloc.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
@@ -23,7 +24,7 @@ class WelcomeCubit extends Cubit<WelcomeState> {
       emit(WelcomeSuccess());
     } catch (e) {
       _log('📍 Location error: $e');
-      emit(WelcomeError("Error in getting Location, please try again"));
+      emit(WelcomeError('errors.location_permission'.tr()));
     }
   }
 }

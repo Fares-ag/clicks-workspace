@@ -1,7 +1,10 @@
 import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
+import 'package:clicks_user/core/helper/booking_errors.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
+import 'package:clicks_user/core/services/session_resume.dart';
+import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/services/fcm_notification_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/membership/membership_cubit.dart';
@@ -40,7 +43,14 @@ class SettingsScreen extends StatelessWidget {
         listener: (context, state) {
           if (state is SuccessDeleteAccountSettingsState) {
             AppSnackBars.successSnackBar('settings.account_deleted'.tr());
+            try {
+              context.read<SosCubit>().socketService.disconnect();
+            } catch (_) {}
             context.offAllNamed(Routes.splash);
+          } else if (state is ErrorDeleteAccountSettingsState) {
+            // Was a silent ErrorSettingsState: the customer believed the
+            // account was gone (scenario 5).
+            showDeleteBlockedDialog(context, message: state.message, code: state.code);
           }
         },
         builder: (context, state) {
@@ -97,6 +107,11 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () {
                       context.pushSmooth(ContactUsScreen());
                     },
+                  ),
+                  SettingsTile(
+                    icon: AssetsManager.contactUsSvg,
+                    title: 'settings.my_requests'.tr(),
+                    onTap: () => context.toNamed(Routes.myRequests),
                   ),
                   SettingsTile(
                     icon: AssetsManager.faqsSvg,
@@ -423,12 +438,7 @@ void showProfileDialog(BuildContext context) {
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  showDeleteAccountSheet(
-                    context,
-                    onConfirm: () {
-                      context.read<SettingsCubit>().deleteAccount();
-                    },
-                  );
+                  startDeleteAccount(context);
                 },
               ),
             ],
@@ -517,10 +527,81 @@ class DeleteAccountResult {
   DeleteAccountResult({this.reason, this.note});
 }
 
+/// Pay-now from a refused deletion: resume the session, which opens the
+/// unpaid job's payment screen (scenario 5).
+Future<void> openPayNow(BuildContext context) async {
+  try {
+    final session = await SessionService.getCustomerSession();
+    if (!context.mounted) return;
+    await SessionResume.go(context, session);
+  } catch (_) {
+    AppSnackBars.errorSnackBar('errors.generic'.tr());
+  }
+}
+
+/// Explains why the account cannot be deleted yet, with Pay now when the
+/// blocker is an unpaid job.
+Future<void> showDeleteBlockedDialog(
+  BuildContext context, {
+  required String message,
+  String? code,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('errors.delete_blocked_title'.tr()),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('common.close'.tr()),
+        ),
+        if (code == 'UNPAID_JOB_HOLD')
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: ColorsManager.mainColor),
+            onPressed: () {
+              Navigator.pop(ctx);
+              openPayNow(context);
+            },
+            child: Text('errors.pay_now'.tr()),
+          ),
+      ],
+    ),
+  );
+}
+
+/// Delete-account entry point: check blockers first, then ask for a reason
+/// (with the membership-forfeit warning when one is active).
+Future<void> startDeleteAccount(BuildContext context) async {
+  final cubit = context.read<SettingsCubit>();
+  final check = await cubit.checkDeletion();
+  if (!context.mounted) return;
+  final blockers = check?['blockers'];
+  if (blockers is List && blockers.isNotEmpty && blockers.first is Map) {
+    final first = Map<String, dynamic>.from(blockers.first as Map);
+    final code = first['code']?.toString();
+    await showDeleteBlockedDialog(
+      context,
+      message: errorMessageForCode(code),
+      code: code,
+    );
+    return;
+  }
+  await showDeleteAccountSheet(
+    context,
+    membershipWarning: check?['active_membership'] == true,
+    onConfirm: (result) =>
+        cubit.deleteAccount(reason: result.reason, note: result.note),
+  );
+}
+
 Future<DeleteAccountResult?> showDeleteAccountSheet(
   BuildContext context, {
-  VoidCallback? onConfirm,
+  void Function(DeleteAccountResult result)? onConfirm,
+  bool membershipWarning = false,
 }) {
+  String? selected; // one of keys below
+  final noteCtrl = TextEditingController();
   return showModalBottomSheet<DeleteAccountResult>(
     context: context,
     useSafeArea: true,
@@ -529,16 +610,12 @@ Future<DeleteAccountResult?> showDeleteAccountSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (ctx) {
-      String? selected; // one of keys below
-      final noteCtrl = TextEditingController();
-
+    builder: (sheetCtx) => StatefulBuilder(builder: (ctx, setSheetState) {
       Widget reasonTile(String key, String label) {
         final checked = selected == key;
         return InkWell(
           onTap: () {
-            selected = checked ? null : key;
-            (ctx as Element).markNeedsBuild();
+            setSheetState(() => selected = checked ? null : key);
           },
           borderRadius: BorderRadius.circular(8),
           child: Padding(
@@ -548,8 +625,7 @@ Future<DeleteAccountResult?> showDeleteAccountSheet(
                 Checkbox(
                   value: checked,
                   onChanged: (_) {
-                    selected = checked ? null : key;
-                    (ctx as Element).markNeedsBuild();
+                    setSheetState(() => selected = checked ? null : key);
                   },
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(4),
@@ -596,6 +672,21 @@ Future<DeleteAccountResult?> showDeleteAccountSheet(
             const SizedBox(height: 8),
             const Divider(height: 1),
             const SizedBox(height: 12),
+            if (membershipWarning) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF4E6),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'settings.delete_membership_warning'.tr(),
+                  style: const TextStyle(color: Color(0xFF93370D)),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Align(
               alignment: Alignment.centerLeft,
               child: Text('settings.provide_reason'.tr()),
@@ -658,9 +749,12 @@ Future<DeleteAccountResult?> showDeleteAccountSheet(
                       minimumSize: const Size.fromHeight(48),
                     ),
                     onPressed: () {
-                      // Optionally validate selection
-                      Navigator.of(ctx).pop();
-                      onConfirm?.call();
+                      final result = DeleteAccountResult(
+                        reason: selected ?? 'not_specified',
+                        note: noteCtrl.text,
+                      );
+                      Navigator.of(ctx).pop(result);
+                      onConfirm?.call(result);
                     },
                     child: Text('common.submit'.tr()),
                   ),
@@ -670,6 +764,6 @@ Future<DeleteAccountResult?> showDeleteAccountSheet(
           ],
         ),
       );
-    },
+    }),
   );
 }

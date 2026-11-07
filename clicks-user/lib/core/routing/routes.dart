@@ -24,4 +24,7 @@ class Routes {
   static const String membershipHub = '/membership';
   static const String membershipPlans = '/membership/plans';
   static const String membershipReview = '/membership/review';
+  static const String forceUpdate = '/forceUpdate';
+  static const String accountInactive = '/accountInactive';
+  static const String myRequests = '/myRequests';
 }

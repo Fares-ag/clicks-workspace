@@ -20,6 +20,10 @@ class EndPoints {
   static const String sendOtp = "/api/customers/otp/send";
   static const String verifyOtp = "/api/customers/otp/verify";
   static const String fcmToken = "/api/customers/fcm-token";
+  static const String refreshToken = "/api/customers/token/refresh";
+  static const String deleteCheck = "/api/customers/delete-check";
+  static const String publicConfig = "/api/config/public";
+  static String contactUsById(String id) => "/api/contact-us/$id";
 
   /// Tips/onboarding content not supported by API — ignore client-side
   static const String onBoarding = "/api/content/faqs";

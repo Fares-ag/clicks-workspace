@@ -39,7 +39,8 @@ class ServiceWaitingArgs {
       serviceType: data['service_type']?.toString() ?? '',
       serviceLabel: data['service_label']?.toString(),
       timing: data['timing']?.toString() ?? 'immediate',
-      scheduledFor: DateTime.tryParse(data['scheduled_for']?.toString() ?? ''),
+      scheduledFor:
+          DateTime.tryParse(data['scheduled_for']?.toString() ?? '')?.toLocal(),
     );
   }
 }

@@ -133,6 +133,7 @@ function createAdminApp() {
   app.use("/api/privacy-policy", privacyPolicyRoutes);
   app.use("/api/terms-and-conditions", termsAndConditionsRoutes);
   app.use("/api/account-deletion", accountDeletionRoutes);
+  app.use("/api/contact-us", require("./routes/contactUs"));
   app.use("/api/receipts", require("./routes/receipts"));
   app.use("/api/sos", require("./routes/sos"));
   app.use("/api/service-requests", require("./routes/serviceRequests"));

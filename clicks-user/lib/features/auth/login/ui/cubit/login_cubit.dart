@@ -1,11 +1,12 @@
 import 'package:bloc/bloc.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
-import 'package:easy_localization/easy_localization.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
+import '../../../../../core/api/auth_session.dart';
 import '../../../../../core/api/dio_helper.dart';
 import '../../../../../core/api/end_points.dart';
+import '../../../../../core/helper/booking_errors.dart';
 import '../../../../../core/services/fcm_notification_service.dart';
 
 part 'login_state.dart';
@@ -50,15 +51,21 @@ class LoginCubit extends Cubit<LoginState> {
           response.data["token"].toString(),
         );
         
+        AuthSession.resetGuards();
+
         // Register FCM token for push notifications
         await _registerFcmToken();
-        
+
         emit(LoginSuccess());
       } else {
-        emit(LoginError(response.data["error"]));
+        emit(LoginError(
+          errorMessageForResponse(response, fallbackKey: 'auth.please_try_again'),
+        ));
       }
     } catch (e) {
-      emit(LoginError('auth.please_try_again'.tr()));
+      emit(LoginError(
+        errorMessageForException(e, fallbackKey: 'auth.please_try_again'),
+      ));
     }
   }
 

@@ -44,8 +44,23 @@ class ValidationHelper {
   /// \param name The name string to validate.
   /// \return `true` if the name is valid, `false` otherwise.
   static bool isName(String name) {
-    // only arabic and english letters and spaces and length > 3
-    return RegExp(r"^[a-zA-Z\u0600-\u06FF\s]{3,}$").hasMatch(name);
+    // The ONE name rule, mirrored by the API (clicks-shared/utils/customerName.js):
+    // 1\u201350 characters, letters in any script (Arabic included), spaces,
+    // apostrophe and hyphen; must start with a letter. "Al" and "Wu" are
+    // valid last names (scenario 17).
+    final value = name.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (value.isEmpty || value.length > nameMaxLength) return false;
+    return RegExp(r"^\p{L}[\p{L}\p{M}\s'\u2019-]*$", unicode: true).hasMatch(value);
+  }
+
+  static const int nameMaxLength = 50;
+
+  /// Validator-style wrapper: null when valid, else a translation key.
+  static String? nameErrorKey(String? value, {bool first = true}) {
+    final t = value?.trim() ?? '';
+    if (t.isEmpty) return first ? 'errors.first_name_required' : 'errors.last_name_required';
+    if (!isName(t)) return 'errors.name_invalid';
+    return null;
   }
 
   /// Validates if the given [number] is in a valid number format.

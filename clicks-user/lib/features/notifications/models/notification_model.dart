@@ -31,7 +31,7 @@ class NotificationModel {
       type: json['type'] ?? '',
       isRead: json['read'] == true,
       createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
+          ? DateTime.parse(json['createdAt']).toLocal()
           : DateTime.now(),
       data: json['data'] is Map
           ? Map<String, dynamic>.from(json['data'] as Map)

@@ -13,19 +13,51 @@ class CacheHelper {
   /// after [init] has loaded secure storage.
   static String? _cachedAuthToken;
 
+  /// Plain-SharedPreferences marker that this install has run before.
+  ///
+  /// SharedPreferences is wiped on uninstall on both platforms, but the iOS
+  /// Keychain (secure storage) is NOT — a reinstall, or a second-hand phone,
+  /// used to sign straight back into the previous owner's account
+  /// (scenario 18). No marker = first run of this install = wipe secure
+  /// storage before reading anything from it.
+  static const String _installMarkerKey = 'install_initialized_v1';
+
   static Future<void> init() async {
-    _instance = await SharedPreferences.getInstance();
     _secureStorage = const FlutterSecureStorage(
       // v11 uses AES-GCM + RSA key wrapping (EncryptedSharedPreferences removed).
       aOptions: AndroidOptions(),
       iOptions: IOSOptions(),
     );
-    await _migrateLegacyTokens();
-    await _loadSecureTokensIntoCache();
+    try {
+      _instance = await SharedPreferences.getInstance();
+    } catch (_) {
+      _instance = null;
+    }
+    try {
+      if (_instance != null && _instance!.getBool(_installMarkerKey) != true) {
+        await _safeDeleteAllSecure();
+        await _instance!.setBool(_installMarkerKey, true);
+      }
+      await _migrateLegacyTokens();
+      await _loadSecureTokensIntoCache();
+    } catch (_) {
+      // A corrupted secure-storage entry (e.g. an Android backup restored
+      // without its key) used to throw before runApp and crash every
+      // launch. Reset to a signed-out state instead.
+      await _safeDeleteAllSecure();
+      _cachedAuthToken = null;
+    }
+  }
+
+  static Future<void> _safeDeleteAllSecure() async {
+    try {
+      await _secureStorage.deleteAll();
+    } catch (_) {}
   }
 
   /// One-time migration: copy tokens from plaintext SharedPreferences to secure storage.
   static Future<void> _migrateLegacyTokens() async {
+    if (_instance == null) return;
     for (final key in _secureKeys) {
       final legacy = _instance!.getString(key);
       if (legacy == null || legacy.isEmpty) continue;

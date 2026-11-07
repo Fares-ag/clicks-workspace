@@ -1,3 +1,4 @@
+import '../../core/config/public_config.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
@@ -186,11 +187,7 @@ class ActivityDetailsPage extends StatelessWidget {
   }
 
   void _callSupport() async {
-    const phone = 'tel:70919191';
-    final uri = Uri.parse(phone);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
+    await PublicConfig.callSupport();
   }
 
   // ──────── Build ────────
@@ -581,7 +578,7 @@ class ActivityDetailsPage extends StatelessWidget {
               GestureDetector(
                 onTap: _callSupport,
                 child: Text(
-                  '7091 9191',
+                  PublicConfig.supportPhone,
                   style: TextStyle(
                     fontFamily: 'HelveticaNeue',
                     fontSize: 14.sp,

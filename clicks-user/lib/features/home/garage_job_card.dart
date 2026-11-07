@@ -41,7 +41,7 @@ class GarageJobCard extends StatelessWidget {
     final readyRaw = garage['expected_ready_at']?.toString() ??
         job['scheduled_return_at']?.toString() ??
         '';
-    DateTime? readyAt = DateTime.tryParse(readyRaw);
+    DateTime? readyAt = DateTime.tryParse(readyRaw)?.toLocal();
 
     final title = returning
         ? 'home.garage_returning_title'.tr()

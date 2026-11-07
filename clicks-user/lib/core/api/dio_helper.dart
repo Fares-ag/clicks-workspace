@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
+import '../config/public_config.dart';
 import '../helper/cache_helper.dart';
 import '../services/fcm_notification_service.dart';
+import 'auth_session.dart';
 import 'end_points.dart';
 
 typedef UnauthorizedCallback = void Function();
@@ -8,6 +10,14 @@ typedef UnauthorizedCallback = void Function();
 class DioHelper {
   static late Dio dio;
   static UnauthorizedCallback? onUnauthorized;
+
+  /// 403 ACCOUNT_INACTIVE (blocked / deleted account, scenario 14).
+  static UnauthorizedCallback? onAccountInactive;
+
+  /// 426 APP_UPDATE_REQUIRED (scenario 19).
+  static UnauthorizedCallback? onUpdateRequired;
+
+  static const String _retriedKey = '_auth_retried';
 
   static void init() {
     dio = Dio(
@@ -20,6 +30,10 @@ class DioHelper {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          // Every request says which build it is, so the server can refuse
+          // an outdated client with 426 (forced update, scenario 19).
+          'X-App-Version': PublicConfig.appVersionName,
+          'X-Platform': PublicConfig.platform,
         },
       ),
     );
@@ -27,10 +41,29 @@ class DioHelper {
     dio.interceptors.add(
       InterceptorsWrapper(
         onResponse: (response, handler) async {
-          if (response.statusCode == 401 &&
-              _isSessionExpiry(response.requestOptions)) {
+          final status = response.statusCode;
+          final options = response.requestOptions;
+          if (status == 401 && _isSessionExpiry(options)) {
+            // One silent refresh + retry before giving up, so an expired
+            // 7-day token never drops a customer mid-breakdown (S12).
+            if (options.extra[_retriedKey] != true &&
+                await AuthSession.refreshIfNeeded(force: true)) {
+              try {
+                final retried = await _retryWithFreshToken(options);
+                return handler.resolve(retried);
+              } catch (_) {}
+            }
             await _endSession();
             onUnauthorized?.call();
+          } else if (status == 403 && errorCode(response) == 'ACCOUNT_INACTIVE') {
+            onAccountInactive?.call();
+          } else if (status == 426) {
+            final data = response.data;
+            PublicConfig.markUpdateRequired(
+              minVersion: data is Map ? data['min_app_version']?.toString() : null,
+              storeUrl: data is Map ? data['store_url']?.toString() : null,
+            );
+            onUpdateRequired?.call();
           }
           return handler.next(response);
         },
@@ -42,6 +75,19 @@ class DioHelper {
           }
           return handler.next(error);
         },
+      ),
+    );
+  }
+
+  static Future<Response<dynamic>> _retryWithFreshToken(RequestOptions options) {
+    final token = CacheHelper.getAuthToken();
+    final headers = Map<String, dynamic>.from(options.headers);
+    headers.removeWhere((k, _) => k.toLowerCase() == 'authorization');
+    if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
+    return dio.fetch<dynamic>(
+      options.copyWith(
+        headers: headers,
+        extra: {...options.extra, _retriedKey: true},
       ),
     );
   }
@@ -74,6 +120,7 @@ class DioHelper {
     EndPoints.resetPassword,
     EndPoints.sendOtp,
     EndPoints.verifyOtp,
+    EndPoints.refreshToken,
   };
 
   static bool _isSessionExpiry(RequestOptions options) {

@@ -4,15 +4,31 @@ const { normalizeSearchName, digitsOnly } = require("../utils/searchFields");
 const CustomerSchema = new mongoose.Schema(
   {
     client_id: { type: String, unique: true, sparse: true },
+    // Stored as E.164 for every new or migrated row (see
+    // scripts/dedupe-customer-phones.js); the unique index then also guards
+    // the normalised number.
     phone_number: { type: String, required: true, unique: true },
-    first_name: { type: String, required: true, minlength: 2, maxlength: 50 },
-    last_name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    // One rule shared with the app: 1–50 chars (see utils/customerName.js).
+    first_name: { type: String, required: true, minlength: 1, maxlength: 50 },
+    last_name: { type: String, required: true, minlength: 1, maxlength: 50 },
+    // Lower-cased + trimmed so "Ali@x.com" and "ali@x.com" are one account.
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     search_name: { type: String, index: true }, // admin list prefix search — provenance: getCustomers
     search_phone: { type: String, index: true }, // admin list prefix search — provenance: getCustomers
     password: { type: String, required: true, minlength: 8, select: false },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
     fcm_token: { type: String },
+    profile_picture: { type: String },
+    // Bumped on password reset/change, "log out everywhere" and deletion.
+    // Every customer JWT carries it as `tv`; a mismatch is a revoked token.
+    token_version: { type: Number, default: 0 },
+    // Self-service deletion. Without these in the schema strict mode dropped
+    // them, so the restore / anonymise paths could never run.
+    deleted_at: { type: Date, default: null, index: true },
+    deleted_reason: { type: String, default: "" },
+    // Set once personal data has been replaced with tombstones (30 days
+    // after deleted_at). An anonymised row can never be restored.
+    anonymized_at: { type: Date, default: null },
     deletion_request: {
       reason: { type: String },
       other_reason: { type: String },
