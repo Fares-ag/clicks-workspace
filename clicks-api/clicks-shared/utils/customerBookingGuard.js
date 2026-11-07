@@ -303,8 +303,33 @@ function sessionKind({ activeSos, liveJob, unpaidJob, activeServiceRequest }) {
   return null;
 }
 
+/** Rating prompts look back this far (a job finished last month is not asked about). */
+const RATING_PROMPT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The most recent paid, unrated job the app has not yet asked about
+ * (scenario 76). The app prompts once and records rating_prompted_at.
+ */
+async function findRatingPromptJob(customerId) {
+  return Job.findOne({
+    customer_id: customerId,
+    job_status: "completed",
+    payment_status: { $in: SETTLED_PAYMENT_STATUSES },
+    $and: [
+      { $or: [{ rating: null }, { rating: { $exists: false } }] },
+      { $or: [{ rating_prompted_at: null }, { rating_prompted_at: { $exists: false } }] },
+    ],
+    completed_at: { $gte: new Date(Date.now() - RATING_PROMPT_WINDOW_MS) },
+  })
+    .select("_id job_reference issue completed_at assignedTechnician payment_status")
+    .populate({ path: "assignedTechnician", select: "firstName lastName profilePicture" })
+    .sort({ completed_at: -1 })
+    .lean();
+}
+
 async function buildCustomerSession({ customerId } = {}) {
   const { getSupportPhone } = require("../services/opsSettings");
+  const { customerCancelPolicy } = require("./customerCancelPolicy");
   const [
     activeSos,
     liveJob,
@@ -313,6 +338,7 @@ async function buildCustomerSession({ customerId } = {}) {
     upcoming,
     outstanding,
     supportPhone,
+    ratingPromptJob,
   ] = await Promise.all([
     findActiveSos(customerId).then((doc) =>
       doc ? doc.populate(VEHICLE_POPULATE) : null
@@ -329,6 +355,7 @@ async function buildCustomerSession({ customerId } = {}) {
     upcomingBookingsForCustomer(customerId),
     outstandingBalanceForCustomer(customerId),
     getSupportPhone().catch(() => null),
+    findRatingPromptJob(customerId).catch(() => null),
   ]);
 
   const activeId = activeServiceRequest ? String(activeServiceRequest._id) : null;
@@ -362,6 +389,10 @@ async function buildCustomerSession({ customerId } = {}) {
     outstanding_job_ids: outstanding.outstanding_job_ids,
     support_phone: supportPhone || null,
     sos_blocked_vehicle_id: liveJob ? liveJobVehicleId(liveJob) : null,
+    // Fee note next to Cancel, from the rule the cancel endpoint enforces (S63).
+    cancel_policy: liveJob ? customerCancelPolicy(liveJob) : null,
+    // Paid, unrated, not yet asked: the app asks once on resume (S76).
+    rating_prompt_job: ratingPromptJob || null,
   };
 }
 
@@ -378,6 +409,7 @@ module.exports = {
   assertCustomerCanCreateSos,
   liveJobVehicleId,
   buildCustomerSession,
+  findRatingPromptJob,
   sessionKind,
   bookingError,
 };

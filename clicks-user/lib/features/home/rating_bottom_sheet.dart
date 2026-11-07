@@ -4,6 +4,7 @@ import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
+import '../../core/sos_services/customer_socket_service.dart';
 
 /// Modal bottom sheet that asks the user to rate the technician.
 /// Matches the Figma design: avatar, stars, text field, Submit button.
@@ -33,6 +34,13 @@ class _RatingBottomSheetState extends State<RatingBottomSheet> {
   bool _submitting = false;
   bool _submitted = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Asked once (scenario 76): the resume prompt will not repeat this job.
+    SessionService.markRatingPrompted(widget.jobId);
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     setState(() => _submitting = true);
@@ -46,6 +54,12 @@ class _RatingBottomSheetState extends State<RatingBottomSheet> {
         },
       );
       if (!mounted) return;
+      final code = response.data is Map ? response.data['code']?.toString() : null;
+      if (code == 'RATING_LOCKED') {
+        // Already rated (another device, or the 24 h edit window passed).
+        widget.onSubmitted();
+        return;
+      }
       if (response.statusCode != 200) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(

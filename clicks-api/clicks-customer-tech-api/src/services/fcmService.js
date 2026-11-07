@@ -11,57 +11,16 @@ let customerInitAttempted = false;
 let warnedMissing = false;
 let warnedCustomerMissing = false;
 
-/** Events that warrant a customer push (skip high-frequency locationUpdate). */
-const CUSTOMER_PUSH_EVENTS = new Set([
-  "technicianAssigned",
-  "technicianAccepted",
-  "technicianEnRoute",
-  "technicianArrived",
-  "jobStarted",
-  "jobCompleted",
-  "jobCancelled",
-  "paymentConfirmed",
-  "sosInCall",
-]);
+const {
+  CUSTOMER_EVENT_NAMES,
+  customerCopyForEvent,
+} = require("../../../clicks-shared/constants/customerEvents");
 
-const CUSTOMER_PUSH_COPY = {
-  technicianAssigned: {
-    title: "Technician assigned",
-    body: "A technician has been assigned to your request.",
-  },
-  technicianAccepted: {
-    title: "Technician confirmed",
-    body: "Your technician accepted the job.",
-  },
-  technicianEnRoute: {
-    title: "On the way",
-    body: "Your technician is heading to your location.",
-  },
-  technicianArrived: {
-    title: "Technician arrived",
-    body: "Your technician has arrived at your location.",
-  },
-  jobStarted: {
-    title: "Service started",
-    body: "Your technician has started working on your vehicle.",
-  },
-  jobCompleted: {
-    title: "Service complete",
-    body: "Your service has been completed. Thank you for using Clicks!",
-  },
-  jobCancelled: {
-    title: "Job cancelled",
-    body: "Your service request was cancelled.",
-  },
-  paymentConfirmed: {
-    title: "Payment received",
-    body: "Payment confirmed. Thank you!",
-  },
-  sosInCall: {
-    title: "Clicks support",
-    body: "An operator is reviewing your request and will call you shortly.",
-  },
-};
+/** Events that warrant a customer push (every inbox event; never locationUpdate). */
+const CUSTOMER_PUSH_EVENTS = new Set(CUSTOMER_EVENT_NAMES);
+
+/** Must match clicks-user `FCMNotificationService` channel id. */
+const CUSTOMER_CHANNEL_ID = "clicks_customer_channel";
 
 function initFirebase() {
   if (initAttempted) return messaging;
@@ -150,29 +109,93 @@ function buildPushData(payload) {
 }
 
 function customerPushCopyForEvent(event, data = {}) {
-  const base = CUSTOMER_PUSH_COPY[event] || {
-    title: "Clicks",
-    body: "You have a new update on your request.",
+  const copy = customerCopyForEvent(event, data);
+  return { title: copy.title, body: copy.body };
+}
+
+/** FCM data values must be strings and the whole message under 4 KB. */
+function scalarPushData(payload = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(payload || {})) {
+    if (v == null) continue;
+    if (typeof v === "object") continue;
+    out[k] = String(v).slice(0, 500);
+  }
+  return out;
+}
+
+/**
+ * One job's (or SOS's) notifications share a tray entry and an iOS thread:
+ * Android replaces by `tag`, iOS groups by `thread-id` and replaces by
+ * `apns-collapse-id` (scenario 73: 6–8 tray entries per job became one).
+ */
+function customerPushGroupKey(push = {}) {
+  const jobId = push.job_id || push.data?.job_id;
+  if (jobId) return `job_${jobId}`;
+  const sosId = push.sos_id || push.data?.sos_id;
+  if (sosId) return `sos_${sosId}`;
+  const ticketId = push.data?.ticket_id;
+  if (ticketId) return `ticket_${ticketId}`;
+  return "clicks";
+}
+
+/**
+ * The customer push (scenario 69): `notification` + `apns` alert blocks so
+ * iOS shows it while the app is backgrounded or closed, an Android
+ * notification on the customer channel with a per-job tag, and the data block
+ * the app routes on. Pure — exported for the payload-shape test.
+ */
+function buildCustomerPushMessage(token, push = {}) {
+  const event = push.event || push.type || "";
+  const fallback = customerPushCopyForEvent(event, push.data || {});
+  const title = String(push.title || fallback.title || "Clicks").slice(0, 120);
+  const body = String(push.body || fallback.body || "").slice(0, 400);
+  const group = customerPushGroupKey(push);
+  const data = {
+    ...scalarPushData(push.data),
+    type: String(push.type || event),
+    event: String(event),
+    title,
+    body,
+    title_ar: String(push.title_ar || ""),
+    body_ar: String(push.body_ar || ""),
+    job_id: String(push.job_id || push.data?.job_id || ""),
+    sos_id: String(push.sos_id || push.data?.sos_id || ""),
+    notification_id: String(push.notification_id || ""),
+    channelId: CUSTOMER_CHANNEL_ID,
+    group,
   };
-  const technicianName =
-    data.technician?.name ||
-    data.technician_name ||
-    (typeof data.technician === "object" && data.technician
-      ? `${data.technician.firstName || ""} ${data.technician.lastName || ""}`.trim()
-      : "");
-  if (technicianName && event === "technicianAssigned") {
-    return {
-      title: base.title,
-      body: `${technicianName} has been assigned to your request.`,
-    };
-  }
-  if (technicianName && event === "technicianAccepted") {
-    return {
-      title: base.title,
-      body: `${technicianName} accepted your job.`,
-    };
-  }
-  return base;
+  return {
+    token,
+    notification: { title, body },
+    data,
+    android: {
+      priority: "high",
+      collapseKey: group,
+      notification: {
+        channelId: CUSTOMER_CHANNEL_ID,
+        tag: group,
+        sound: "default",
+        priority: "high",
+        defaultVibrateTimings: true,
+      },
+    },
+    apns: {
+      headers: {
+        "apns-priority": "10",
+        "apns-push-type": "alert",
+        "apns-collapse-id": group.slice(0, 64),
+      },
+      payload: {
+        aps: {
+          alert: { title, body },
+          sound: "default",
+          "content-available": 1,
+          "thread-id": group,
+        },
+      },
+    },
+  };
 }
 
 async function invalidateCustomerToken(customerId, failedToken) {
@@ -191,14 +214,15 @@ async function invalidateCustomerToken(customerId, failedToken) {
 }
 
 /**
- * Data-only high-priority Android push for customer job/SOS events.
- * Client owns channel UX (clicks_customer_channel).
+ * Customer push for a job/SOS/support event. Called by notifyCustomer()
+ * after the inbox row is written. `push` is { event, title, body, title_ar,
+ * body_ar, job_id, sos_id, notification_id, data }.
  */
-async function sendCustomerPush(customer, payload) {
+async function sendCustomerPush(customer, push = {}) {
   const msg = initCustomerFirebase();
   if (!msg) return false;
 
-  const event = payload?.event || payload?.type || "";
+  const event = push?.event || push?.type || "";
   if (event && !CUSTOMER_PUSH_EVENTS.has(event)) {
     return false;
   }
@@ -234,28 +258,11 @@ async function sendCustomerPush(customer, payload) {
     return false;
   }
 
-  const copy = customerPushCopyForEvent(event, payload?.data || payload || {});
-  const data = buildPushData({
-    ...(payload?.data || {}),
-    ...payload,
-    type: payload?.type || event,
-    event,
-    title: payload?.title || copy.title,
-    body: payload?.body || copy.body,
-    channelId: "clicks_customer_channel",
-  });
-  delete data.data;
-
+  const message = buildCustomerPushMessage(token, push);
   try {
-    await msg.send({
-      token,
-      data,
-      android: {
-        priority: "high",
-      },
-    });
+    await msg.send(message);
     console.log(
-      `[fcm] customer push sent (${event || data.type}) job=${data.job_id || "?"}`
+      `[fcm] customer push sent (${event || message.data.type}) job=${message.data.job_id || "?"}`
     );
     return true;
   } catch (err) {
@@ -604,6 +611,9 @@ module.exports = {
   sendCustomerPush,
   sendAdminDispatchPush,
   customerPushCopyForEvent,
+  buildCustomerPushMessage,
+  customerPushGroupKey,
+  CUSTOMER_CHANNEL_ID,
   initFirebase,
   initCustomerFirebase,
   CUSTOMER_PUSH_EVENTS,

@@ -624,5 +624,25 @@
     "password_number": "Password must contain at least one number",
     "password_special": "Password must contain at least one special character (!@#$%^&*)",
     "password_changed_signed_out_others": "Password changed. Other devices were signed out."
+  },
+  "realtime": {
+    "assigned_banner": "Technician assigned — getting ready",
+    "finding_another": "Your technician couldn't continue. We're finding another technician for you.",
+    "new_technician": "A new technician has been assigned to your job.",
+    "on_hold_banner": "Your job is paused",
+    "on_hold_reason": "Paused: {reason}",
+    "resumed": "Your job has resumed.",
+    "location_stale": "Last updated {minutes} min ago",
+    "location_stale_now": "Waiting for the technician's location…",
+    "eta_hidden": "ETA unavailable",
+    "eta_approx": "~{minutes} min",
+    "cancel_free_note": "Cancelling now is free.",
+    "cancel_fee_amount": "A cancellation fee of QAR {amount} applies.",
+    "cancel_contact_support": "This job is on hold with our team — please call us to cancel it.",
+    "sos_unavailable_title": "Emergency SOS is unavailable right now",
+    "sos_unavailable_body": "Call us and our team will send help straight away.",
+    "call_us": "Call us",
+    "job_cancelled_by_team": "Our team cancelled this job.",
+    "job_cancelled_by_technician": "Your technician cancelled this job."
   }
 }

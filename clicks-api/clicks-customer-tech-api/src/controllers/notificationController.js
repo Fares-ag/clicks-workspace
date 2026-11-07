@@ -4,8 +4,10 @@ const {
   serializeCustomerNotification,
 } = require("../services/notificationRecordService");
 
+// Cleared rows are hidden, not deleted: the inbox is the record of what the
+// customer was told (scenario 73), and its dedupe keys must survive a clear.
 function customerFilter(userId) {
-  return { audience: "customer", customer_id: userId };
+  return { audience: "customer", customer_id: userId, cleared_at: null };
 }
 
 function pageParams(query) {
@@ -76,14 +78,30 @@ const markRead = async (req, res) => {
 
 const clearAll = async (req, res) => {
   try {
-    await Notification.deleteMany(customerFilter(req.user.id));
+    await Notification.updateMany(customerFilter(req.user.id), {
+      $set: { cleared_at: new Date(), read: true },
+    });
     res.json({ message: "ok" });
   } catch (err) {
     res.status(500).json({ error: "Failed to clear notifications", details: err.message });
   }
 };
 
+/** POST /api/notifications/internal/deliver (admin API outbox). */
+const deliverInternal = async (req, res) => {
+  try {
+    const { deliverCustomerNotification } = require("../../../clicks-shared/services/notifyCustomer");
+    const result = await deliverCustomerNotification(req.body || {});
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) console.error("[notifications] internal deliver failed:", err.message);
+    res.status(status).json({ message: err.message || "Delivery failed" });
+  }
+};
+
 module.exports = {
+  deliverInternal,
   listCustomer,
   unreadCount,
   markAllRead,

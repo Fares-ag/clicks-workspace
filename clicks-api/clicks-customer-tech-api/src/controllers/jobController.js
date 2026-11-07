@@ -37,6 +37,7 @@ const {
   customerCancelRefusalMessage,
 } = require("../../../clicks-shared/utils/customerCancelPolicy");
 const { sendJobToGarage } = require("../../../clicks-shared/services/jobGarage");
+const { notifyCustomerSafe } = require("../../../clicks-shared/services/notifyCustomer");
 const {
   MOBILE_JOB_LIST_SELECT,
   MOBILE_JOB_LIST_POPULATE,
@@ -254,15 +255,12 @@ const updateJobStatus = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job_status === "en_route" && job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "technicianEnRoute", {
-          job_id: job._id,
-          status: "en_route",
-          en_route_at: job.en_route_at,
-          technician: technicianTrackingPayload(job.assignedTechnician),
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "technicianEnRoute", {
+        job_id: job._id,
+        status: "en_route",
+        en_route_at: job.en_route_at,
+        technician: technicianTrackingPayload(job.assignedTechnician),
+      });
     }
 
     if (req.user.role === "technician") {
@@ -287,45 +285,128 @@ const updateJobStatus = async (req, res) => {
   }
 };
 
+/** A rating can be changed for this long after it was first given (scenario 76). */
+const RATING_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RATED_PAYMENT_STATUSES = ["paid", "partially_refunded", "refunded"];
+
+/**
+ * One rating per job (scenario 76): only a completed, PAID job can be rated;
+ * the first rating may be edited for 24 hours, then it is locked. Ratings
+ * feed technician performance, so they must not be overwritten at will.
+ */
 const rateJob = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rating, rating_description } = req.body;
-    
-    // Validate rating
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ 
-        error: "Rating is required and must be between 1 and 5" 
+    const rating = Number(req.body?.rating);
+    const description =
+      typeof req.body?.rating_description === "string"
+        ? req.body.rating_description.trim().slice(0, 500)
+        : "";
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        error: "Rating is required and must be between 1 and 5",
+        code: "RATING_INVALID",
       });
     }
-    
-    const job = await Job.findById(id);
+
+    const job = await Job.findById(id).select(
+      "customer_id assignedTechnician job_status payment_status rating rated_at"
+    );
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
     }
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    
-    // Verify job is completed
     if (job.job_status !== "completed") {
-      return res.status(400).json({ 
-        error: "Can only rate completed jobs" 
+      return res.status(400).json({
+        error: "Can only rate completed jobs",
+        code: "RATING_JOB_NOT_COMPLETED",
       });
     }
-    
-    // Update rating and description
-    job.rating = rating;
-    job.rating_description = rating_description || "";
-    await job.save();
-    
-    res.json({ 
-      message: "Job rated successfully", 
-      rating: job.rating,
-      rating_description: job.rating_description
+    if (!RATED_PAYMENT_STATUSES.includes(job.payment_status)) {
+      return res.status(409).json({
+        error: "You can rate this job once it has been paid",
+        code: "RATING_JOB_UNPAID",
+      });
+    }
+
+    const now = new Date();
+    const fields = { rating, rating_description: description };
+
+    // First rating: CAS on "not rated yet", so a double submit rates once.
+    if (job.rating == null) {
+      const first = await Job.findOneAndUpdate(
+        {
+          _id: job._id,
+          $or: [{ rating: null }, { rating: { $exists: false } }],
+        },
+        { $set: { ...fields, rated_at: now } },
+        { new: true, select: "rating rating_description rated_at" }
+      );
+      if (first) {
+        return res.json({
+          message: "Job rated successfully",
+          rating: first.rating,
+          rating_description: first.rating_description,
+          rated_at: first.rated_at,
+          editable_until: new Date(first.rated_at.getTime() + RATING_EDIT_WINDOW_MS),
+        });
+      }
+    }
+
+    // Edit: only within 24 h of the first rating. Legacy ratings with no
+    // rated_at are treated as locked.
+    const fresh = await Job.findById(job._id).select("rating rated_at");
+    const ratedAt = fresh?.rated_at ? new Date(fresh.rated_at) : null;
+    if (!ratedAt || now.getTime() - ratedAt.getTime() > RATING_EDIT_WINDOW_MS) {
+      return res.status(409).json({
+        error: "This job has already been rated",
+        code: "RATING_LOCKED",
+        rating: fresh?.rating ?? null,
+      });
+    }
+    const edited = await Job.findOneAndUpdate(
+      { _id: job._id, rated_at: ratedAt },
+      { $set: { ...fields, rating_edited_at: now } },
+      { new: true, select: "rating rating_description rated_at" }
+    );
+    res.json({
+      message: "Rating updated",
+      rating: edited?.rating ?? rating,
+      rating_description: edited?.rating_description ?? description,
+      rated_at: ratedAt,
+      editable_until: new Date(ratedAt.getTime() + RATING_EDIT_WINDOW_MS),
     });
   } catch (err) {
     res.status(500).json({ error: "Rate job failed", details: err.message });
+  }
+};
+
+/**
+ * POST /api/jobs/:id/rating-prompted — the app showed the "rate your
+ * service" prompt on resume; it is never shown again for this job.
+ */
+const markRatingPrompted = async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id).select("customer_id rating_prompted_at");
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const updated = await Job.findOneAndUpdate(
+      { _id: job._id, rating_prompted_at: null },
+      { $set: { rating_prompted_at: new Date() } },
+      { new: true, select: "rating_prompted_at" }
+    );
+    res.json({
+      message: "ok",
+      rating_prompted_at: (updated || job).rating_prompted_at,
+      already_prompted: !updated,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to record rating prompt", details: err.message });
   }
 };
 
@@ -340,7 +421,22 @@ const getJobById = async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
     const priced = await withPricing(job);
-    res.json({ job: priced, pricing: priced.pricing });
+    const body = { job: priced, pricing: priced.pricing };
+    if (req.user?.role === "customer") {
+      // Tracking reloads read the fee note from here too (scenario 63).
+      const { customerCancelPolicy } = require("../../../clicks-shared/utils/customerCancelPolicy");
+      body.cancel_policy = customerCancelPolicy(job);
+      // The tracking poll follows THIS job (two live jobs, scenario 62) and
+      // needs the technician's position and when it was last reported (59).
+      if (job.assignedTechnician) {
+        const Technician = require("../../../clicks-shared/models/Technician");
+        const tech = await Technician.findById(job.assignedTechnician)
+          .select("firstName lastName phone profilePicture currentLocation lastLocationAt")
+          .lean();
+        if (tech) body.job = { ...body.job, assignedTechnician: tech };
+      }
+    }
+    res.json(body);
   } catch (err) {
     res.status(500).json({ error: "Fetch job failed", details: err.message });
   }
@@ -478,10 +574,13 @@ const markCompleted = async (req, res) => {
     let updated;
     let receipt;
     try {
+      // completeJob tells the customer (jobCompleted) — the same call an
+      // admin completion makes, so both paths notify identically.
       ({ job: updated, receipt } = await completeJobService({
         jobId: id,
         fromStatuses: ["in_progress"],
         set: completionSet,
+        completedBy: "technician",
       }));
     } catch (completeErr) {
       if (isCompletionCasMiss(completeErr)) {
@@ -510,9 +609,7 @@ const markCompleted = async (req, res) => {
     });
 
     const assignedTechnician = updated.assignedTechnician;
-    const customerId = updated.customer_id;
     const completedJobId = updated._id.toString();
-    const paymentStatus = updated.payment_status;
     setImmediate(() => {
       (async () => {
         if (assignedTechnician) {
@@ -524,16 +621,6 @@ const markCompleted = async (req, res) => {
           const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
           if (typeof notifyPresence === "function") {
             await notifyPresence(assignedTechnician, nextStatus);
-          }
-        }
-        if (customerId) {
-          const notify = req.app.get("notifyCustomerJobEvent");
-          if (typeof notify === "function") {
-            await notify(customerId.toString(), "jobCompleted", {
-              job_id: completedJobId,
-              job_status: "completed",
-              payment_status: paymentStatus,
-            });
           }
         }
       })().catch((err) => {
@@ -578,14 +665,11 @@ const markArrived = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "technicianArrived", {
-          job_id: job._id,
-          status: "arrived",
-          arrived_at: job.arrived_at,
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "technicianArrived", {
+        job_id: job._id,
+        status: "arrived",
+        arrived_at: job.arrived_at,
+      });
     }
 
     recordTechnicianActivity({
@@ -673,15 +757,12 @@ const startJob = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "jobStarted", {
-          job_id: job._id,
-          status: "in_progress",
-          started_at: job.started_at,
-          issue: job.issue || "",
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "jobStarted", {
+        job_id: job._id,
+        status: "in_progress",
+        started_at: job.started_at,
+        issue: job.issue || "",
+      });
     }
 
     recordTechnicianActivity({
@@ -889,10 +970,11 @@ const findNearbyTechnicians = async (req, res) => {
   }
 };
 
+// cancelJob tells the customer itself (notifyCustomer); the notifier only
+// carries the technician-side and Live Map side effects.
 function cancelNotifierFromReq(req) {
   return {
     technicianPresence: req.app.get("notifyAdminTechnicianPresence"),
-    customerJobEvent: req.app.get("notifyCustomerJobEvent"),
     technicianJobEvent: req.app.get("notifyTechnicianJobEvent"),
   };
 }
@@ -1009,6 +1091,7 @@ const cancelJobByTechnician = async (req, res) => {
           technician_id: String(req.user.id),
           sos_id: job.sos_request_id ? String(job.sos_request_id) : null,
           reason,
+          released_at: released.releasedAt || released.job?.updatedAt,
         });
       } catch (notifyErr) {
         console.error("Failed to notify redispatch:", notifyErr.message);
@@ -1089,7 +1172,7 @@ const confirmPayment = async (req, res) => {
     // Idempotency — already paid (do not set Online; tech stays On Job until complete)
     if (isJobPaid(job)) return alreadyPaidResponse(job);
 
-    const notify = req.app.get("notifyCustomerJobEvent");
+    const notify = notifyCustomerSafe;
     const open = await pendingAttempts({ jobId: job._id });
     if (open.length) {
       const check = await liveCheckJobAttempts(job._id, {
@@ -1784,13 +1867,12 @@ const sendCustomerJobToGarage = async (req, res) => {
       }
     }
 
-    const notify = req.app.get("notifyCustomerJobEvent");
-    if (typeof notify === "function" && job.customer_id) {
-      await notify(job.customer_id.toString(), "jobAtGarage", {
-        job_id: job._id,
-        garage: job.garage,
-        job_status: job.job_status,
-      });
+    if (job.customer_id) {
+      await notifyCustomerSafe(
+        job.customer_id,
+        "jobAtGarage",
+        require("../../../clicks-shared/services/jobGarage").garageCustomerPayload(job, "at_garage")
+      );
     }
     notifyAdminJobStatusFromReq(req, job);
 
@@ -1814,6 +1896,7 @@ module.exports = {
   updateJobDetails,
   uploadCustomerSignature,
   rateJob,
+  markRatingPrompted,
   getJobById,
   markArrived,
   startJob,

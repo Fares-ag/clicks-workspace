@@ -1,4 +1,6 @@
 import 'package:clicks_user/core/helper/assets_manager.dart';
+import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
@@ -43,17 +45,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Home is a session screen: a resync from here opens a live job that
+    // appeared meanwhile, and asks once about a paid, unrated job (S76).
+    ActiveSessionScreen.enter(
+      Routes.home,
+      null,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<SettingsCubit>().getProfile(
             context,
             showLoading: false,
           );
+      SessionSync.instance.promptRatingFromHome();
     });
   }
 
   @override
   void dispose() {
+    ActiveSessionScreen.leave(Routes.home);
     WidgetsBinding.instance.removeObserver(this);
     _activityCubit.close();
     super.dispose();

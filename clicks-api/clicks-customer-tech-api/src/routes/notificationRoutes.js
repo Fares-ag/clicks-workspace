@@ -1,7 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const { authenticate } = require("../middleware/auth");
+const { authenticateInternal } = require("../middleware/internalAuth");
 const notificationController = require("../controllers/notificationController");
+
+// Admin API outbox (CUSTOMER_NOTIFY): deliver an inbox row it already wrote
+// over this API's socket room + customer push. Idempotent per notification.
+router.post(
+  "/internal/deliver",
+  authenticateInternal,
+  notificationController.deliverInternal
+);
 
 router.get("/customer", authenticate(["customer"]), notificationController.listCustomer);
 router.get(

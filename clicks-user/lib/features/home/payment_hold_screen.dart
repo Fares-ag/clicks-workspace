@@ -2,6 +2,7 @@ import 'package:clicks_user/core/api/dio_helper.dart';
 import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:clicks_user/features/activity/models/job_history_response.dart';
@@ -52,8 +53,21 @@ class _PaymentHoldScreenState extends State<PaymentHoldScreen> {
   @override
   void initState() {
     super.initState();
+    // A session screen: a resync (resume / reconnect) that finds the job paid
+    // elsewhere (cash confirmed, card webhook) moves on from here.
+    ActiveSessionScreen.enter(
+      Routes.paymentHold,
+      args.jobId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     _total = args.price;
     _refreshTotal();
+  }
+
+  @override
+  void dispose() {
+    ActiveSessionScreen.leave(Routes.paymentHold, args.jobId);
+    super.dispose();
   }
 
   Future<void> _refreshTotal() async {

@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../firebase_options.dart';
+import 'session_sync.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -27,7 +28,23 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     _log('⚠️ Background Firebase init failed: $e');
   }
   _log('🔔 Background message received: ${message.messageId}');
+  // The server sends a `notification` block (scenario 69): the OS already
+  // shows it in the tray, grouped per job. Showing a local copy too gave the
+  // customer two entries for every update (scenario 73).
+  if (message.notification != null) return;
   await _showNotificationFromBackground(message);
+}
+
+/// One tray slot per job / SOS: a new update for the same job replaces the
+/// previous entry instead of stacking 6–8 of them (scenario 73).
+int customerNotificationIdFor(Map<String, dynamic> data) {
+  final group = data['group']?.toString() ??
+      (data['job_id']?.toString().isNotEmpty == true
+          ? 'job_${data['job_id']}'
+          : data['sos_id']?.toString().isNotEmpty == true
+              ? 'sos_${data['sos_id']}'
+              : 'clicks');
+  return group.hashCode & 0x7fffffff;
 }
 
 /// Standalone function to show notification from background isolate
@@ -77,7 +94,7 @@ Future<void> _showNotificationFromBackground(RemoteMessage message) async {
   );
 
   await flutterLocalNotificationsPlugin.show(
-    message.hashCode,
+    customerNotificationIdFor(data),
     title,
     body,
     NotificationDetails(android: androidDetails),
@@ -109,8 +126,32 @@ class FCMNotificationService {
 
   // Callbacks for handling notifications
   Function(Map<String, dynamic> data)? onNotificationReceived;
-  Function(Map<String, dynamic> data)? onNotificationTapped;
   Function(String? token)? onTokenRefresh;
+
+  Function(Map<String, dynamic> data)? _onNotificationTapped;
+  Map<String, dynamic>? _pendingTap;
+
+  /// Tap handler. A tap that arrives before the handler is set (the tap that
+  /// cold-started the app) is kept and delivered as soon as it is set.
+  Function(Map<String, dynamic> data)? get onNotificationTapped =>
+      _onNotificationTapped;
+  set onNotificationTapped(Function(Map<String, dynamic> data)? handler) {
+    _onNotificationTapped = handler;
+    final pending = _pendingTap;
+    if (handler != null && pending != null) {
+      _pendingTap = null;
+      handler(pending);
+    }
+  }
+
+  void _deliverTap(Map<String, dynamic> data) {
+    final handler = _onNotificationTapped;
+    if (handler == null) {
+      _pendingTap = data;
+    } else {
+      handler(data);
+    }
+  }
 
   /// Initialize FCM and local notifications
   Future<void> initialize() async {
@@ -138,10 +179,25 @@ class FCMNotificationService {
     // Handle notification tap when app is in background or terminated
     FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
 
-    // Check if app was opened from a notification
+    // App cold-started from a tap: an OS-shown push (FCM) or a local
+    // notification we showed (getNotificationAppLaunchDetails) — scenario 72.
     final initialMessage = await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
       _handleNotificationTap(initialMessage);
+    } else {
+      try {
+        final launch =
+            await _localNotifications.getNotificationAppLaunchDetails();
+        final payload = launch?.notificationResponse?.payload;
+        if ((launch?.didNotificationLaunchApp ?? false) &&
+            payload != null &&
+            payload.isNotEmpty) {
+          final data = jsonDecode(payload);
+          if (data is Map) _deliverTap(Map<String, dynamic>.from(data));
+        }
+      } catch (e) {
+        _log('⚠️ launch details unavailable: $e');
+      }
     }
 
     // Listen for token refresh
@@ -212,7 +268,7 @@ class FCMNotificationService {
 
     try {
       final data = jsonDecode(response.payload!) as Map<String, dynamic>;
-      onNotificationTapped?.call(data);
+      _deliverTap(data);
     } catch (e) {
       _log('❌ Error parsing notification payload: $e');
     }
@@ -223,8 +279,15 @@ class FCMNotificationService {
     _log('🔔 Foreground message received: ${message.messageId}');
     _log('📋 Data: ${message.data}');
 
-    // Show local notification
-    _showLocalNotification(message);
+    // Foreground: no banner when the customer is already looking at this
+    // job / SOS — the screen updates itself (scenario 73).
+    final data = message.data;
+    final onScreen = ActiveSessionScreen.isOnTop &&
+        ActiveSessionScreen.shows(
+          jobId: data['job_id']?.toString(),
+          sosId: data['sos_id']?.toString(),
+        );
+    if (!onScreen) _showLocalNotification(message);
 
     // Trigger callback
     onNotificationReceived?.call(message.data);
@@ -234,7 +297,7 @@ class FCMNotificationService {
   void _handleNotificationTap(RemoteMessage message) {
     _log('🔔 Notification tapped via FCM: ${message.messageId}');
     _log('📋 Data: ${message.data}');
-    onNotificationTapped?.call(message.data);
+    _deliverTap(Map<String, dynamic>.from(message.data));
   }
 
   /// Show a local notification
@@ -263,7 +326,7 @@ class FCMNotificationService {
     );
 
     await _localNotifications.show(
-      message.hashCode,
+      customerNotificationIdFor(data),
       title,
       body,
       NotificationDetails(

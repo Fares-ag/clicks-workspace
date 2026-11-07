@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/customer_notification_router.dart';
 import 'package:clicks_user/core/services/session_resume.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
+import 'package:clicks_user/core/sos_services/event_scope.dart';
 import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/core/sos_services/sos_support_contact.dart';
@@ -38,9 +41,16 @@ class _FindingTechnicianScreenState extends State<FindingTechnicianScreen> {
   bool _busy = false;
   bool _navigating = false;
 
+  late final EventScope _scope = EventScope(jobId: widget.args.jobId);
+
   @override
   void initState() {
     super.initState();
+    ActiveSessionScreen.enter(
+      Routes.findingTechnician,
+      widget.args.jobId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<SosCubit>().socketService.ensureConnected();
@@ -50,6 +60,7 @@ class _FindingTechnicianScreenState extends State<FindingTechnicianScreen> {
 
   @override
   void dispose() {
+    ActiveSessionScreen.leave(Routes.findingTechnician, widget.args.jobId);
     _poll?.cancel();
     super.dispose();
   }
@@ -58,17 +69,27 @@ class _FindingTechnicianScreenState extends State<FindingTechnicianScreen> {
   Future<void> _check() async {
     if (_navigating || !mounted) return;
     try {
-      final session = await SessionService.getCustomerSession();
+      // Follow THIS job, not the session's "live job" — with two cars the
+      // session may be describing the other one (scenario 62).
+      final res = await SessionService.getJob(widget.args.jobId);
       if (!mounted) return;
-      SosSupportContact.updateFrom(session);
-      final job = session['live_job'];
-      final stillPending = job is Map &&
-          (job['_id'] ?? job['id'])?.toString() == widget.args.jobId &&
-          job['job_status']?.toString() == 'pending';
-      if (stillPending) return;
+      final job = res?['job'];
+      if (job is! Map) return;
+      if (job['job_status']?.toString() == 'pending') return;
       _navigating = true;
       _poll?.cancel();
-      await SessionResume.go(context, session);
+      final asSession = CustomerNotificationRouter.sessionForJob(
+        Map<String, dynamic>.from(job),
+        res?['cancel_policy'],
+      );
+      if (asSession == null) {
+        if (job['job_status']?.toString() == 'cancelled') {
+          AppSnackBars.errorSnackBar('dispatch.job_cancelled'.tr());
+        }
+        context.offAllNamed(Routes.home);
+        return;
+      }
+      await SessionResume.go(context, asSession);
     } catch (_) {}
   }
 
@@ -97,6 +118,7 @@ class _FindingTechnicianScreenState extends State<FindingTechnicianScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: BlocListener<SosCubit, SosState>(
+        listenWhen: (_, state) => _scope.matchesState(state),
         listener: (context, state) {
           if (state is TechnicianAssigned ||
               state is TechnicianAccepted ||

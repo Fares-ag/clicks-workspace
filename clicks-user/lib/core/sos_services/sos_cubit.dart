@@ -38,7 +38,8 @@ class SosInCall extends SosState {
 class TechnicianAssigned extends SosState {
   final Map<String, dynamic> technicianInfo;
   final String jobId;
-  TechnicianAssigned(this.technicianInfo, this.jobId);
+  final String sosId;
+  TechnicianAssigned(this.technicianInfo, this.jobId, {this.sosId = ''});
 }
 
 class TechnicianAccepted extends SosState {
@@ -60,7 +61,9 @@ class LocationUpdated extends SosState {
   final double longitude;
   final double heading;
   final String jobId;
-  LocationUpdated(this.latitude, this.longitude, this.heading, this.jobId);
+  /// When the technician's phone reported this fix (server time), if sent.
+  final DateTime? at;
+  LocationUpdated(this.latitude, this.longitude, this.heading, this.jobId, {this.at});
 }
 
 class TechnicianArrived extends SosState {
@@ -83,7 +86,10 @@ class JobCompleted extends SosState {
   final double totalAmount;
   final Map<String, dynamic>? receipt;
   final Map<String, dynamic>? technician;
-  JobCompleted(this.jobId, this.totalAmount, this.receipt, this.technician);
+  /// `paid` (incl. membership-covered) → ask for a rating; otherwise pay first.
+  final String paymentStatus;
+  JobCompleted(this.jobId, this.totalAmount, this.receipt, this.technician,
+      {this.paymentStatus = ''});
 }
 
 class PaymentConfirmed extends SosState {
@@ -92,13 +98,50 @@ class PaymentConfirmed extends SosState {
   PaymentConfirmed(this.jobId, this.paymentStatus);
 }
 
-class SosExpired extends SosState {}
+class SosExpired extends SosState {
+  final String sosId;
+  SosExpired({this.sosId = ''});
+}
 
-class SosCancelled extends SosState {}
+class SosCancelled extends SosState {
+  final String sosId;
+  SosCancelled({this.sosId = ''});
+}
 
 class JobCancelled extends SosState {
   final String jobId;
-  JobCancelled(this.jobId);
+  final String sosId;
+  /// customer | technician | admin (any actor, scenario 50).
+  final String cancelledBy;
+  JobCancelled(this.jobId, {this.sosId = '', this.cancelledBy = ''});
+}
+
+/// The technician handed the job back / rejected it: dispatch is finding
+/// another one (scenario 46).
+class JobReassigning extends SosState {
+  final String jobId;
+  final String sosId;
+  JobReassigning(this.jobId, {this.sosId = ''});
+}
+
+/// Dispatch paused the job (parts, garage closed) — scenario 49.
+class JobOnHold extends SosState {
+  final String jobId;
+  final String reason;
+  JobOnHold(this.jobId, this.reason);
+}
+
+class JobResumed extends SosState {
+  final String jobId;
+  final String jobStatus;
+  JobResumed(this.jobId, this.jobStatus);
+}
+
+/// No operator yet after the escalation ladder: show the call card (S38/40).
+class SosStillConnecting extends SosState {
+  final String sosId;
+  final String message;
+  SosStillConnecting(this.sosId, this.message);
 }
 
 class JobAtGarage extends SosState {
@@ -220,6 +263,12 @@ class SosCubit extends Cubit<SosState> {
   Map<String, dynamic>? _asMap(dynamic raw) =>
       raw is Map ? Map<String, dynamic>.from(raw) : null;
 
+  static String _str(dynamic data, String key) {
+    if (data is! Map) return '';
+    final v = data[key];
+    return v == null ? '' : v.toString();
+  }
+
   void _setupSocketListeners() {
     socketService.onSosCreated = (data) {
       _log('📱 SOS Created: ${data['sos_id']}');
@@ -238,13 +287,44 @@ class SosCubit extends Cubit<SosState> {
     socketService.onSosInCall = (data) {
       _log('📞 SOS In Call');
       if (isClosed) return;
-      emit(SosInCall(data['sos_id']));
+      final id = _str(data, 'sos_id');
+      if (sosId == null || sosId!.isEmpty) sosId = id;
+      emit(SosInCall(id));
     };
 
     socketService.onTechnicianAssigned = (data) {
       _log('🔧 Technician Assigned');
       if (isClosed) return;
-      emit(TechnicianAssigned(data['technician'], data['job_id']));
+      emit(TechnicianAssigned(
+        _asMap(data is Map ? data['technician'] : null) ?? <String, dynamic>{},
+        _str(data, 'job_id'),
+        sosId: _str(data, 'sos_id'),
+      ));
+    };
+
+    socketService.onJobReassigning = (data) {
+      if (isClosed) return;
+      emit(JobReassigning(_str(data, 'job_id'), sosId: _str(data, 'sos_id')));
+    };
+
+    socketService.onJobOnHold = (data) {
+      if (isClosed) return;
+      emit(JobOnHold(_str(data, 'job_id'), _str(data, 'hold_reason')));
+    };
+
+    socketService.onJobResumed = (data) {
+      if (isClosed) return;
+      emit(JobResumed(
+        _str(data, 'job_id'),
+        _str(data, 'job_status').isNotEmpty ? _str(data, 'job_status') : _str(data, 'status'),
+      ));
+    };
+
+    socketService.onSosStillConnecting = (data) {
+      if (isClosed) return;
+      final map = _asMap(data);
+      SosSupportContact.updateFrom(map);
+      emit(SosStillConnecting(_str(data, 'sos_id'), _str(data, 'message')));
     };
 
     socketService.onTechnicianAccepted = (data) {
@@ -286,8 +366,9 @@ class SosCubit extends Cubit<SosState> {
         LocationUpdated(
           lat,
           lng,
-          (data['heading'] ?? 0).toDouble(),
-          data['job_id'],
+          ((data['heading'] ?? 0) as num).toDouble(),
+          _str(data, 'job_id'),
+          at: DateTime.tryParse(_str(data, 'timestamp'))?.toLocal(),
         ),
       );
     };
@@ -335,6 +416,7 @@ class SosCubit extends Cubit<SosState> {
           double.tryParse('${map['total_amount'] ?? ''}') ?? 0,
           _asMap(map['receipt']),
           _asMap(map['technician']),
+          paymentStatus: map['payment_status']?.toString() ?? '',
         ),
       );
     };
@@ -348,7 +430,7 @@ class SosCubit extends Cubit<SosState> {
     socketService.onSosCancelled = (data) {
       _log('❌ SOS Cancelled');
       if (isClosed) return;
-      emit(SosCancelled());
+      emit(SosCancelled(sosId: _str(data, 'sos_id')));
     };
 
     socketService.onError = (data) {
@@ -367,7 +449,11 @@ class SosCubit extends Cubit<SosState> {
     socketService.onJobCancelled = (data) {
       _log('❌ Job Cancelled');
       if (isClosed) return;
-      emit(JobCancelled(data['job_id']?.toString() ?? ''));
+      emit(JobCancelled(
+        _str(data, 'job_id'),
+        sosId: _str(data, 'sos_id'),
+        cancelledBy: _str(data, 'cancelled_by'),
+      ));
     };
 
     socketService.onJobAtGarage = (data) {

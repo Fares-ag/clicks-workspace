@@ -42,7 +42,18 @@ class CustomerSocketService {
   void Function(dynamic)? onSosScheduled;
   void Function(dynamic)? onSosClosed;
   void Function(dynamic)? onJobCancelled;
+  void Function(dynamic)? onJobReassigning;
+  void Function(dynamic)? onJobOnHold;
+  void Function(dynamic)? onJobResumed;
+  void Function(dynamic)? onSosStillConnecting;
   void Function(dynamic)? onError;
+
+  /// Fires after the socket comes back from a drop (not the first connect).
+  /// Events sent while it was down are gone — listeners re-fetch the session
+  /// (scenarios 58, 65).
+  final StreamController<void> _reconnects = StreamController<void>.broadcast();
+  Stream<void> get reconnects => _reconnects.stream;
+  bool _connectedOnce = false;
 
   bool get isConnected => _socket?.connected ?? false;
 
@@ -82,6 +93,10 @@ class CustomerSocketService {
       _log('✅ Customer WebSocket Connected');
       _authRetries = 0;
       _socket!.emit('register');
+      // A rebuilt socket (reconnect() / token refresh) connects with
+      // onConnect, not onReconnect — both mean events may have been missed.
+      if (_connectedOnce) _reconnects.add(null);
+      _connectedOnce = true;
     });
 
     _socket!.onDisconnect((reason) {
@@ -110,6 +125,7 @@ class CustomerSocketService {
     _socket!.onReconnect((_) {
       _log('🔄 Customer WebSocket reconnected');
       _socket!.emit('register');
+      _reconnects.add(null);
     });
 
     _setupEventListeners();
@@ -222,8 +238,28 @@ class CustomerSocketService {
     });
 
     _socket!.on('jobCancelled', (data) {
-      _log('❌ Job Cancelled by Admin: $data');
+      _log('❌ Job Cancelled: $data');
       onJobCancelled?.call(data);
+    });
+
+    _socket!.on('jobReassigning', (data) {
+      _log('🔁 Job Reassigning: $data');
+      onJobReassigning?.call(data);
+    });
+
+    _socket!.on('jobOnHold', (data) {
+      _log('⏸️ Job On Hold: $data');
+      onJobOnHold?.call(data);
+    });
+
+    _socket!.on('jobResumed', (data) {
+      _log('▶️ Job Resumed: $data');
+      onJobResumed?.call(data);
+    });
+
+    _socket!.on('sosStillConnecting', (data) {
+      _log('📞 SOS still connecting: $data');
+      onSosStillConnecting?.call(data);
     });
 
     _socket!.on('error', (data) {
@@ -386,6 +422,37 @@ class SessionService {
         tags: const {'component': 'customer_session'},
       );
       rethrow;
+    }
+  }
+
+  /// One job by id: `{job, pricing, cancel_policy}`, or null on any failure.
+  /// Used where the screen must follow ITS job (two live jobs, scenario 62)
+  /// rather than "the" active job.
+  static Future<Map<String, dynamic>?> getJob(String jobId) async {
+    if (jobId.isEmpty) return null;
+    try {
+      final response = await DioHelper.getData(url: '/api/jobs/$jobId');
+      final status = response.statusCode ?? 0;
+      final data = response.data;
+      if (status < 200 || status >= 300 || data is! Map) return null;
+      return Map<String, dynamic>.from(data);
+    } catch (e) {
+      _log('❌ SessionService.getJob error: $e');
+      return null;
+    }
+  }
+
+  /// Records that the "rate your service" prompt was shown (asked once).
+  static Future<void> markRatingPrompted(String jobId) async {
+    if (jobId.isEmpty) return;
+    try {
+      await DioHelper.postData(
+        url: '/api/jobs/$jobId/rating-prompted',
+        data: const {},
+        auth: true,
+      );
+    } catch (e) {
+      _log('❌ SessionService.markRatingPrompted error: $e');
     }
   }
 

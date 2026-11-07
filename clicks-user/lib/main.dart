@@ -9,6 +9,8 @@ import 'package:clicks_user/core/monitoring/sentry_config.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/services/customer_notification_router.dart';
 import 'package:clicks_user/core/services/fcm_notification_service.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
+import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -63,6 +65,9 @@ Future<void> _bootstrap() async {
   DioHelper.onAccountInactive = AuthSession.openAccountInactive;
   DioHelper.onUpdateRequired = AuthSession.openForceUpdate;
   AuthLifecycleObserver.instance.attach();
+  // Re-fetch the session on socket reconnect and on app resume, so a screen
+  // never stays on "en route" after the technician arrived (scenarios 58, 65).
+  SessionSync.instance.attach(CustomerSocketService());
 
   // Flutter web: inject Maps JS (same key as admin / tech apps).
   await ensureGoogleMapsLoaded(AppConfig.googleMapsApiKey);
@@ -103,6 +108,9 @@ void _initializeFCMInBackground() {
       fcmService.onNotificationReceived = (data) {
         _log('📱 Notification received: ${data['event'] ?? data['type']}');
       };
+      // Setting the handler also delivers a tap that cold-started the app
+      // (getInitialMessage / getNotificationAppLaunchDetails), which fired
+      // before this line ran and used to be lost (scenario 72).
       fcmService.onNotificationTapped = (data) {
         CustomerNotificationRouter.handleTap(data);
       };

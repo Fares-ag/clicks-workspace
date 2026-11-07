@@ -8,7 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/routing/routes.dart';
+import '../../core/services/session_sync.dart';
+import '../../core/sos_services/event_scope.dart';
 import '../settings/ui/cubit/settings_cubit.dart';
+import 'finding_technician_screen.dart';
 import 'job_in_progress_screen.dart';
 import '../../core/helper/technician_location.dart';
 import 'technician_tracking_screen.dart';
@@ -27,14 +30,30 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
   bool _techAssigned = false;
   String _techName = '';
 
+  late final String? _sosId = context.read<SosCubit>().sosId;
+
+  /// This SOS, and once dispatched, its job (scenario 62).
+  EventScope get _scope => EventScope(jobId: jobId, sosId: _sosId);
+
   @override
   void initState() {
     super.initState();
+    ActiveSessionScreen.enter(
+      Routes.inCall,
+      _sosId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     // Outstanding balance (scenario 91) and the served support number, when
     // the screen is reached from resume rather than straight from createSOS.
     context.read<SosCubit>().refreshSessionExtras().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    ActiveSessionScreen.leave(Routes.inCall, _sosId);
+    super.dispose();
   }
 
   double _parseDouble(dynamic v) {
@@ -62,8 +81,14 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
     return Scaffold(
       backgroundColor: bg,
       body: BlocListener<SosCubit, SosState>(
+        listenWhen: (_, state) => _scope.matchesState(state),
         listener: (context, state) {
-          if (state is JobCancelled ||
+          if (state is JobReassigning) {
+            context.offNamed(
+              Routes.findingTechnician,
+              arguments: FindingTechnicianArgs(jobId: state.jobId),
+            );
+          } else if (state is JobCancelled ||
               state is SosCancelled ||
               state is SosClosed) {
             AppSnackBars.errorSnackBar('home.sos_cancelled'.tr());
@@ -94,11 +119,13 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
             final (techLat, techLng) = TechnicianLocation.latLngFrom(ti);
             context.offNamed(
               Routes.technicianTracking,
+              // No made-up Doha point: the tracking screen loads the job's
+              // own coordinates when this phone has no fix (scenario 61).
               arguments: TrackingArgs(
                 jobId: state.jobId,
                 techInfo: ti,
-                customerLat: position?.latitude ?? 25.2854,
-                customerLng: position?.longitude ?? 51.5310,
+                customerLat: position?.latitude,
+                customerLng: position?.longitude,
                 initialPhase: 'en_route',
                 techLat: techLat,
                 techLng: techLng,
@@ -112,8 +139,8 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
               arguments: TrackingArgs(
                 jobId: state.jobId,
                 techInfo: techInfo ?? {},
-                customerLat: position?.latitude ?? 25.2854,
-                customerLng: position?.longitude ?? 51.5310,
+                customerLat: position?.latitude,
+                customerLng: position?.longitude,
                 initialPhase: 'arrived',
               ),
             );

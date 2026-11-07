@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-const axios = require("axios");
 const SOSRequest = require("../models/SOSRequest");
 const Customer = require("../models/Customer");
 const CustomerVehicle = require("../../../clicks-shared/models/CustomerVehicle");
@@ -156,18 +155,16 @@ async function attachUpcoming(mapped) {
   return mapped;
 }
 
+// sosScheduled / sosClosed: inbox row now, socket + push via the outbox to
+// the tech API (scenario 74: these used to be socket-only).
 async function notifyCustomerOutcome({ sos_id, customer_id, event, payload }) {
-  try {
-    const customerTechApiUrl =
-      process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-    await axios.post(
-      `${customerTechApiUrl}/api/sos/notify-outcome`,
-      { sos_id, customer_id, event, payload },
-      { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-    );
-  } catch (notifyErr) {
-    console.error("Failed to notify SOS outcome:", notifyErr.message);
-  }
+  const { notifyCustomerSafe } = require("../../../clicks-shared/services/notifyCustomer");
+  await notifyCustomerSafe(String(customer_id), event, { sos_id, ...(payload || {}) });
+}
+
+async function notifyClaim(body) {
+  const { postToTechApi } = require("../utils/techApiNotify");
+  await postToTechApi("/api/sos/notify-claim", body);
 }
 
 const getSOSRequests = async (req, res) => {
@@ -350,21 +347,11 @@ const claimSOS = async (req, res) => {
       .populate("claimed_by", "firstName lastName email")
       .populate("job_id", "job_status");
 
-    try {
-      const customerTechApiUrl =
-        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-      await axios.post(
-        `${customerTechApiUrl}/api/sos/notify-claim`,
-        {
-          sos_id: sos._id.toString(),
-          admin_id: String(adminId),
-          customer_id: String(sos.customer_id),
-        },
-        { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-      );
-    } catch (notifyErr) {
-      console.error("Failed to notify SOS claim over socket:", notifyErr.message);
-    }
+    await notifyClaim({
+      sos_id: sos._id.toString(),
+      admin_id: String(adminId),
+      customer_id: String(sos.customer_id),
+    });
 
     res.json({
       message: "SOS claimed",
@@ -426,21 +413,11 @@ const takeoverSOS = async (req, res) => {
       ),
     });
 
-    try {
-      const customerTechApiUrl =
-        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-      await axios.post(
-        `${customerTechApiUrl}/api/sos/notify-claim`,
-        {
-          sos_id: prior._id.toString(),
-          admin_id: String(adminId),
-          customer_id: String(prior.customer_id),
-        },
-        { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-      );
-    } catch (notifyErr) {
-      console.error("Failed to notify SOS takeover:", notifyErr.message);
-    }
+    await notifyClaim({
+      sos_id: prior._id.toString(),
+      admin_id: String(adminId),
+      customer_id: String(prior.customer_id),
+    });
 
     const populated = await SOSRequest.findById(prior._id)
       .populate("customer_id", "first_name last_name phone_number email")

@@ -13,6 +13,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/helper/app_snack_bars.dart';
 import '../../core/routing/routes.dart';
+import '../../core/services/session_sync.dart';
+import '../../core/sos_services/event_scope.dart';
 
 class TimerSosScreen extends StatefulWidget {
   final bool isEmergency;
@@ -38,9 +40,26 @@ class _TimerSosScreenState extends State<TimerSosScreen> {
 
   bool get isEmergency => widget.isEmergency;
 
+  late final String? _sosId = context.read<SosCubit>().sosId;
+
+  /// Only this SOS's events (scenario 62): another job's cancel must not
+  /// abandon a live SOS in the UI.
+  late final EventScope _scope = EventScope(sosId: _sosId);
+
+  @override
+  void dispose() {
+    ActiveSessionScreen.leave(Routes.timerSos, _sosId);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    ActiveSessionScreen.enter(
+      Routes.timerSos,
+      _sosId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     final cubit = context.read<SosCubit>();
     // Picks up the served support number and any outstanding balance when
     // the screen is opened from resume rather than straight after createSOS.
@@ -58,8 +77,13 @@ class _TimerSosScreenState extends State<TimerSosScreen> {
     final outstanding = context.read<SosCubit>().outstandingBalance;
     return Scaffold(
       body: BlocListener<SosCubit, SosState>(
+        listenWhen: (_, state) => _scope.matchesState(state),
         listener: (context, state) {
-          if (state is SosInCall) {
+          if (state is SosStillConnecting) {
+            // Escalation ladder step 3: nobody has picked up — offer the
+            // call card now, with the number the server sent (S38/40).
+            setState(() => _showCallCard = true);
+          } else if (state is SosInCall) {
             context.pop();
             context.toNamed(Routes.inCall);
           } else if (state is JobCancelled ||

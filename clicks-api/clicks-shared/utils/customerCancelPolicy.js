@@ -36,8 +36,44 @@ function customerCancelRefusalMessage(code) {
   return "Work has already started — please contact support";
 }
 
+/** Configured late-cancel fee in QAR, or null when none is set. */
+function configuredCancelFeeQar() {
+  const raw = process.env.CUSTOMER_CANCEL_FEE_QAR;
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+/**
+ * What the app shows next to "Cancel" (scenario 63): derived from the same
+ * decision the cancel endpoint enforces, so the screen can never threaten a
+ * fee the server would not record (or hide one it would).
+ *
+ *   kind: "free" | "fee" | "contact_support" | "none"
+ *   fee_amount: QAR when kind is "fee" and an amount is configured, else null
+ */
+function customerCancelPolicy(job) {
+  const status = String(job?.job_status || "").trim();
+  if (!status) return { kind: "none", allowed: false, code: "NO_JOB", fee_amount: null };
+  const decision = customerCancelDecision(status);
+  let kind = "none";
+  if (decision.allowed && !decision.fee) kind = "free";
+  else if (decision.allowed && decision.fee) kind = "fee";
+  else if (decision.code === "JOB_ON_HOLD_CONTACT_SUPPORT") kind = "contact_support";
+  return {
+    job_id: job?._id ? String(job._id) : null,
+    job_status: status,
+    kind,
+    allowed: decision.allowed,
+    code: decision.code,
+    fee_amount: kind === "fee" ? configuredCancelFeeQar() : null,
+    currency: "QAR",
+  };
+}
+
 module.exports = {
   customerCancelDecision,
   customerCancelRefusalMessage,
+  customerCancelPolicy,
   CUSTOMER_CANCELLABLE_STATUSES,
 };

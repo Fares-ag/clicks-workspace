@@ -631,5 +631,25 @@
     "password_number": "يجب أن تحتوي كلمة المرور على رقم واحد على الأقل",
     "password_special": "يجب أن تحتوي كلمة المرور على رمز خاص واحد على الأقل (!@#$%^&*)",
     "password_changed_signed_out_others": "تم تغيير كلمة المرور. تم تسجيل الخروج من الأجهزة الأخرى."
+  },
+  "realtime": {
+    "assigned_banner": "تم تعيين فني — يستعد الآن",
+    "finding_another": "لم يتمكن الفني من المتابعة. نبحث لك عن فني آخر.",
+    "new_technician": "تم تعيين فني جديد لطلبك.",
+    "on_hold_banner": "تم إيقاف طلبك مؤقتاً",
+    "on_hold_reason": "متوقف مؤقتاً: {reason}",
+    "resumed": "تم استئناف طلبك.",
+    "location_stale": "آخر تحديث قبل {minutes} دقيقة",
+    "location_stale_now": "بانتظار موقع الفني…",
+    "eta_hidden": "الوقت المتوقع غير متاح",
+    "eta_approx": "~{minutes} دقيقة",
+    "cancel_free_note": "الإلغاء الآن مجاني.",
+    "cancel_fee_amount": "تطبق رسوم إلغاء بقيمة {amount} ر.ق.",
+    "cancel_contact_support": "هذا الطلب متوقف لدى فريقنا — يرجى الاتصال بنا لإلغائه.",
+    "sos_unavailable_title": "طلب الطوارئ غير متاح حالياً",
+    "sos_unavailable_body": "اتصل بنا وسيرسل فريقنا المساعدة فوراً.",
+    "call_us": "اتصل بنا",
+    "job_cancelled_by_team": "ألغى فريقنا هذا الطلب.",
+    "job_cancelled_by_technician": "ألغى الفني هذا الطلب."
   }
 }

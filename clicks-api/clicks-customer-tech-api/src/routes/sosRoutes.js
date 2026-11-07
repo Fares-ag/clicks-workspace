@@ -35,7 +35,9 @@ router.post("/notify-outcome", authenticateInternal, async (req, res) => {
 });
 
 // Job cancelled from the admin API (POST /api/jobs/:id/cancel): tell the
-// customer and the technician, and refresh the technician on the Live Map.
+// technician and refresh them on the Live Map. The customer is told by the
+// shared cancelJob itself (notifyCustomer); `customer_id` is accepted for
+// older admin builds and goes through the same deduped notifier.
 router.post("/notify-job-cancelled", authenticateInternal, async (req, res) => {
   try {
     const {
@@ -53,6 +55,7 @@ router.post("/notify-job-cancelled", authenticateInternal, async (req, res) => {
     const notifyTech = req.app.get("notifyTechnicianJobEvent");
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
     if (customer_id && typeof notifyCustomer === "function") {
+      // Deduped per job: a no-op when cancelJob already notified.
       await notifyCustomer(String(customer_id), "jobCancelled", data);
     }
     if (technician_id && typeof notifyTech === "function") {

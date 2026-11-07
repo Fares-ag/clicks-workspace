@@ -54,6 +54,32 @@ async function markGarageReady(job) {
   return job;
 }
 
+/**
+ * Customer payload for jobAtGarage / jobGarageReady (scenario 52). The
+ * garage timestamps are the notifyCustomer dedupe keys.
+ * @param {"at_garage"|"returning"} phase
+ */
+function garageCustomerPayload(job, phase) {
+  const garage = job.garage || {};
+  return {
+    job_id: String(job._id),
+    sos_id: job.sos_request_id ? String(job.sos_request_id) : undefined,
+    job_status: job.job_status,
+    status: job.job_status,
+    garage: {
+      phase: garage.phase || phase,
+      name: garage.name || "",
+      expected_ready_at: garage.expected_ready_at || null,
+      sent_at: garage.sent_at || null,
+      ready_at: garage.ready_at || null,
+    },
+    garage_name: garage.name || "",
+    ...(phase === "at_garage"
+      ? { garage_sent_at: garage.sent_at || new Date() }
+      : { garage_ready_at: garage.ready_at || new Date() }),
+  };
+}
+
 function assertCanResume(job) {
   if (job?.garage?.phase === "at_garage") {
     throw holdError("Use garage ready before resuming this job");
@@ -65,4 +91,5 @@ module.exports = {
   markGarageReady,
   assertCanResume,
   garageError,
+  garageCustomerPayload,
 };

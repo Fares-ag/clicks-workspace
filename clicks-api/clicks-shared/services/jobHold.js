@@ -200,6 +200,34 @@ async function resolveTechnicianStatusAfterJob(technicianId, excludeJobId) {
 
 const resolveTechnicianPresenceAfterHoldChange = resolveTechnicianStatusAfterJob;
 
+/**
+ * Customer event payloads for hold / resume (scenario 49). The timestamps
+ * are the notifyCustomer dedupe keys, so a retried cross-API notify for the
+ * same hold is a no-op while a second, later hold still notifies.
+ */
+function holdCustomerPayload(job) {
+  return {
+    job_id: String(job._id),
+    sos_id: job.sos_request_id ? String(job.sos_request_id) : undefined,
+    job_status: "on_hold",
+    status: "on_hold",
+    hold_reason: job.hold_reason || "",
+    status_before_hold: job.status_before_hold || null,
+    scheduled_return_at: job.scheduled_return_at || null,
+    on_hold_at: job.on_hold_at || new Date(),
+  };
+}
+
+function resumeCustomerPayload(job) {
+  return {
+    job_id: String(job._id),
+    sos_id: job.sos_request_id ? String(job.sos_request_id) : undefined,
+    job_status: job.job_status,
+    status: job.job_status,
+    resumed_at: job.resumed_at || new Date(),
+  };
+}
+
 module.exports = {
   HOLD_REASON_MAX,
   holdError,
@@ -214,4 +242,6 @@ module.exports = {
   resumeJobFromHold,
   resolveTechnicianStatusAfterJob,
   resolveTechnicianPresenceAfterHoldChange,
+  holdCustomerPayload,
+  resumeCustomerPayload,
 };

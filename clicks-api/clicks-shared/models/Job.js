@@ -212,6 +212,11 @@ const JobSchema = new mongoose.Schema(
     },
     rating: { type: Number, min: 1, max: 5 },
     rating_description: { type: String, maxlength: 500, default: "" },
+    /** First rating; the customer may edit it for 24 h after this (scenario 76). */
+    rated_at: { type: Date, default: null },
+    rating_edited_at: { type: Date, default: null },
+    /** The app asked for a rating on resume — it asks once, never again. */
+    rating_prompted_at: { type: Date, default: null },
     sos_request_id: { type: mongoose.Schema.Types.ObjectId, ref: "SOSRequest" },
     service_request_id: {
       type: mongoose.Schema.Types.ObjectId,

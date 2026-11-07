@@ -15,11 +15,140 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Where a session payload sends the customer — the pure routing decision of
+/// [SessionResume.go], unit-tested over every status (WS-B 7).
+class SessionTarget {
+  const SessionTarget({
+    required this.route,
+    this.jobId = '',
+    this.sosId = '',
+    this.serviceRequestId = '',
+    this.status = '',
+    this.phase,
+    this.garagePhase,
+    this.ratingPromptJobId,
+  });
+
+  final String route;
+  final String jobId;
+  final String sosId;
+  final String serviceRequestId;
+  final String status;
+
+  /// Tracking screen phase (`assigned` | `en_route` | `arrived` | `on_hold`).
+  final String? phase;
+  final String? garagePhase;
+
+  /// Home only: a paid, unrated job to ask about once (scenario 76).
+  final String? ratingPromptJobId;
+
+  /// Identity of the screen this target opens — equal keys mean "the screen
+  /// already shown is the right one", so a resync does not re-push it.
+  String get key {
+    final id = jobId.isNotEmpty
+        ? jobId
+        : sosId.isNotEmpty
+            ? sosId
+            : serviceRequestId;
+    return id.isEmpty ? route : '$route|$id';
+  }
+
+  static String keyFor(String route, String? id) =>
+      (id == null || id.isEmpty) ? route : '$route|$id';
+
+  @override
+  String toString() => 'SessionTarget($key, status=$status, phase=$phase)';
+}
+
 class SessionResume {
   SessionResume._();
 
-  static const _dohaLat = 25.2854;
-  static const _dohaLng = 51.531;
+  static String _idOf(Map m) => m['_id']?.toString() ?? m['id']?.toString() ?? '';
+
+  /// The routing decision only — no navigation, no BuildContext.
+  static SessionTarget resolve(
+    Map<String, dynamic> session, {
+    String? preferredEvent,
+  }) {
+    final activeSos = session['active_sos'];
+    final activeJob = session['active_job'];
+    final liveJob = session['live_job'] is Map
+        ? session['live_job']
+        : activeJob is Map && session['unpaid_job'] is! Map
+            ? activeJob
+            : null;
+    final unpaidJob = session['unpaid_job'];
+    final activeServiceRequest = session['active_service_request'];
+    final kind = session['session_kind']?.toString();
+
+    if (activeSos is Map) {
+      final status = activeSos['status']?.toString();
+      final sosId = _idOf(activeSos);
+      if (status == 'pending') {
+        return SessionTarget(route: Routes.timerSos, sosId: sosId, status: 'pending');
+      }
+      if (status == 'in_call' || preferredEvent == 'sosInCall') {
+        return SessionTarget(route: Routes.inCall, sosId: sosId, status: status ?? 'in_call');
+      }
+    }
+
+    if (liveJob is Map) {
+      final status = liveJob['job_status']?.toString() ?? '';
+      final jobId = _idOf(liveJob);
+      final garagePhase = resolveGaragePhase(liveJob, sessionKind: kind);
+      if (jobId.isNotEmpty && status == 'pending') {
+        return SessionTarget(route: Routes.findingTechnician, jobId: jobId, status: status);
+      }
+      if (jobId.isNotEmpty && shouldOpenTrackingForLiveJob(status, garagePhase)) {
+        return SessionTarget(
+          route: Routes.technicianTracking,
+          jobId: jobId,
+          status: status,
+          phase: trackingInitialPhase(status, garagePhase),
+          garagePhase: garagePhase,
+        );
+      }
+      if (jobId.isNotEmpty && (garagePhase == 'at_garage' || status == 'on_hold')) {
+        return SessionTarget(
+          route: Routes.activityDetails,
+          jobId: jobId,
+          status: status,
+          garagePhase: garagePhase,
+        );
+      }
+      if (jobId.isNotEmpty && (status == 'in_progress' || preferredEvent == 'jobStarted')) {
+        return SessionTarget(route: Routes.jobInProgress, jobId: jobId, status: status);
+      }
+    }
+
+    if (kind == 'unpaid' || (unpaidJob is Map && liveJob is! Map && activeSos is! Map)) {
+      final job = unpaidJob is Map ? unpaidJob : activeJob is Map ? activeJob : const {};
+      return SessionTarget(
+        route: Routes.paymentHold,
+        jobId: _idOf(job),
+        status: job['job_status']?.toString() ?? 'completed',
+      );
+    }
+
+    if (activeServiceRequest is Map) {
+      final srId = _idOf(activeServiceRequest);
+      final status = activeServiceRequest['status']?.toString() ?? '';
+      if (srId.isNotEmpty && (status == 'pending' || status == 'assigned')) {
+        return SessionTarget(
+          route: Routes.serviceWaiting,
+          serviceRequestId: srId,
+          status: status,
+        );
+      }
+    }
+
+    final prompt = session['rating_prompt_job'];
+    final promptId = prompt is Map ? _idOf(prompt) : '';
+    return SessionTarget(
+      route: Routes.home,
+      ratingPromptJobId: promptId.isEmpty ? null : promptId,
+    );
+  }
 
   static Future<void> go(
     BuildContext context,
@@ -27,14 +156,14 @@ class SessionResume {
     String? preferredEvent,
     bool replace = true,
   }) async {
-    final activeSos = session['active_sos'];
+    final target = resolve(session, preferredEvent: preferredEvent);
     final activeJob = session['active_job'];
     final liveJob = session['live_job'] is Map
         ? session['live_job']
         : activeJob;
     final unpaidJob = session['unpaid_job'];
     final activeServiceRequest = session['active_service_request'];
-    final kind = session['session_kind']?.toString();
+    SosSupportContact.updateFrom(session);
 
     void open(String route, {Object? arguments}) {
       if (!context.mounted) return;
@@ -45,81 +174,69 @@ class SessionResume {
       }
     }
 
-    if (activeSos is Map) {
-      final status = activeSos['status']?.toString();
-      if (status == 'pending') {
-        open(Routes.timerSos);
+    switch (target.route) {
+      case Routes.timerSos:
+      case Routes.inCall:
+        // The SOS screens scope their events by this id (scenario 62).
+        try {
+          final cubit = context.read<SosCubit>();
+          if (target.sosId.isNotEmpty) cubit.sosId = target.sosId;
+        } catch (_) {}
+        open(target.route);
         return;
-      }
-      if (status == 'in_call' || preferredEvent == 'sosInCall') {
-        open(Routes.inCall);
-        return;
-      }
-    }
-
-    if (liveJob is Map) {
-      final status = liveJob['job_status']?.toString() ?? '';
-      final jobId =
-          liveJob['_id']?.toString() ?? liveJob['id']?.toString() ?? '';
-      final tech = techInfoFromJob(liveJob);
-      final loc = customerLatLng(liveJob, context) ?? (_dohaLat, _dohaLng);
-      final garagePhase = resolveGaragePhase(liveJob, sessionKind: kind);
-
-      // A job with no technician yet (dispatch created it without one, or
-      // the technician handed it back): show "Finding a technician" instead
-      // of Home, so the customer doesn't raise a second SOS (scenario 45).
-      if (jobId.isNotEmpty && status == 'pending') {
+      case Routes.findingTechnician:
         open(
           Routes.findingTechnician,
           arguments: FindingTechnicianArgs(
-            jobId: jobId,
-            jobReference: liveJob['job_reference']?.toString() ?? '',
+            jobId: target.jobId,
+            jobReference: (liveJob as Map)['job_reference']?.toString() ?? '',
           ),
         );
         return;
-      }
-
-      if (jobId.isNotEmpty && shouldOpenTrackingForLiveJob(status, garagePhase)) {
+      case Routes.technicianTracking:
+        final job = liveJob as Map;
+        // The job's own coordinates, else this phone's last fix — never a
+        // made-up Doha default (scenario 61): without one the ETA is hidden.
+        final loc = customerLatLng(job, context);
         open(
           Routes.technicianTracking,
           arguments: TrackingArgs(
-            jobId: jobId,
-            techInfo: tech,
-            customerLat: loc.$1,
-            customerLng: loc.$2,
-            initialPhase: trackingInitialPhase(status, garagePhase),
-            techLat: techLat(liveJob),
-            techLng: techLng(liveJob),
+            jobId: target.jobId,
+            techInfo: techInfoFromJob(job),
+            customerLat: loc?.$1,
+            customerLng: loc?.$2,
+            initialPhase: target.phase ?? 'en_route',
+            techLat: techLat(job),
+            techLng: techLng(job),
+            cancelPolicy: session['cancel_policy'] is Map
+                ? Map<String, dynamic>.from(session['cancel_policy'] as Map)
+                : null,
           ),
         );
         return;
-      }
-
-      if (jobId.isNotEmpty &&
-          (garagePhase == 'at_garage' || status == 'on_hold')) {
-        open(Routes.activityDetails, arguments: jobDtoFromSession(liveJob));
+      case Routes.activityDetails:
+        open(Routes.activityDetails, arguments: jobDtoFromSession(liveJob as Map));
         return;
-      }
-
-      if (jobId.isNotEmpty &&
-          (status == 'in_progress' || preferredEvent == 'jobStarted')) {
+      case Routes.jobInProgress:
+        final job = liveJob as Map;
+        final tech = techInfoFromJob(job);
         open(
           Routes.jobInProgress,
           arguments: JobProgressArgs(
             userName: '',
             bannerTitle: 'home.job_in_progress'.tr(),
             bannerBody: 'job_progress.banner_body'.tr(),
-            jobId: jobId,
-            jobReference: liveJob['job_reference']?.toString() ?? '',
+            jobId: target.jobId,
+            jobReference: job['job_reference']?.toString() ?? '',
             statusPillText: JobStatusLabels.labelFor('in_progress'),
             technicianName: tech['name'] ?? '',
             technicianPhone: tech['phone'] ?? '',
             technicianAvatarUrl: tech['photo'] ?? '',
-            vehicleName: vehicleName(liveJob),
+            vehicleName: vehicleName(job),
             vehicleCode: '',
-            price: _priceOf(liveJob),
-            paymentStatus: liveJob['payment_status']?.toString(),
-            paymentMethod: liveJob['payment_method']?.toString(),
+            price: _priceOf(job),
+            paymentStatus: job['payment_status']?.toString(),
+            paymentMethod: job['payment_method']?.toString(),
             onCallDispatch: () async {
               await SosSupportContact.call();
             },
@@ -132,37 +249,25 @@ class SessionResume {
           ),
         );
         return;
-      }
-    }
-
-    if (kind == 'unpaid' ||
-        (unpaidJob is Map && liveJob is! Map && activeSos is! Map)) {
-      final job = unpaidJob is Map
-          ? unpaidJob
-          : activeJob is Map
-              ? activeJob
-              : <String, dynamic>{};
-      open(
-        Routes.paymentHold,
-        arguments: PaymentHoldArgs.fromJob(Map<String, dynamic>.from(job)),
-      );
-      return;
-    }
-
-    if (activeServiceRequest is Map) {
-      final srId = activeServiceRequest['_id']?.toString() ??
-          activeServiceRequest['id']?.toString() ??
-          '';
-      final status = activeServiceRequest['status']?.toString() ?? '';
-      if (srId.isNotEmpty && (status == 'pending' || status == 'assigned')) {
+      case Routes.paymentHold:
+        final job = unpaidJob is Map
+            ? unpaidJob
+            : activeJob is Map
+                ? activeJob
+                : <String, dynamic>{};
+        open(
+          Routes.paymentHold,
+          arguments: PaymentHoldArgs.fromJob(Map<String, dynamic>.from(job)),
+        );
+        return;
+      case Routes.serviceWaiting:
         open(
           Routes.serviceWaiting,
           arguments: ServiceWaitingArgs.fromBooking(
-            Map<String, dynamic>.from(activeServiceRequest),
+            Map<String, dynamic>.from(activeServiceRequest as Map),
           ),
         );
         return;
-      }
     }
 
     open(Routes.home);
@@ -284,9 +389,16 @@ class SessionResume {
     }.contains(status);
   }
 
+  /// `assigned` / `accepted` get their own phase (scenario 63): mapping them
+  /// to `en_route` showed "Cancel (fee)" on a job the server cancels free.
   static String trackingInitialPhase(String status, String? garagePhase) {
-    if (garagePhase == 'returning' || status == 'on_hold') return 'on_hold';
+    if (status == 'on_hold') return 'on_hold';
+    // Car back from the garage: "returning" until the technician moves.
+    if (garagePhase == 'returning' && (status == 'assigned' || status == 'accepted')) {
+      return 'returning';
+    }
     if (status == 'arrived') return 'arrived';
+    if (status == 'assigned' || status == 'accepted') return 'assigned';
     return 'en_route';
   }
 
