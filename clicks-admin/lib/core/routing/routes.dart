@@ -35,6 +35,7 @@ class Routes {
   static const membershipPlans = '/subscription-plans';
   static const membershipPlanNew = '/subscription-plans/new';
   static const customerMemberships = '/customer-memberships';
+  static const opsSettings = '/ops-settings';
 
   static String membershipPlanEditPath(String id) =>
       '/subscription-plans/$id/edit';

@@ -15,7 +15,9 @@ import '../../core/helper/app_snack_bars.dart';
 import '../../core/sos_services/customer_socket_service.dart';
 import '../../core/theme/colors_manager.dart';
 import '../../core/theme/text_styles.dart';
+import 'confirm_location_sheet.dart';
 import 'garage_job_card.dart';
+import 'upcoming_booking_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -435,8 +437,28 @@ Future<void> openConfirmVehicleBottomSheet(
                 ),
                 SizedBox(height: 16.h),
                 BlocConsumer<SosCubit, SosState>(
-                  listener: (_, state) {
-                    if (state is SosCreated) {
+                  listener: (listenerCtx, state) async {
+                    if (state is SosConfirmLocation) {
+                      // Confirm (and if needed, place) the pin before sending.
+                      final cubit = context.read<SosCubit>();
+                      final confirmed =
+                          await showConfirmLocationSheet(listenerCtx, state);
+                      if (confirmed == null) {
+                        cubit.cancelLocationConfirm();
+                        return;
+                      }
+                      await cubit.submitSOS(
+                        latitude: confirmed.latitude,
+                        longitude: confirmed.longitude,
+                        accuracyM: state.accuracyM,
+                        fixTime: state.fixTime,
+                        pinMoved: confirmed.pinMoved,
+                      );
+                    } else if (state is SosInCall) {
+                      // Recovered an SOS a dispatcher had already picked up.
+                      context.pop();
+                      context.toNamed(Routes.inCall);
+                    } else if (state is SosCreated) {
                       context.pop();
                       context.toNamed(
                         Routes.timerSos,
@@ -663,7 +685,15 @@ class _GarageSessionBannerState extends State<_GarageSessionBanner> {
           _load();
         }
       },
-      child: GarageJobCard(session: _session),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GarageJobCard(session: _session),
+          // A booking outside its active window lives here instead of
+          // trapping the customer on the waiting screen (scenario 55).
+          UpcomingBookingCard(session: _session),
+        ],
+      ),
     );
   }
 }

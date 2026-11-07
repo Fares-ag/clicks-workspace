@@ -14,6 +14,7 @@ class Routes {
   static const String notifications = '/notifications';
   static const String timerSos = '/timerSos';
   static const String serviceWaiting = '/serviceWaiting';
+  static const String findingTechnician = '/findingTechnician';
   static const String activityDetails = '/activityDetails';
   static const String inCall = '/inCall';
   static const String jobInProgress = '/jobInProgress';

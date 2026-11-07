@@ -2,7 +2,9 @@ import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
+import 'package:clicks_user/core/sos_services/sos_support_contact.dart';
 import 'package:clicks_user/features/activity/models/job_history_response.dart';
+import 'package:clicks_user/features/home/finding_technician_screen.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
 import 'package:clicks_user/features/home/payment_hold_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
@@ -62,6 +64,20 @@ class SessionResume {
       final loc = customerLatLng(liveJob, context) ?? (_dohaLat, _dohaLng);
       final garagePhase = resolveGaragePhase(liveJob, sessionKind: kind);
 
+      // A job with no technician yet (dispatch created it without one, or
+      // the technician handed it back): show "Finding a technician" instead
+      // of Home, so the customer doesn't raise a second SOS (scenario 45).
+      if (jobId.isNotEmpty && status == 'pending') {
+        open(
+          Routes.findingTechnician,
+          arguments: FindingTechnicianArgs(
+            jobId: jobId,
+            jobReference: liveJob['job_reference']?.toString() ?? '',
+          ),
+        );
+        return;
+      }
+
       if (jobId.isNotEmpty && shouldOpenTrackingForLiveJob(status, garagePhase)) {
         open(
           Routes.technicianTracking,
@@ -104,9 +120,7 @@ class SessionResume {
             paymentStatus: liveJob['payment_status']?.toString(),
             paymentMethod: liveJob['payment_method']?.toString(),
             onCallDispatch: () async {
-              const number = 'tel:+97444444444';
-              final uri = Uri.parse(number);
-              if (await canLaunchUrl(uri)) await launchUrl(uri);
+              await SosSupportContact.call();
             },
             onCallTechnician: () async {
               final phone = tech['phone'] ?? '';

@@ -20,6 +20,9 @@ class EndPoints {
 
   // Ops
   static const String sos = '/sos';
+  static String sosTakeover(String id) => '/sos/$id/takeover';
+  static String jobCancel(String id) => '/jobs/$id/cancel';
+  static const String opsSettings = '/ops-settings';
   static const String serviceRequests = '/service-requests';
   static const String jobs = '/jobs';
   static String jobHold(String id) => '/jobs/$id/hold';

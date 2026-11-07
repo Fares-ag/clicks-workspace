@@ -12,6 +12,7 @@ jest.mock("../clicks-customer-tech-api/src/services/fcmService", () => ({
   sendCustomerPush: jest.fn(async () => {}),
   sendJobAssignedPush: jest.fn(async () => {}),
   sendTechnicianPush: jest.fn(async () => {}),
+  sendAdminDispatchPush: jest.fn(async () => false),
   CUSTOMER_PUSH_EVENTS: {},
 }));
 

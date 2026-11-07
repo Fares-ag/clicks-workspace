@@ -321,6 +321,8 @@ async function createJob(req, res) {
       notifyTechnicianFn: req.body.assignedTechnician
         ? notifyTechnicianFn
         : undefined,
+      // SOS jobs: the dispatcher must hold the SOS claim (atomic link).
+      adminId: req.user?.id || req.user?._id,
     });
 
     await recordAudit({
@@ -348,6 +350,8 @@ async function createJob(req, res) {
     res.status(status).json({
       message: err.message || "Failed to create job",
       error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+      ...(err.job_id ? { job_id: err.job_id } : {}),
     });
   }
 }
@@ -459,6 +463,22 @@ async function updateJob(req, res) {
       return res.status(404).json({ message: "Job not found" });
     }
 
+    // Terminal transitions have dedicated endpoints that run the shared
+    // services (SOS outcome, ServiceRequest state, notifications, refund
+    // decision). A generic PUT skipped all of that (scenarios 50, 51).
+    if (
+      (job_status === "cancelled" || job_status === "completed") &&
+      job_status !== currentJob.job_status
+    ) {
+      return res.status(400).json({
+        message:
+          job_status === "cancelled"
+            ? "Use POST /api/jobs/:id/cancel to cancel a job"
+            : "Use POST /api/jobs/:id/complete to complete a job",
+        code: "USE_DEDICATED_ENDPOINT",
+      });
+    }
+
     // Location is frozen once the job is completed (the visit already happened).
     // Every other status — including cancelled and on_hold — stays editable.
     if (
@@ -532,29 +552,9 @@ async function updateJob(req, res) {
       });
     }
 
-    // Handle job cancellation
-    const isBeingCancelled = job_status === 'cancelled' && currentJob.job_status !== 'cancelled';
-    if (isBeingCancelled) {
-      update.cancelled_at = new Date();
-      
-      // Reset the linked SOS request if exists
-      if (currentJob.sos_request_id) {
-        await SOSRequest.findByIdAndUpdate(currentJob.sos_request_id, {
-          status: 'cancelled'
-        });
-        console.log(`SOS ${currentJob.sos_request_id} cancelled due to job cancellation`);
-      }
-      
-      // Reset technician status to Online/Available
-      if (currentJob.assignedTechnician) {
-        const nextStatus = await resolveTechnicianStatusAfterJob(
-          currentJob.assignedTechnician,
-          currentJob._id
-        );
-        await setTechnicianStatus(currentJob.assignedTechnician, nextStatus);
-        console.log(`Technician ${currentJob.assignedTechnician} status reset to ${nextStatus}`);
-      }
-    }
+    // Cancellation is rejected above (POST /api/jobs/:id/cancel owns it);
+    // kept as a constant so the audit split below stays unchanged.
+    const isBeingCancelled = false;
 
     // If admin edits customer/vehicle fields after a signature, invalidate it
     const signedFields = [
@@ -744,6 +744,104 @@ async function updateJob(req, res) {
       return res.status(400).json({ message: "Invalid job update", error: err.message });
     }
     res.status(500).json({ message: "Failed to update job", error: err.message });
+  }
+}
+
+// POST /api/jobs/:id/cancel
+//
+// Dispatcher cancel (scenarios 50, 51). Runs the shared cancel service — the
+// same one the customer and technician paths use — so the SOS outcome, the
+// ServiceRequest state and the technician's presence are all updated, then
+// tells the customer and technician through the customer/tech API.
+// A PAID job needs { refund: "full"|"partial"|"none", refund_amount?, reason }.
+async function cancelJobByAdmin(req, res) {
+  try {
+    const { cancelJob } = require("../../../clicks-shared/services/cancelJob");
+    const { callInternalNotify } = require("../../../clicks-shared/services/jobReassign");
+    const body = req.body || {};
+    const reason = str(body.reason, { maxLength: 500 }).trim();
+    if (!reason) {
+      return res.status(400).json({
+        message: "A cancellation reason is required",
+        code: "CANCEL_REASON_REQUIRED",
+      });
+    }
+    const refundDecision = str(body.refund || body.refund_decision, { maxLength: 16 }).trim();
+    // Refund decisions move money: Super Admin / Admin only. Without one the
+    // service refuses a paid job, so dispatchers can't cancel paid jobs.
+    const { FULL_ACCESS } = require("../middleware/rbac");
+    if (refundDecision && !FULL_ACCESS.has(req.user?.role)) {
+      return res.status(403).json({
+        message: "Only an Admin can cancel a paid job with a refund decision",
+        code: "REFUND_DECISION_FORBIDDEN",
+      });
+    }
+
+    const result = await cancelJob({
+      jobId: req.params.id,
+      actor: "admin",
+      actorId: req.user?.id || req.user?._id,
+      reason,
+      refund: refundDecision
+        ? {
+            decision: refundDecision,
+            amount: body.refund_amount,
+            reason: str(body.refund_reason, { maxLength: 1000 }).trim() || reason,
+          }
+        : undefined,
+    });
+
+    if (result.alreadyCancelled) {
+      return res.json({
+        message: "Job already cancelled",
+        job: result.job,
+        already_cancelled: true,
+      });
+    }
+
+    await callInternalNotify("/api/sos/notify-job-cancelled", {
+      job_id: String(result.job._id),
+      customer_id: result.job.customer_id ? String(result.job.customer_id) : null,
+      technician_id: result.technicianId,
+      technician_status: result.technicianNextStatus,
+      payload: result.payload,
+    });
+
+    await recordAudit({
+      req,
+      action: "job.cancel",
+      entityType: "job",
+      entityId: result.job._id,
+      changes: {
+        job_status: { from: result.before.job_status, to: "cancelled" },
+        cancelled_at: { from: null, to: serializeAuditValue(result.job.cancelled_at) },
+        cancellation_reason: { from: "", to: reason },
+        ...(result.refund
+          ? {
+              refund_decision: { from: null, to: result.refund.decision },
+              refund_amount: { from: null, to: result.refund.amount },
+              refund_reason: { from: "", to: result.refund.reason },
+            }
+          : {}),
+      },
+    });
+
+    const job = await Job.findById(result.job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+    res.json({
+      message: "Job cancelled",
+      job,
+      refund: result.refund || null,
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    if (status >= 500) console.error("Admin cancel failed:", err);
+    res.status(status).json({
+      message: err.message || "Failed to cancel job",
+      error: err.message,
+      ...(err.code ? { code: err.code } : {}),
+    });
   }
 }
 
@@ -1322,6 +1420,7 @@ module.exports = {
   createJob,
   getJobById,
   updateJob,
+  cancelJobByAdmin,
   reassignJob,
   deleteJob,
   getJobRepairs,

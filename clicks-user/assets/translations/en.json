@@ -1,4 +1,26 @@
 {
+  "dispatch": {
+    "connection_failed": "Connection failed. Please check your internet and try again.",
+    "sos_no_confirmation": "We couldn't confirm your SOS. Please try again, or call us now.",
+    "sos_throttled": "You've sent several SOS requests in a short time. Please call us if you still need help.",
+    "confirm_location_title": "Confirm your location",
+    "confirm_location_body": "The technician will come to this pin. Drag it if it isn't exactly where your car is.",
+    "poor_fix_body": "We couldn't get an accurate GPS fix. Drag the pin to where your car is before sending.",
+    "accuracy_label": "GPS accuracy about {meters} m",
+    "move_pin_first": "Move the pin to your location first",
+    "send_sos": "Send SOS here",
+    "still_connecting_title": "Still connecting you",
+    "still_connecting_body": "Our team hasn't reached you yet. Tap to call us now — we're available 24/7.",
+    "call_us_now": "Call us now",
+    "outstanding_banner": "You have QAR {amount} outstanding from an earlier job. The technician can collect it.",
+    "finding_technician_title": "Finding a technician",
+    "finding_technician_body": "Your request has been accepted. We're assigning the nearest available technician and will notify you as soon as they're on the way.",
+    "cancel_free": "Cancel request (free)",
+    "job_cancelled": "Your request was cancelled",
+    "upcoming_booking_title": "Upcoming booking",
+    "upcoming_booking_body": "{service} · {when}",
+    "request_finished": "This request has been closed"
+  },
   "common": {
     "ok": "OK",
     "cancel": "Cancel",

@@ -35,9 +35,6 @@ const { sendAdminDispatchPush } = require("./fcmService");
 const {
   recordAdminNotificationFireAndForget,
 } = require("./notificationRecordService");
-const {
-  TECH_BUSY_JOB_STATUSES,
-} = require("../../../clicks-shared/constants/jobStatuses");
 
 const isDev = process.env.NODE_ENV === "development";
 function devLog(...args) {
@@ -743,128 +740,69 @@ function initializeSOSSocket(io) {
       }
     });
 
-    // Admin cancels job mid-job
-    socket.on("adminCancelJob", async (data) => {
+    // Admin cancels job mid-job — same shared service as the REST endpoint
+    // (POST /api/jobs/:id/cancel on the admin API). A paid job needs a refund
+    // decision: { refund: "full"|"partial"|"none", refund_amount?, reason }.
+    socket.on("adminCancelJob", async (data, ack) => {
+      const reply = (payload) => {
+        if (typeof ack === "function") {
+          try {
+            ack(payload);
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      };
       try {
-        const { job_id, customer_id, technician_id, reason } = data;
+        const { job_id, reason, refund, refund_amount, refund_reason } = data || {};
         devLog(`Admin cancelling job ${job_id}`);
-
-        // Get job first to find linked SOS
-        const jobBefore = await Job.findById(job_id);
-
-        if (!jobBefore) {
-          socket.emit("error", { message: "Job not found" });
-          return;
-        }
-
-        const cancellationReason =
-          (typeof reason === "string" && reason.trim()) || 'Cancelled by admin';
-        const cancelledAt = new Date();
-
-        // Never re-cancel a terminal job: a completed/paid job has already issued a
-        // receipt, credited the technician and accrued partner commission, so
-        // flipping it to cancelled desyncs the books.
-        const job = await Job.findOneAndUpdate(
-          {
-            _id: job_id,
-            job_status: {
-              $in: [
-                'pending',
-                'assigned',
-                'accepted',
-                'en_route',
-                'arrived',
-                'in_progress',
-              ],
-            },
-            payment_status: { $ne: 'paid' },
+        const { cancelJob } = require("../../../clicks-shared/services/cancelJob");
+        const result = await cancelJob({
+          jobId: job_id,
+          actor: "admin",
+          actorId: socket.user?.id,
+          reason:
+            (typeof reason === "string" && reason.trim()) || "Cancelled by admin",
+          refund: refund
+            ? {
+                decision: refund,
+                amount: refund_amount,
+                reason: refund_reason || reason,
+              }
+            : undefined,
+          notifier: {
+            technicianPresence: (techId, status) =>
+              emitAdminTechnicianPresence(techId, status),
+            customerJobEvent: (customerId, event, payload) =>
+              notifyCustomerJobEvent(customerId, event, payload),
+            technicianJobEvent: (techId, event, payload) =>
+              notifyTechnicianJobEvent(techId, event, payload),
           },
-          {
-            job_status: 'cancelled',
-            cancelled_at: cancelledAt,
-            cancellation_reason: cancellationReason,
-            cancelled_by: 'admin'
-          },
-          { new: true }
-        );
-
-        if (!job) {
-          socket.emit("error", {
-            message: `Cannot cancel job in status ${jobBefore.job_status} (payment ${jobBefore.payment_status})`,
-            code: "JOB_NOT_CANCELLABLE",
-            job_id,
-          });
-          return;
-        }
-
-        // Cancel the linked SOS request if exists
-        if (jobBefore && jobBefore.sos_request_id) {
-          await SOSRequest.findByIdAndUpdate(jobBefore.sos_request_id, {
-            status: 'cancelled'
-          });
-          devLog(`SOS ${jobBefore.sos_request_id} cancelled due to job cancellation`);
-        }
-
-        // Update technician status back to "Online" if assigned
-        const techId =
-          technician_id ||
-          job.assignedTechnician?.toString?.() ||
-          job.assignedTechnician;
-        if (techId) {
-          // A technician may hold several live jobs at once — only free them up
-          // if this was their last one, otherwise dispatch/Live Map treat them
-          // as available while they are still working.
-          const stillBusy = await Job.exists({
-            assignedTechnician: techId,
-            _id: { $ne: job._id },
-            job_status: { $in: TECH_BUSY_JOB_STATUSES },
-          });
-          const nextStatus = stillBusy ? "On Job" : "Online";
-          await setTechnicianStatus(techId, nextStatus);
-          await emitAdminTechnicianPresence(techId, nextStatus);
-          devLog(`Technician ${techId} status reset to ${nextStatus}`);
-        }
-
-        const cancellationData = {
-          job_id,
-          status: "cancelled",
-          reason: cancellationReason,
-          cancelled_at: cancelledAt
-        };
-
-        // Notify customer
-        if (customer_id) {
-          emitToUser(
-            customerNamespace,
-            customer_id.toString(),
-            "jobCancelled",
-            cancellationData
-          );
-          devLog(`Customer ${customer_id} notified: job cancelled`);
-        }
-
-        // Notify technician
-        if (technician_id) {
-          emitToUser(
-            technicianNamespace,
-            technician_id.toString(),
-            "jobCancelled",
-            cancellationData
-          );
-          devLog(`Technician ${technician_id} notified: job cancelled`);
-        }
-
-        // Confirm to admin
-        socket.emit("jobCancelled", {
-          ...cancellationData,
-          message: "Job cancelled successfully"
         });
 
+        const confirmation = {
+          ...(result.payload || {
+            job_id: String(job_id),
+            status: "cancelled",
+          }),
+          already_cancelled: !!result.alreadyCancelled,
+          message: "Job cancelled successfully",
+        };
+        socket.emit("jobCancelled", confirmation);
+        reply({ ok: true, ...confirmation });
         devLog(`Job ${job_id} cancelled by admin`);
       } catch (err) {
-        console.error("Error cancelling job:", err);
-        captureException(err);
-        socket.emit("error", { message: "Failed to cancel job" });
+        if (!err.status || err.status >= 500) {
+          console.error("Error cancelling job:", err);
+          captureException(err);
+        }
+        const payload = {
+          message: err.status ? err.message : "Failed to cancel job",
+          code: err.code || "JOB_CANCEL_FAILED",
+          job_id: data?.job_id,
+        };
+        socket.emit("error", payload);
+        reply({ ok: false, ...payload });
       }
     });
 
@@ -887,14 +825,31 @@ function initializeSOSSocket(io) {
       devLog(`Customer ${customerId} registered with socket ${socket.id}`);
     });
 
-    // Customer creates SOS request
-    socket.on("createSOS", async (data) => {
+    // Customer creates SOS request.
+    //
+    // Handshake (scenario 30): the client passes an ack callback and waits up
+    // to 10 s for it; `sosCreated` also goes to the customer's room so every
+    // device (and a reconnected socket) hears it. Idempotency (scenario 29):
+    // a repeat with the same client_request_id, or a second device racing
+    // into the unique "one live SOS" index, resolves to the existing SOS.
+    socket.on("createSOS", async (data, ack) => {
+      const reply = (payload) => {
+        if (typeof ack === "function") {
+          try {
+            ack(payload);
+          } catch (_) {
+            /* client went away */
+          }
+        }
+      };
+      const emitSosError = (payload) => {
+        socket.emit("error", payload);
+        socket.emit("sosError", payload);
+        reply({ ok: false, ...payload });
+      };
+
       try {
         const { getLaunchFlags } = require("../utils/featureFlags");
-        const emitSosError = (payload) => {
-          socket.emit("error", payload);
-          socket.emit("sosError", payload);
-        };
 
         if (!getLaunchFlags().publicSos) {
           emitSosError({
@@ -905,13 +860,23 @@ function initializeSOSSocket(io) {
         }
 
         const customer_id = String(socket.user.id);
+        // A socket that never sent `register` still gets the room events.
+        socket.join(userRoom(customer_id));
+        socket.customerId = customer_id;
+
+        const body = data && typeof data === "object" ? data : {};
         const {
           customer_vehicle_id,
           latitude,
           longitude,
           skip_vehicle: skipVehicleRaw,
           service_type: serviceTypeRaw,
-        } = data;
+        } = body;
+        const clientRequestId =
+          typeof body.client_request_id === "string" &&
+          body.client_request_id.trim()
+            ? body.client_request_id.trim().slice(0, 64)
+            : null;
         const skipVehicle =
           skipVehicleRaw === true ||
           skipVehicleRaw === "true" ||
@@ -928,7 +893,34 @@ function initializeSOSSocket(io) {
           longitude,
           skipVehicle,
           service_type,
+          clientRequestId,
         });
+
+        const sosCreatedPayload = (sos, extra = {}) => ({
+          sos_id: sos._id.toString(),
+          status: sos.status,
+          expires_at: sos.broadcast_expires_at,
+          client_request_id: sos.client_request_id || null,
+          outstanding_balance: sos.outstanding_balance || 0,
+          outstanding_job_ids: (sos.outstanding_job_ids || []).map(String),
+          ...extra,
+        });
+
+        // Replay of a request we already accepted: same answer, no new SOS.
+        if (clientRequestId) {
+          const replay = await SOSRequest.findOne({
+            customer_id,
+            client_request_id: clientRequestId,
+          });
+          if (replay) {
+            const payload = sosCreatedPayload(replay, { duplicate: true });
+            reply({ ok: true, ...payload });
+            if (["pending", "in_call"].includes(replay.status)) {
+              emitToUser(customerNamespace, customer_id, "sosCreated", payload);
+            }
+            return;
+          }
+        }
 
         if (
           latitude == null ||
@@ -954,6 +946,47 @@ function initializeSOSSocket(io) {
           return;
         }
 
+        const activeSosError = (activeSos) => ({
+          message: "You already have an active SOS request",
+          code: "SOS_ALREADY_ACTIVE",
+          sos_id: activeSos._id.toString(),
+          status: activeSos.status,
+          expires_at: activeSos.broadcast_expires_at,
+        });
+
+        const activeSos = await SOSRequest.findOne({
+          customer_id,
+          status: { $in: ["pending", "in_call"] },
+        });
+        if (activeSos) {
+          emitSosError(activeSosError(activeSos));
+          return;
+        }
+
+        // Throttle (scenario 36): every create pages every dispatcher.
+        const throttleMax = Number(process.env.SOS_CREATE_MAX_PER_WINDOW || 3);
+        const throttleWindowMs = durationEnv("SOS_CREATE_WINDOW_MS", 10 * 60 * 1000);
+        const recentCount = await SOSRequest.countDocuments({
+          customer_id,
+          createdAt: { $gte: new Date(Date.now() - throttleWindowMs) },
+        });
+        if (Number.isFinite(throttleMax) && recentCount >= throttleMax) {
+          recordAdminNotificationFireAndForget({
+            type: "sos.throttled",
+            title: "SOS throttled",
+            body: `A customer hit the SOS limit (${throttleMax} in ${Math.round(
+              throttleWindowMs / 60000
+            )} min).`,
+            data: { customer_id },
+          });
+          emitSosError({
+            message:
+              "You've sent several SOS requests in a short time. Please call us if you still need help.",
+            code: "SOS_THROTTLED",
+          });
+          return;
+        }
+
         try {
           const {
             assertCustomerCanCreateSos,
@@ -967,21 +1000,6 @@ function initializeSOSSocket(io) {
           emitSosError({
             message: bookErr.message,
             code: bookErr.code || "LIVE_JOB_ACTIVE",
-          });
-          return;
-        }
-
-        const activeSos = await SOSRequest.findOne({
-          customer_id,
-          status: { $in: ["pending", "in_call"] },
-        });
-        if (activeSos) {
-          emitSosError({
-            message: "You already have an active SOS request",
-            code: "SOS_ALREADY_ACTIVE",
-            sos_id: activeSos._id.toString(),
-            status: activeSos.status,
-            expires_at: activeSos.broadcast_expires_at,
           });
           return;
         }
@@ -1029,6 +1047,25 @@ function initializeSOSSocket(io) {
           }
         }
 
+        // Unpaid balance never blocks the SOS (scenario 91) — dispatch sees
+        // it and the technician can collect it.
+        const {
+          outstandingBalanceForCustomer,
+        } = require("../../../clicks-shared/utils/customerBookingGuard");
+        const outstanding = await outstandingBalanceForCustomer(customer_id).catch(
+          () => ({ outstanding_balance: 0, outstanding_job_ids: [] })
+        );
+
+        const accuracyRaw = Number(body.accuracy_m);
+        const accuracyM =
+          Number.isFinite(accuracyRaw) && accuracyRaw >= 0 ? accuracyRaw : null;
+        const fixTimeRaw = body.fix_time ? new Date(body.fix_time) : null;
+        const fixTime =
+          fixTimeRaw && !Number.isNaN(fixTimeRaw.getTime()) ? fixTimeRaw : null;
+        const locationSource = ["gps", "manual_pin"].includes(body.location_source)
+          ? body.location_source
+          : null;
+
         const expiresAt = new Date(Date.now() + broadcastMs());
         const {
           stampBusinessHours,
@@ -1048,16 +1085,50 @@ function initializeSOSSocket(io) {
           broadcast_expires_at: expiresAt,
           after_hours: hours.after_hours,
           next_open_at: hours.next_open_at,
+          client_request_id: clientRequestId,
+          accuracy_m: accuracyM,
+          fix_time: fixTime,
+          location_source: locationSource,
+          outstanding_balance: outstanding.outstanding_balance,
+          outstanding_job_ids: outstanding.outstanding_job_ids,
         });
 
-        await sos.save();
+        try {
+          await sos.save();
+        } catch (saveErr) {
+          if (saveErr?.code !== 11000) throw saveErr;
+          // Lost the race to another device / a replay: hand back the winner.
+          const winner =
+            (clientRequestId &&
+              (await SOSRequest.findOne({
+                customer_id,
+                client_request_id: clientRequestId,
+              }))) ||
+            (await SOSRequest.findOne({
+              customer_id,
+              status: { $in: ["pending", "in_call"] },
+            }));
+          if (
+            winner &&
+            clientRequestId &&
+            winner.client_request_id === clientRequestId
+          ) {
+            const payload = sosCreatedPayload(winner, { duplicate: true });
+            reply({ ok: true, ...payload });
+            emitToUser(customerNamespace, customer_id, "sosCreated", payload);
+            return;
+          }
+          if (winner) {
+            emitSosError(activeSosError(winner));
+            return;
+          }
+          throw saveErr;
+        }
         schedulePendingExpiry(sos);
 
-        socket.emit("sosCreated", {
-          sos_id: sos._id,
-          status: "pending",
-          expires_at: expiresAt
-        });
+        const createdPayload = sosCreatedPayload(sos);
+        reply({ ok: true, ...createdPayload });
+        emitToUser(customerNamespace, customer_id, "sosCreated", createdPayload);
 
         const sosData = {
           sos_id: sos._id.toString(),
@@ -1089,11 +1160,18 @@ function initializeSOSSocket(io) {
           location: {
             latitude: Number(latitude),
             longitude: Number(longitude),
-            coordinates: `${latitude}, ${longitude}`
+            coordinates: `${latitude}, ${longitude}`,
+            accuracy_m: accuracyM,
+            fix_time: fixTime,
+            source: locationSource,
           },
           service_type,
           expires_at: expiresAt,
           status: "pending",
+          escalation_level: 0,
+          outstanding_balance: outstanding.outstanding_balance,
+          outstanding_job_ids: outstanding.outstanding_job_ids.map(String),
+          createdAt: sos.createdAt,
         };
 
         devLog(`Broadcasting SOS ${sos._id} to admin namespace`);
@@ -1119,14 +1197,27 @@ function initializeSOSSocket(io) {
       } catch (err) {
         console.error("Error creating SOS:", err);
         captureException(err);
-        socket.emit("error", { message: "Failed to create SOS request", details: err.message });
+        const payload = { message: "Failed to create SOS request", details: err.message };
+        socket.emit("error", payload);
+        reply({ ok: false, code: "SOS_CREATE_FAILED", ...payload });
       }
     });
 
-    // Customer cancels SOS
-    socket.on("cancelSOS", async (data) => {
+    // Customer cancels SOS. Conditional update (scenario 43): only an open
+    // SOS with no job can be cancelled, so a job created a moment earlier
+    // wins and the customer is told instead of being sent Home.
+    socket.on("cancelSOS", async (data, ack) => {
+      const reply = (payload) => {
+        if (typeof ack === "function") {
+          try {
+            ack(payload);
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      };
       try {
-        const { sos_id, reason } = data;
+        const { sos_id, reason } = data || {};
         const trimmedReason = typeof reason === "string" ? reason.trim() : "";
 
         if (
@@ -1134,52 +1225,77 @@ function initializeSOSSocket(io) {
           trimmedReason === "cancelled_by_customer" ||
           trimmedReason === "other"
         ) {
-          socket.emit("error", {
+          const payload = {
             message: "Cancellation reason is required",
             code: "SOS_CANCEL_REASON_REQUIRED",
-          });
+          };
+          socket.emit("error", payload);
+          reply({ ok: false, ...payload });
           return;
         }
 
-        const sos = await SOSRequest.findById(sos_id);
+        const customerId = String(socket.user.id);
+        const sos = await SOSRequest.findOneAndUpdate(
+          {
+            _id: sos_id,
+            customer_id: customerId,
+            status: { $in: ["pending", "in_call"] },
+            job_id: null,
+          },
+          {
+            $set: {
+              status: "cancelled",
+              outcome: "cancelled",
+              cancel_reason: trimmedReason.slice(0, 500),
+            },
+          },
+          { new: true }
+        );
 
-        // Only the customer who raised the SOS may cancel it.
-        if (!assertSosAccess(sos, socket.user)) {
-          socket.emit("error", {
-            message: "SOS cannot be cancelled at this stage",
-            code: "SOS_NOT_CANCELLABLE",
-          });
+        if (!sos) {
+          const current = sos_id
+            ? await SOSRequest.findById(sos_id).select("customer_id status job_id")
+            : null;
+          const own = current && assertSosAccess(current, socket.user);
+          const payload = {
+            message:
+              own && current.job_id
+                ? "A technician has already been dispatched for this SOS"
+                : "SOS cannot be cancelled at this stage",
+            code: own && current.job_id ? "SOS_JOB_CREATED" : "SOS_NOT_CANCELLABLE",
+            ...(own ? { sos_id: String(current._id), status: current.status } : {}),
+            ...(own && current.job_id ? { job_id: String(current.job_id) } : {}),
+          };
+          socket.emit("error", payload);
+          reply({ ok: false, ...payload });
           return;
         }
 
-        if (sos && ["pending", "in_call"].includes(sos.status) && !sos.job_id) {
-          sos.status = "cancelled";
-          sos.cancel_reason = trimmedReason;
-          await sos.save();
-          clearSosTimers(sos._id);
-
-          socket.emit("sosCancelled", { sos_id, status: "cancelled", cancel_reason: trimmedReason });
-          adminNamespace.emit("sosCancelled", {
-            sos_id: sos._id.toString(),
-            customer_id: String(sos.customer_id),
-            cancel_reason: trimmedReason,
-          });
-          recordAdminNotificationFireAndForget({
-            type: "sos.cancelled",
-            title: "SOS cancelled",
-            body: trimmedReason || "A customer cancelled their SOS request.",
-            data: { sos_id: sos._id.toString() },
-          });
-        } else {
-          socket.emit("error", {
-            message: "SOS cannot be cancelled at this stage",
-            code: "SOS_NOT_CANCELLABLE",
-          });
-        }
+        clearSosTimers(sos._id);
+        const cancelledPayload = {
+          sos_id: sos._id.toString(),
+          status: "cancelled",
+          cancel_reason: trimmedReason,
+        };
+        reply({ ok: true, ...cancelledPayload });
+        emitToUser(customerNamespace, customerId, "sosCancelled", cancelledPayload);
+        adminNamespace.emit("sosCancelled", {
+          sos_id: sos._id.toString(),
+          customer_id: String(sos.customer_id),
+          cancel_reason: trimmedReason,
+        });
+        recordAdminNotificationFireAndForget({
+          type: "sos.cancelled",
+          title: "SOS cancelled",
+          body: trimmedReason || "A customer cancelled their SOS request.",
+          data: { sos_id: sos._id.toString() },
+        });
       } catch (err) {
         console.error("Error cancelling SOS:", err);
         captureException(err);
-        socket.emit("error", { message: "Failed to cancel SOS", details: err.message });
+        const payload = { message: "Failed to cancel SOS", details: err.message };
+        socket.emit("error", payload);
+        reply({ ok: false, ...payload });
       }
     });
 
@@ -2307,10 +2423,85 @@ function initializeSOSSocket(io) {
     }
   }
 
-  return { 
-    customerNamespace, 
-    technicianNamespace, 
+  /**
+   * A technician handed a job back (scenario 48): the job is pending again.
+   * Dispatch needs to re-assign it; the customer hears "finding another
+   * technician" rather than silence.
+   */
+  async function notifyJobRedispatch({ job_id, customer_id, technician_id, sos_id, reason } = {}) {
+    try {
+      const payload = {
+        job_id: String(job_id || ""),
+        sos_id: sos_id ? String(sos_id) : null,
+        previous_technician_id: technician_id ? String(technician_id) : null,
+        reason: reason || "",
+        status: "pending",
+      };
+      adminNamespace.emit("jobNeedsRedispatch", payload);
+      adminNamespace.emit("jobStatusUpdated", { ...payload, status: "pending" });
+      recordAdminNotificationFireAndForget({
+        type: "job.redispatch",
+        title: "Job needs a new technician",
+        body: reason
+          ? `The technician cancelled: ${String(reason).slice(0, 120)}`
+          : "The technician cancelled and the job is back in the queue.",
+        data: { job_id: payload.job_id, sos_id: payload.sos_id || undefined },
+      });
+      Promise.resolve()
+        .then(() =>
+          sendAdminDispatchPush("admin_sos", {
+            job_id: payload.job_id,
+            redispatch: "1",
+          })
+        )
+        .catch((err) => {
+          console.error("[fcm] admin redispatch push failed:", err.message);
+        });
+      if (customer_id) {
+        const customerPayload = {
+          job_id: payload.job_id,
+          sos_id: payload.sos_id,
+          status: "pending",
+          message: "Your technician couldn't continue. We're finding another technician for you.",
+        };
+        emitToUser(customerNamespace, String(customer_id), "jobReassigning", customerPayload);
+        // INTEGRATION(ws-c): add "jobReassigning" to CUSTOMER_PUSH_EVENTS so
+        // this push (and its inbox row) is actually delivered.
+        await pushCustomerEvent(String(customer_id), "jobReassigning", customerPayload);
+      }
+      return true;
+    } catch (error) {
+      console.error("Error notifying job redispatch:", error);
+      captureException(error);
+      return false;
+    }
+  }
+
+  /** Delivery side of the SOS escalation sweeper (clicks-shared/services/sosEscalation). */
+  const sosEscalationNotifier = {
+    adminAlert: (event, payload) => {
+      adminNamespace.emit(event, payload);
+    },
+    adminPush: (type, payload) => sendAdminDispatchPush(type, payload),
+    recordAdminNotification: (row) => recordAdminNotificationFireAndForget(row),
+    customerEvent: async (customerId, event, payload) => {
+      emitToUser(customerNamespace, String(customerId), event, payload);
+      // INTEGRATION(ws-c): "sosStillConnecting" needs a CUSTOMER_PUSH_EVENTS
+      // entry + copy before this push is delivered.
+      await pushCustomerEvent(String(customerId), event, payload);
+    },
+    sendSms: async (to, message) => {
+      const { sendSMS } = require("./smsService");
+      return sendSMS(to, message);
+    },
+  };
+
+  return {
+    customerNamespace,
+    technicianNamespace,
     adminNamespace,
+    notifyJobRedispatch,
+    sosEscalationNotifier,
     notifyAssignedTechnician,
     notifyJobReassigned,
     notifyCustomerTechnicianAssigned,

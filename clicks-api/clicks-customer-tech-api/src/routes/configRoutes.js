@@ -13,14 +13,19 @@ const { otpAllowedPrefixes } = require("../../../clicks-shared/utils/phone");
 
 const router = express.Router();
 
-function supportPhone() {
-  // INTEGRATION(ws-a): prefer OpsSetting support_phone (admin-editable) when
-  // that model lands; the env value stays the fallback.
-  const raw = String(process.env.SUPPORT_PHONE || "").trim();
-  return raw || null;
+const { getSupportPhone } = require("../../../clicks-shared/services/opsSettings");
+
+/** Admin ops setting first, then env SUPPORT_PHONE (see opsSettings). */
+async function supportPhone() {
+  try {
+    return (await getSupportPhone()) || null;
+  } catch (_) {
+    const raw = String(process.env.SUPPORT_PHONE || "").trim();
+    return raw || null;
+  }
 }
 
-function buildPublicConfig() {
+async function buildPublicConfig() {
   const flags = getLaunchFlags();
   return {
     flags: {
@@ -32,7 +37,7 @@ function buildPublicConfig() {
     region: flags.region,
     min_app_version: minAppVersions(),
     store_url: storeUrls(),
-    support_phone: supportPhone(),
+    support_phone: await supportPhone(),
     // Dispatch is staffed 24/7 (decision, 7 Nov 2026).
     dispatch_hours: "24/7",
     coverage: {
@@ -44,9 +49,13 @@ function buildPublicConfig() {
   };
 }
 
-router.get("/public", (_req, res) => {
+router.get("/public", async (_req, res) => {
   res.set("Cache-Control", "public, max-age=60");
-  res.json(buildPublicConfig());
+  try {
+    res.json(await buildPublicConfig());
+  } catch (err) {
+    res.status(500).json({ error: "Config unavailable", code: "CONFIG_UNAVAILABLE" });
+  }
 });
 
 module.exports = router;

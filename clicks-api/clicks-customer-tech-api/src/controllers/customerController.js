@@ -27,6 +27,7 @@ const {
   findLiveJob,
   findActiveSos,
   findActiveServiceRequest,
+  upcomingBookingsForCustomer,
 } = require("../../../clicks-shared/utils/customerBookingGuard");
 const { captureException } = require("../../../clicks-shared/middleware/sentry");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
@@ -353,12 +354,16 @@ const updatePassword = async (req, res) => {
 
 /** Live work that makes deletion unsafe (scenario 4). Read-only. */
 async function deletionBlockers(customerId) {
-  const [sos, liveJob, booking, unpaid] = await Promise.all([
+  const [sos, liveJob, activeBooking, upcoming, unpaid] = await Promise.all([
     findActiveSos(customerId),
     findLiveJob(customerId),
     findActiveServiceRequest(customerId),
+    // A booking days away is not "active" for the session, but deleting the
+    // account would still orphan it, so it blocks deletion too.
+    upcomingBookingsForCustomer(customerId),
     findUnpaidJob(customerId),
   ]);
+  const booking = activeBooking || upcoming[0] || null;
   const blockers = [];
   if (sos) {
     blockers.push({

@@ -61,9 +61,26 @@ const ServiceRequestSchema = new mongoose.Schema(
       default: null,
     },
     membership_discount_percent: { type: Number, default: 0, min: 0, max: 100 },
+    // Client idempotency key (scenario 53): a resubmitted booking with the same
+    // key returns the original request instead of creating a second one.
+    client_request_id: { type: String, default: null, maxlength: 64 },
+    // Terminal-state audit (scenario 54) — written by serviceRequestLifecycle.
+    completed_at: { type: Date, default: null },
+    cancelled_at: { type: Date, default: null },
   },
   { timestamps: true }
 );
+
+ServiceRequestSchema.index(
+  { customer_id: 1, client_request_id: 1 },
+  {
+    name: "uniq_service_request_client_request_id",
+    unique: true,
+    partialFilterExpression: { client_request_id: { $type: "string" } },
+  }
+);
+// Terminal-state writes look the request up by its job.
+ServiceRequestSchema.index({ job_id: 1 });
 
 ServiceRequestSchema.index({ location: "2dsphere" });
 ServiceRequestSchema.index({ status: 1, createdAt: -1 });

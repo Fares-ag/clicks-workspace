@@ -128,6 +128,22 @@ function mapSos(doc) {
     outcome_reason: o.outcome_reason || "",
     scheduled_request_id: o.scheduled_request_id?.toString() || null,
     after_hours: !!o.after_hours,
+    // Escalation + age, for the "pending for 3:12" counter (scenario 38).
+    age_seconds: o.createdAt
+      ? Math.max(0, Math.round((Date.now() - new Date(o.createdAt).getTime()) / 1000))
+      : null,
+    escalation_level: o.escalation_level || 0,
+    last_escalated_at: o.last_escalated_at || null,
+    claim_released_at: o.claim_released_at || null,
+    claim_release_count: o.claim_release_count || 0,
+    // Unpaid balance from earlier jobs — collect it, never refuse help (S91).
+    outstanding_balance: o.outstanding_balance || 0,
+    outstanding_job_ids: (o.outstanding_job_ids || []).map((id) => String(id)),
+    location_quality: {
+      accuracy_m: o.accuracy_m ?? null,
+      fix_time: o.fix_time || null,
+      source: o.location_source || null,
+    },
     upcoming_bookings: o.upcoming_bookings || [],
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
@@ -359,6 +375,95 @@ const claimSOS = async (req, res) => {
   }
 };
 
+/**
+ * Supervisor take-over (scenario 39): a Super Admin / Admin moves an open,
+ * claimed SOS to themselves when the claiming dispatcher is absent. Audited.
+ */
+const takeoverSOS = async (req, res) => {
+  try {
+    const adminId = req.user.id || req.user._id;
+    const takerId = new mongoose.Types.ObjectId(String(adminId));
+    const now = new Date();
+
+    const prior = await SOSRequest.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: { $in: ["pending", "in_call"] },
+        job_id: null,
+      },
+      [
+        {
+          $set: {
+            status: "in_call",
+            claimed_by: takerId,
+            claimed_at: now,
+            in_call_at: { $ifNull: ["$in_call_at", now] },
+          },
+        },
+      ],
+      { new: false }
+    );
+    if (!prior) {
+      const existing = await SOSRequest.findById(req.params.id).select("status job_id");
+      if (!existing) return res.status(404).json({ error: "SOS not found" });
+      return res.status(409).json({
+        error: existing.job_id
+          ? "A job already exists for this SOS"
+          : `SOS is ${existing.status} and can no longer be taken over`,
+        code: existing.job_id ? "SOS_ALREADY_HANDLED" : "SOS_UNAVAILABLE",
+      });
+    }
+
+    await recordAudit({
+      req,
+      action: "sos.takeover",
+      entityType: "sos",
+      entityId: prior._id,
+      changes: computeChanges(
+        { status: prior.status, claimed_by: prior.claimed_by, claimed_at: prior.claimed_at },
+        { status: "in_call", claimed_by: takerId, claimed_at: now },
+        ["status", "claimed_by", "claimed_at"]
+      ),
+    });
+
+    try {
+      const customerTechApiUrl =
+        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
+      await axios.post(
+        `${customerTechApiUrl}/api/sos/notify-claim`,
+        {
+          sos_id: prior._id.toString(),
+          admin_id: String(adminId),
+          customer_id: String(prior.customer_id),
+        },
+        { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
+      );
+    } catch (notifyErr) {
+      console.error("Failed to notify SOS takeover:", notifyErr.message);
+    }
+
+    const populated = await SOSRequest.findById(prior._id)
+      .populate("customer_id", "first_name last_name phone_number email")
+      .populate({
+        path: "customer_vehicle_id",
+        populate: [
+          { path: "vehicle_make", select: "makeName" },
+          { path: "vehicle_model", select: "modelName" },
+        ],
+      })
+      .populate("claimed_by", "firstName lastName email")
+      .populate("job_id", "job_status");
+
+    res.json({
+      message: "SOS taken over",
+      previous_claimed_by: prior.claimed_by ? String(prior.claimed_by) : null,
+      request: mapSos(populated),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to take over SOS", details: err.message });
+  }
+};
+
 const scheduleSOS = async (req, res) => {
   try {
     const { service_type, scheduled_for, customer_vehicle_id } = req.body || {};
@@ -445,6 +550,7 @@ module.exports = {
   getSOSRequests,
   getSOSById,
   claimSOS,
+  takeoverSOS,
   scheduleSOS,
   closeSOS,
 };

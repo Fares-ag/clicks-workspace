@@ -13,6 +13,7 @@ import '../../features/leads/convert_lead_screen.dart';
 import '../../features/leads/lead_detail_screen.dart';
 import '../../features/leads/leads_screen.dart';
 import '../../features/live_map/live_map_screen.dart';
+import '../../features/ops_settings/ops_settings_screen.dart';
 import '../../features/main/admin_shell.dart';
 import '../../features/phase2/admin_detail_screen.dart';
 import '../../features/phase2/admin_form_screen.dart';
@@ -99,6 +100,8 @@ class AppRouter {
         return _shell(const TechnicianLogsScreen(), name);
       case Routes.calls:
         return _shell(const CallsScreen(), name);
+      case Routes.opsSettings:
+        return _shell(const OpsSettingsScreen(), name);
       case Routes.vehicleMakes:
         return _shell(const VehicleMakesScreen(), name);
       case Routes.vehicleModels:

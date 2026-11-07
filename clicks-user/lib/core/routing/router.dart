@@ -1,5 +1,6 @@
 import 'package:clicks_user/features/activity/activity_details_screen.dart';
 import 'package:clicks_user/features/activity/activity_screen.dart';
+import 'package:clicks_user/features/home/finding_technician_screen.dart';
 import 'package:clicks_user/features/home/in_call_screen.dart';
 import 'package:clicks_user/features/home/timer_sos_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
@@ -126,6 +127,9 @@ class AppRouter {
       case Routes.serviceWaiting:
         final args = settings.arguments as ServiceWaitingArgs;
         return page(ServiceWaitingScreen(args: args));
+      case Routes.findingTechnician:
+        final args = settings.arguments as FindingTechnicianArgs;
+        return page(FindingTechnicianScreen(args: args));
       case Routes.activityDetails:
         final job = settings.arguments as JobDto;
         return page(ActivityDetailsPage(job: job));

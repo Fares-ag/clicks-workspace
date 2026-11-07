@@ -11,11 +11,13 @@ class ServiceRequestApi {
     String? customerVehicleId,
     bool skipVehicle = false,
     DateTime? scheduledFor,
+    String? clientRequestId,
   }) async {
     final response = await DioHelper.postData(
       url: EndPoints.serviceRequests,
       auth: true,
       data: {
+        if (clientRequestId != null) 'client_request_id': clientRequestId,
         'service_type': serviceType,
         'timing': timing,
         'latitude': latitude,

@@ -643,37 +643,148 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     }
   }
 
+  /// Cancel via POST /jobs/:id/cancel (shared cancel service on the server).
+  /// A paid job needs a refund decision — full, partial (with amount) or
+  /// none — plus a reason; only Super Admin / Admin may take it.
   Future<void> _cancelJob() async {
-    final reason = await showDialog<String>(
+    final job = _job;
+    final isPaid = job?['payment_status']?.toString() == 'paid';
+    final canDecideRefund = AdminRoles.isFullAdmin(
+      CacheHelper.getUserProfileSync()?['role']?.toString(),
+    );
+    if (isPaid && !canDecideRefund) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This job is paid — an Admin must cancel it with a refund decision'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) {
-        final ctrl = TextEditingController();
-        return AlertDialog(
-          title: const Text('Cancel job'),
-          content: TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(labelText: 'Reason'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('Cancel job'),
-            ),
-          ],
+        final reasonCtrl = TextEditingController();
+        final amountCtrl = TextEditingController();
+        final refundReasonCtrl = TextEditingController();
+        String refund = 'full';
+        String? error;
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Cancel job'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: reasonCtrl,
+                        decoration: const InputDecoration(labelText: 'Reason'),
+                      ),
+                      if (isPaid) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          'This job is paid. Choose what happens to the money.',
+                          style: AdminTypography.body.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        RadioGroup<String>(
+                          groupValue: refund,
+                          onChanged: (v) => setLocal(() => refund = v ?? 'full'),
+                          child: const Column(
+                            children: [
+                              RadioListTile<String>(
+                                value: 'full',
+                                title: Text('Full refund'),
+                                dense: true,
+                              ),
+                              RadioListTile<String>(
+                                value: 'partial',
+                                title: Text('Partial refund'),
+                                dense: true,
+                              ),
+                              RadioListTile<String>(
+                                value: 'none',
+                                title: Text('No refund'),
+                                dense: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (refund == 'partial')
+                          TextField(
+                            controller: amountCtrl,
+                            keyboardType:
+                                const TextInputType.numberWithOptions(decimal: true),
+                            decoration:
+                                const InputDecoration(labelText: 'Refund amount (QAR)'),
+                          ),
+                        TextField(
+                          controller: refundReasonCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Refund reason (for finance)',
+                          ),
+                        ),
+                      ],
+                      if (error != null) ...[
+                        const SizedBox(height: 8),
+                        Text(error!, style: const TextStyle(color: AppColors.danger)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
+                FilledButton(
+                  onPressed: () {
+                    final reason = reasonCtrl.text.trim();
+                    if (reason.isEmpty) {
+                      setLocal(() => error = 'Enter a reason');
+                      return;
+                    }
+                    final body = <String, dynamic>{'reason': reason};
+                    if (isPaid) {
+                      body['refund'] = refund;
+                      body['refund_reason'] =
+                          refundReasonCtrl.text.trim().isEmpty
+                              ? reason
+                              : refundReasonCtrl.text.trim();
+                      if (refund == 'partial') {
+                        final amount = double.tryParse(amountCtrl.text.trim());
+                        if (amount == null || amount <= 0) {
+                          setLocal(() => error = 'Enter the refund amount');
+                          return;
+                        }
+                        body['refund_amount'] = amount;
+                      }
+                    }
+                    Navigator.pop(ctx, body);
+                  },
+                  child: const Text('Cancel job'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
-    if (reason == null || reason.isEmpty) return;
+    if (result == null) return;
 
     setState(() => _working = true);
     try {
       final res = await DioHelper.postData(
-        url: '${EndPoints.jobs}/${widget.jobId}/cancel',
-        data: {'reason': reason},
+        url: EndPoints.jobCancel(widget.jobId),
+        data: result,
       );
       if (!mounted) return;
       if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Job cancelled')),
+        );
         await _load();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(

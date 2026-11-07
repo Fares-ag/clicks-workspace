@@ -32,6 +32,13 @@ beforeEach(async () => {
   await clearCollections();
 });
 
+/** A slot inside the dispatch window, `days` days ahead at 10:00 Qatar time. */
+function nextSlot(days = 1) {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  d.setUTCHours(7, 0, 0, 0); // 10:00 Asia/Qatar
+  return d;
+}
+
 function immediateBody(overrides = {}) {
   return {
     service_type: "Battery Change",
@@ -127,7 +134,121 @@ describe("Customer booking rules", () => {
     expect(res.status).toBe(200);
     expect(res.body.session_kind).toBe("unpaid");
     expect(res.body.unpaid_job).toBeTruthy();
-    expect(res.body.can_book_sos).toBe(false);
+    // Scenario 91 (decision): an unpaid balance never blocks an SOS — the
+    // session reports the balance instead.
+    expect(res.body.can_book_sos).toBe(true);
+    expect(res.body.outstanding_balance).toBe(150);
+    expect(res.body.outstanding_job_ids.map(String)).toEqual([String(job._id)]);
+  });
+
+  test("scheduled booking stays blocked by an unpaid job", async () => {
+    const customer = await seedCustomer();
+    const job = await seedCustomerJob({ customer, jobStatus: "completed" });
+    job.payment_status = "unpaid";
+    await job.save();
+
+    const res = await request(techApp)
+      .post("/api/service-requests")
+      .set(bearer(customerToken(customer._id)))
+      .send(
+        immediateBody({
+          timing: "scheduled",
+          scheduled_for: nextSlot().toISOString(),
+        })
+      );
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("UNPAID_JOB_HOLD");
+  });
+
+  test("future booking allowed for another vehicle while a tow is live (scenario 56)", async () => {
+    const customer = await seedCustomer();
+    const towed = await seedCustomerVehicle(customer);
+    const other = await seedCustomerVehicle(customer);
+    const job = await seedCustomerJob({ customer, jobStatus: "en_route" });
+    job.customer_vehicle_id = towed._id;
+    await job.save();
+
+    const ok = await request(techApp)
+      .post("/api/service-requests")
+      .set(bearer(customerToken(customer._id)))
+      .send(
+        immediateBody({
+          timing: "scheduled",
+          scheduled_for: nextSlot().toISOString(),
+          skip_vehicle: false,
+          customer_vehicle_id: String(other._id),
+        })
+      );
+    expect(ok.status).toBe(201);
+
+    const blocked = await request(techApp)
+      .post("/api/service-requests")
+      .set(bearer(customerToken(customer._id)))
+      .send(
+        immediateBody({
+          timing: "scheduled",
+          scheduled_for: nextSlot(2).toISOString(),
+          skip_vehicle: false,
+          customer_vehicle_id: String(towed._id),
+        })
+      );
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe("LIVE_JOB_VEHICLE_ACTIVE");
+  });
+
+  test("immediate service request obeys the public SOS switch (scenario 28)", async () => {
+    const customer = await seedCustomer();
+    const prev = process.env.LAUNCH_PUBLIC_SOS;
+    process.env.LAUNCH_PUBLIC_SOS = "false";
+    try {
+      const immediate = await request(techApp)
+        .post("/api/service-requests")
+        .set(bearer(customerToken(customer._id)))
+        .send(immediateBody());
+      expect(immediate.status).toBe(503);
+      expect(immediate.body.code).toBe("LAUNCH_PUBLIC_SOS_OFF");
+
+      const scheduled = await request(techApp)
+        .post("/api/service-requests")
+        .set(bearer(customerToken(customer._id)))
+        .send(
+          immediateBody({
+            timing: "scheduled",
+            scheduled_for: nextSlot().toISOString(),
+          })
+        );
+      expect(scheduled.status).toBe(201);
+    } finally {
+      process.env.LAUNCH_PUBLIC_SOS = prev;
+    }
+  });
+
+  test("customer can cancel a pending (unassigned) job for free (scenario 57)", async () => {
+    const customer = await seedCustomer();
+    const job = await seedCustomerJob({ customer, jobStatus: "pending" });
+    job.assignedTechnician = null;
+    await job.save();
+
+    const res = await request(techApp)
+      .post(`/api/jobs/${job._id}/cancel-customer`)
+      .set(bearer(customerToken(customer._id)))
+      .send({ reason: "changed_mind" });
+    expect(res.status).toBe(200);
+    expect(res.body.cancel_fee_due).toBe(false);
+    expect(res.body.job.job_status).toBe("cancelled");
+  });
+
+  test("an on_hold job routes the customer to support (scenario 57)", async () => {
+    const customer = await seedCustomer();
+    const job = await seedCustomerJob({ customer, jobStatus: "on_hold" });
+
+    const res = await request(techApp)
+      .post(`/api/jobs/${job._id}/cancel-customer`)
+      .set(bearer(customerToken(customer._id)))
+      .send({ reason: "changed_mind" });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("JOB_ON_HOLD_CONTACT_SUPPORT");
+    expect(res.body.error).toMatch(/contact support/i);
   });
 
   test("customer can cancel an assigned job", async () => {

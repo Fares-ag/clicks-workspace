@@ -76,9 +76,55 @@ const SOSRequestSchema = new mongoose.Schema(
     },
     after_hours: { type: Boolean, default: false },
     next_open_at: { type: Date, default: null },
+    // Client idempotency key: a replayed createSOS (reconnect, second tap)
+    // carries the same id and resolves to this document instead of a new one.
+    client_request_id: { type: String, default: null, maxlength: 64 },
+    // Location quality as reported by the device (scenario 31).
+    accuracy_m: { type: Number, default: null },
+    fix_time: { type: Date, default: null },
+    location_source: {
+      type: String,
+      enum: ["gps", "manual_pin", null],
+      default: null,
+    },
+    // Debt the customer still owes when they raised this SOS (scenario 91).
+    // Shown to dispatch; it never blocks the SOS.
+    outstanding_balance: { type: Number, default: 0 },
+    outstanding_job_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
+    // Escalation ladder (sosEscalation sweeper). Every step is a conditional
+    // update on escalation_level so a restart or a second instance can't
+    // double-send.
+    escalation_level: { type: Number, default: 0 },
+    last_escalated_at: { type: Date, default: null },
+    claim_released_at: { type: Date, default: null },
+    claim_release_count: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
+// One live SOS per customer (scenario 29). The read-then-save guard in
+// createSOS can't stop two devices racing; this index can. Production runs
+// with autoIndex off — sync-indexes must build it.
+SOSRequestSchema.index(
+  { customer_id: 1 },
+  {
+    name: "uniq_active_sos_per_customer",
+    unique: true,
+    partialFilterExpression: { status: { $in: ["pending", "in_call"] } },
+  }
+);
+SOSRequestSchema.index(
+  { customer_id: 1, client_request_id: 1 },
+  {
+    name: "uniq_sos_client_request_id",
+    unique: true,
+    partialFilterExpression: { client_request_id: { $type: "string" } },
+  }
+);
+// Escalation sweep: { status, escalation_level, createdAt } and claim release.
+SOSRequestSchema.index({ status: 1, escalation_level: 1, createdAt: 1 });
+// Create throttle: customer's SOS in the last 10 minutes.
+SOSRequestSchema.index({ customer_id: 1, createdAt: -1 });
 
 SOSRequestSchema.index({ location: "2dsphere" });
 SOSRequestSchema.index({ status: 1, broadcast_expires_at: 1 });

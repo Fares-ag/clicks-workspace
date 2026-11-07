@@ -28,6 +28,7 @@ class AdminRoles {
     '/calls',
     '/subscription-plans',
     '/customer-memberships',
+    '/ops-settings',
   ];
 
   static const opsAllowedPrefixes = [

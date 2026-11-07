@@ -25,6 +25,8 @@ const { initializeSOSSocket } = require("./services/sosSocketService");
 const { attachSocketAdapter } = require("./utils/socketAdapter");
 
 let outboxWorkerHandle;
+let sosEscalationHandle;
+let sosEscalationNotifier;
 
 // Matches the admin API: without this a stray rejection (a Redis blip inside
 // the adapter's publish, say) hits Node's default throw mode and takes the
@@ -51,6 +53,10 @@ async function shutdown(signal) {
   try {
     const { stopOutboxWorker } = require("../../clicks-shared/services/outboxWorker");
     await stopOutboxWorker(outboxWorkerHandle);
+    const {
+      stopSosEscalationSweeper,
+    } = require("../../clicks-shared/services/sosEscalation");
+    await stopSosEscalationSweeper(sosEscalationHandle);
 
     // Socket.IO first. server.close() waits for open connections to drain and
     // a WebSocket never drains on its own, so awaiting it first meant every
@@ -109,6 +115,9 @@ async function bootstrap() {
     "notifyAdminServiceRequestCancelled",
     sosHandlers.notifyAdminServiceRequestCancelled
   );
+  app.set("notifyJobRedispatch", sosHandlers.notifyJobRedispatch);
+  app.set("sosEscalationNotifier", sosHandlers.sosEscalationNotifier);
+  sosEscalationNotifier = sosHandlers.sosEscalationNotifier;
 
   io.on("connection", (socket) => {
     console.warn(
@@ -135,6 +144,18 @@ async function bootstrap() {
   });
   // Daily, unref'd, idempotent — no stop needed on shutdown.
   require("../../clicks-shared/services/anonymiseDeletedCustomers").startCustomerAnonymiser();
+
+  // SOS escalation ladder (re-push / on-call SMS / customer call card / claim
+  // release). Lease-protected, so a second replica or an overlapping deploy
+  // cannot double-send. Tests drive runEscalationSweep directly.
+  if (process.env.NODE_ENV !== "test" && process.env.SOS_ESCALATION_DISABLED !== "true") {
+    const {
+      startSosEscalationSweeper,
+    } = require("../../clicks-shared/services/sosEscalation");
+    sosEscalationHandle = startSosEscalationSweeper({
+      notifier: sosEscalationNotifier,
+    });
+  }
 
   server.listen(PORT, () => {
     console.log(`Clicks Customer/Technician API running on port ${PORT}`);

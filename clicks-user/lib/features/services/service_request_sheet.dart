@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
@@ -56,6 +58,24 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
   String _timing = 'immediate';
   DateTime? _scheduledFor;
   bool _submitting = false;
+
+  /// Idempotency key (scenario 53): a resubmit of the same booking after a
+  /// timeout reuses it, so the server returns the request it already made.
+  /// A different vehicle / timing / slot is a different booking → new key.
+  String? _requestSignature;
+  String? _clientRequestId;
+
+  String _clientRequestIdFor(String signature) {
+    if (_requestSignature != signature || _clientRequestId == null) {
+      final rnd = math.Random.secure();
+      final hex = List<int>.generate(10, (_) => rnd.nextInt(256))
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+      _requestSignature = signature;
+      _clientRequestId = 'sr-${DateTime.now().millisecondsSinceEpoch}-$hex';
+    }
+    return _clientRequestId!;
+  }
 
   Future<void> _pickSchedule() async {
     final now = DateTime.now();
@@ -133,6 +153,10 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
         customerVehicleId: vehicleId,
         skipVehicle: skipVehicle,
         scheduledFor: _scheduledFor,
+        clientRequestId: _clientRequestIdFor(
+          '${widget.serviceType}|$_timing|${_scheduledFor?.toIso8601String()}|'
+          '${skipVehicle ? '' : vehicleId}',
+        ),
       );
 
       final sr = result['service_request'];

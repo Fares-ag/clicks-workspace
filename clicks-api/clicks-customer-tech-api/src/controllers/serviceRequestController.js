@@ -64,6 +64,51 @@ function mapServiceRequest(doc) {
   };
 }
 
+/** Resubmits of the same booking inside this window return the original. */
+const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
+
+function parseClientRequestId(raw) {
+  return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 64) : null;
+}
+
+async function populateForResponse(id) {
+  return ServiceRequest.findById(id)
+    .populate("customer_id", "first_name last_name phone_number email")
+    .populate({
+      path: "customer_vehicle_id",
+      populate: [
+        { path: "vehicle_make", select: "makeName" },
+        { path: "vehicle_model", select: "modelName" },
+      ],
+    });
+}
+
+async function respondExisting(res, existing) {
+  const populated = await populateForResponse(existing._id);
+  return res.status(200).json({
+    message: "Service request already received",
+    duplicate: true,
+    service_request: mapServiceRequest(populated || existing),
+  });
+}
+
+/**
+ * Same customer, same vehicle (or both skipped), same timing and slot,
+ * submitted within DEDUPE_WINDOW_MS — a timed-out resubmit, not a second
+ * booking (scenario 53).
+ */
+function findRecentDuplicate({ customerId, vehicleId, timing, scheduledFor }) {
+  const filter = {
+    customer_id: customerId,
+    timing,
+    status: { $in: ["pending", "assigned"] },
+    createdAt: { $gte: new Date(Date.now() - DEDUPE_WINDOW_MS) },
+    customer_vehicle_id: vehicleId || null,
+  };
+  if (timing === "scheduled") filter.scheduled_for = scheduledFor;
+  return ServiceRequest.findOne(filter).sort({ createdAt: -1 });
+}
+
 async function createServiceRequest(req, res) {
   try {
     const customer_id = String(req.user.id);
@@ -76,6 +121,17 @@ async function createServiceRequest(req, res) {
       scheduled_for,
       skip_vehicle: skipVehicleRaw,
     } = req.body;
+    const clientRequestId = parseClientRequestId(req.body?.client_request_id);
+
+    // Idempotent replay: answer with the request this key already created,
+    // before any rule that would now 409 because that request exists.
+    if (clientRequestId) {
+      const replay = await ServiceRequest.findOne({
+        customer_id,
+        client_request_id: clientRequestId,
+      });
+      if (replay) return respondExisting(res, replay);
+    }
 
     const serviceType =
       typeof service_type === "string" && service_type.trim()
@@ -121,20 +177,33 @@ async function createServiceRequest(req, res) {
     const { assertInQatar } = require("../../../clicks-shared/utils/qatarCoverage");
     assertInQatar(latitude, longitude);
 
-    const {
-      assertCustomerCanBook,
-    } = require("../../../clicks-shared/utils/customerBookingGuard");
-    await assertCustomerCanBook({ customerId: customer_id });
+    const skipVehicle =
+      skipVehicleRaw === true ||
+      skipVehicleRaw === "true" ||
+      (!customer_vehicle_id && skipVehicleRaw !== false);
 
     if (timingValue === "scheduled") {
       const { assertDispatchWindow } = require("../../../clicks-shared/utils/dispatchWindow");
       scheduledFor = assertDispatchWindow(scheduledFor);
     }
 
-    const skipVehicle =
-      skipVehicleRaw === true ||
-      skipVehicleRaw === "true" ||
-      (!customer_vehicle_id && skipVehicleRaw !== false);
+    // Timed-out resubmit without a key (older client) — same answer.
+    const duplicate = await findRecentDuplicate({
+      customerId: customer_id,
+      vehicleId: skipVehicle ? null : customer_vehicle_id,
+      timing: timingValue,
+      scheduledFor,
+    }).catch(() => null);
+    if (duplicate) return respondExisting(res, duplicate);
+
+    const {
+      assertCustomerCanBook,
+    } = require("../../../clicks-shared/utils/customerBookingGuard");
+    await assertCustomerCanBook({
+      customerId: customer_id,
+      timing: timingValue,
+      customerVehicleId: skipVehicle ? null : customer_vehicle_id,
+    });
 
     if (timingValue === "immediate") {
       const activeSos = await SOSRequest.findOne({
@@ -212,23 +281,30 @@ async function createServiceRequest(req, res) {
         coordinates: [Number(longitude), Number(latitude)],
       },
       status: "pending",
+      client_request_id: clientRequestId,
     };
     stampRequestMembership(requestFields, cover);
 
-    const doc = await ServiceRequest.create(requestFields);
+    let doc;
+    try {
+      doc = await ServiceRequest.create(requestFields);
+    } catch (createErr) {
+      // Two submits with the same key raced past the replay check.
+      if (createErr?.code === 11000 && clientRequestId) {
+        const winner = await ServiceRequest.findOne({
+          customer_id,
+          client_request_id: clientRequestId,
+        });
+        if (winner) return respondExisting(res, winner);
+      }
+      throw createErr;
+    }
 
-    const populated = await ServiceRequest.findById(doc._id)
-      .populate("customer_id", "first_name last_name phone_number email")
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-        ],
-      });
+    const populated = await populateForResponse(doc._id);
 
     const payload = mapServiceRequest(populated);
 
+    // Only a genuinely new request creates a Lead (duplicates return above).
     await ensureLeadFromServiceRequest(populated);
 
     const notify = req.app.get("notifyAdminServiceRequest");
@@ -253,19 +329,21 @@ async function createServiceRequest(req, res) {
 
 async function getActiveServiceRequest(req, res) {
   try {
-    const customer_id = req.user.id;
-    const active = await ServiceRequest.findOne({
-      customer_id,
-      status: { $in: ["pending", "assigned"] },
-    })
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make" },
-          { path: "vehicle_model" },
-        ],
-      })
-      .sort({ createdAt: -1 });
+    const {
+      findActiveServiceRequest,
+    } = require("../../../clicks-shared/utils/customerBookingGuard");
+    // Finished jobs no longer count, and a scheduled booking only counts from
+    // its active window (scenarios 54, 55).
+    const found = await findActiveServiceRequest(req.user.id);
+    const active = found
+      ? await found.populate({
+          path: "customer_vehicle_id",
+          populate: [
+            { path: "vehicle_make" },
+            { path: "vehicle_model" },
+          ],
+        })
+      : null;
 
     res.json({
       active_service_request: active ? mapServiceRequest(active) : null,
@@ -292,28 +370,51 @@ async function cancelServiceRequest(req, res) {
     if (String(doc.customer_id) !== customer_id) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    if (doc.status !== "pending") {
+    if (doc.status === "cancelled") {
+      return res.json({
+        message: "Service request cancelled",
+        service_request: mapServiceRequest(doc),
+      });
+    }
+
+    const updated = await ServiceRequest.findOneAndUpdate(
+      { _id: id, customer_id, status: "pending" },
+      {
+        $set: {
+          status: "cancelled",
+          cancel_reason: String(reason).slice(0, 500),
+          cancelled_at: new Date(),
+        },
+      },
+      { new: true }
+    );
+    if (!updated) {
+      const current = await ServiceRequest.findById(id).select("status job_id");
+      if (current?.job_id && current.status === "assigned") {
+        // A job exists now — cancel that instead (same free/fee rules).
+        return res.status(409).json({
+          error: "A job has been created for this request — cancel the job instead",
+          code: "SERVICE_REQUEST_HAS_JOB",
+          job_id: String(current.job_id),
+        });
+      }
       return res.status(400).json({
         error: "Only pending service requests can be cancelled",
         code: "SERVICE_REQUEST_NOT_CANCELLABLE",
       });
     }
 
-    doc.status = "cancelled";
-    doc.cancel_reason = reason;
-    await doc.save();
-
     const notify = req.app.get("notifyAdminServiceRequestCancelled");
     if (typeof notify === "function") {
       notify({
-        service_request_id: doc._id.toString(),
+        service_request_id: updated._id.toString(),
         customer_id,
       });
     }
 
     res.json({
       message: "Service request cancelled",
-      service_request: mapServiceRequest(doc),
+      service_request: mapServiceRequest(updated),
     });
   } catch (err) {
     res.status(500).json({

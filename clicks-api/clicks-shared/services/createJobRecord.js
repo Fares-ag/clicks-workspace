@@ -6,12 +6,29 @@ const {
 } = require("../utils/resolveJobLocation");
 const { formatGeoPointAsLocationString } = require("../utils/parseJobLocation");
 const { applyCanonicalJobFields } = require("../utils/dataCleaning");
+const { createJobLinkedToSos } = require("./linkSosToJob");
+
+/** SOS pin as a GeoJSON point, or null when the SOS has no usable coordinates. */
+function sosGeoPoint(sos) {
+  const coords = sos?.location?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lng = Number(coords[0]);
+  const lat = Number(coords[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { type: "Point", coordinates: [lng, lat] };
+}
 
 /**
  * Validate and persist a Job from an admin-style payload.
  * Handles SOS/SR side effects and optional technician notify via callback.
+ *
+ * @param {object} body
+ * @param {{ notifyTechnicianFn?: Function, adminId?: string }} [opts]
+ *   adminId: the dispatcher creating the job. For SOS jobs they must hold the
+ *   SOS claim (see linkSosToJob).
  */
-async function createJobRecord(body, { notifyTechnicianFn } = {}) {
+async function createJobRecord(body, { notifyTechnicianFn, adminId } = {}) {
   const {
     customer_id,
     customer_vehicle_id,
@@ -123,38 +140,44 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     }
   }
 
-  jobData.locationCoordinates = await resolveJobLocationToGeoPointRequired(
-    jobData.location
-  );
+  // SOS jobs: the customer's GPS pin is the authoritative coordinate
+  // (scenario 34). Whatever dispatch typed is kept as a label, unless they
+  // explicitly ask to use the typed location (the customer moved).
+  let sosPoint = null;
+  if (sos_request_id && body.use_typed_location !== true) {
+    const sos = await SOSRequest.findById(sos_request_id).select("location").lean();
+    sosPoint = sosGeoPoint(sos);
+  }
+  if (sosPoint) {
+    jobData.location_label = jobData.location.slice(0, 500);
+    jobData.locationCoordinates = sosPoint;
+  } else {
+    jobData.locationCoordinates = await resolveJobLocationToGeoPointRequired(
+      jobData.location
+    );
+  }
   jobData.location =
     formatGeoPointAsLocationString(jobData.locationCoordinates) ||
     jobData.location;
 
-  const job = await Job.create(jobData);
+  // SOS jobs link atomically: the SOS is claimed for this job before the job
+  // exists, so a double submit or a racing cancel cannot create a second job
+  // or resurrect a cancelled SOS (scenarios 42-44).
+  const job = sos_request_id
+    ? (await createJobLinkedToSos({ sosId: sos_request_id, adminId, jobData })).job
+    : await Job.create(jobData);
 
   const populatedJob = await Job.findById(job._id)
     .populate("assignedTechnician", "firstName lastName phone profilePicture currentLocation")
     .populate("customer_id", "first_name last_name phone_number");
 
-  if (sos_request_id) {
-    try {
-      await SOSRequest.findByIdAndUpdate(sos_request_id, {
-        status: "accepted",
-        assigned_technician: assignedTechnician,
-        accepted_at: new Date(),
-        job_id: job._id,
-      });
-    } catch (e) {
-      console.error("Error updating SOS:", e.message);
-    }
-  }
-
   if (service_request_id) {
     try {
-      await ServiceRequest.findByIdAndUpdate(service_request_id, {
-        status: "assigned",
-        job_id: job._id,
-      });
+      // Never resurrect a finished request.
+      await ServiceRequest.updateOne(
+        { _id: service_request_id, status: { $nin: ["cancelled", "completed"] } },
+        { $set: { status: "assigned", job_id: job._id } }
+      );
     } catch (e) {
       console.error("Error updating ServiceRequest:", e.message);
     }

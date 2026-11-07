@@ -8,7 +8,33 @@ function outcomeError(message, status = 400, code) {
   return err;
 }
 
-const CLOSABLE = new Set(["pending", "in_call"]);
+const CLOSABLE = ["pending", "in_call"];
+
+/**
+ * Only an open SOS with no job may change outcome. The guard is part of the
+ * update filter (scenario 43): a customer cancel, a job creation and a
+ * schedule/close racing on the same SOS resolve to exactly one winner.
+ */
+function closableFilter(sosId) {
+  return { _id: sosId, status: { $in: CLOSABLE }, job_id: null };
+}
+
+async function explainNotClosable(sosId, verb) {
+  const current = await SOSRequest.findById(sosId).select("status job_id").lean();
+  if (!current) return outcomeError("SOS not found", 404, "SOS_NOT_FOUND");
+  if (current.job_id) {
+    return outcomeError(
+      `Cannot ${verb} SOS — a job already exists for it`,
+      409,
+      "SOS_ALREADY_HANDLED"
+    );
+  }
+  return outcomeError(
+    `Cannot ${verb} SOS in status ${current.status}`,
+    409,
+    "SOS_NOT_CLOSABLE"
+  );
+}
 
 async function scheduleSosAsBooking({
   sosId,
@@ -18,8 +44,12 @@ async function scheduleSosAsBooking({
 } = {}) {
   const sos = await SOSRequest.findById(sosId);
   if (!sos) throw outcomeError("SOS not found", 404);
-  if (!CLOSABLE.has(sos.status)) {
-    throw outcomeError(`Cannot schedule SOS in status ${sos.status}`);
+  if (!CLOSABLE.includes(sos.status)) {
+    throw outcomeError(
+      `Cannot schedule SOS in status ${sos.status}`,
+      409,
+      "SOS_NOT_CLOSABLE"
+    );
   }
 
   const when = scheduledFor ? new Date(scheduledFor) : null;
@@ -35,50 +65,72 @@ async function scheduleSosAsBooking({
     throw outcomeError("service_type is required", 400, "SERVICE_TYPE_REQUIRED");
   }
 
-  const coords = Array.isArray(sos.location?.coordinates)
-    ? sos.location.coordinates
+  // Claim the outcome first; only the winner creates the booking.
+  const claimed = await SOSRequest.findOneAndUpdate(
+    closableFilter(sosId),
+    { $set: { status: "scheduled", outcome: "scheduled", service_type: type } },
+    { new: true }
+  );
+  if (!claimed) throw await explainNotClosable(sosId, "schedule");
+
+  const coords = Array.isArray(claimed.location?.coordinates)
+    ? claimed.location.coordinates
     : [51.531, 25.2854];
 
-  const serviceRequest = await ServiceRequest.create({
-    customer_id: sos.customer_id,
-    ...(vehicleId || sos.customer_vehicle_id
-      ? { customer_vehicle_id: vehicleId || sos.customer_vehicle_id }
-      : {}),
-    service_type: type,
-    timing: "scheduled",
-    scheduled_for: when,
-    location: { type: "Point", coordinates: coords },
-    status: "pending",
-    origin_sos_id: sos._id,
-  });
+  let serviceRequest;
+  try {
+    serviceRequest = await ServiceRequest.create({
+      customer_id: claimed.customer_id,
+      ...(vehicleId || claimed.customer_vehicle_id
+        ? { customer_vehicle_id: vehicleId || claimed.customer_vehicle_id }
+        : {}),
+      service_type: type,
+      timing: "scheduled",
+      scheduled_for: when,
+      location: { type: "Point", coordinates: coords },
+      status: "pending",
+      origin_sos_id: claimed._id,
+    });
+  } catch (err) {
+    // Put the SOS back so dispatch can retry — never leave it "scheduled"
+    // with no booking behind it.
+    await SOSRequest.updateOne(
+      { _id: sosId, status: "scheduled", scheduled_request_id: null },
+      { $set: { status: sos.status, outcome: sos.outcome || null } }
+    ).catch(() => {});
+    throw err;
+  }
 
-  sos.status = "scheduled";
-  sos.outcome = "scheduled";
-  sos.service_type = type;
-  sos.scheduled_request_id = serviceRequest._id;
-  await sos.save();
+  await SOSRequest.updateOne(
+    { _id: sosId },
+    { $set: { scheduled_request_id: serviceRequest._id } }
+  );
+  claimed.scheduled_request_id = serviceRequest._id;
 
-  return { sos, serviceRequest };
+  return { sos: claimed, serviceRequest };
 }
 
 async function closeSosAsNotAJob({ sosId, reason } = {}) {
   const trimmed = String(reason || "").trim();
   if (!trimmed) throw outcomeError("reason is required");
 
-  const sos = await SOSRequest.findById(sosId);
-  if (!sos) throw outcomeError("SOS not found", 404);
-  if (!CLOSABLE.has(sos.status)) {
-    throw outcomeError(`Cannot close SOS in status ${sos.status}`);
-  }
-
-  sos.status = "not_a_job";
-  sos.outcome = "not_a_job";
-  sos.outcome_reason = trimmed.slice(0, 2000);
-  await sos.save();
+  const sos = await SOSRequest.findOneAndUpdate(
+    closableFilter(sosId),
+    {
+      $set: {
+        status: "not_a_job",
+        outcome: "not_a_job",
+        outcome_reason: trimmed.slice(0, 2000),
+      },
+    },
+    { new: true }
+  );
+  if (!sos) throw await explainNotClosable(sosId, "close");
   return { sos };
 }
 
 module.exports = {
   scheduleSosAsBooking,
   closeSosAsNotAJob,
+  CLOSABLE_SOS_STATUSES: CLOSABLE,
 };

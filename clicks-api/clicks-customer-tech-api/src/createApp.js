@@ -61,6 +61,7 @@ function attachStubNotifyHandlers(app) {
   app.set("notifyAdminHoldRequest", noopAsync);
   app.set("notifyAdminServiceRequest", noopAsync);
   app.set("notifyAdminServiceRequestCancelled", noopAsync);
+  app.set("notifyJobRedispatch", noopAsync);
 }
 
 /**
@@ -169,6 +170,8 @@ function wireSosNotifyHandlers(app, sosHandlers) {
     "notifyAdminServiceRequestCancelled",
     sosHandlers.notifyAdminServiceRequestCancelled
   );
+  app.set("notifyJobRedispatch", sosHandlers.notifyJobRedispatch);
+  app.set("sosEscalationNotifier", sosHandlers.sosEscalationNotifier);
 }
 
 /**

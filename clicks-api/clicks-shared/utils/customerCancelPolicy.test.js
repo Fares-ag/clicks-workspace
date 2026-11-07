@@ -16,6 +16,20 @@ test("en_route and arrived cancel with a fee", () => {
   assert.equal(customerCancelDecision("arrived").allowed, true);
 });
 
+test("pending (no technician yet) cancels free", () => {
+  assert.deepEqual(customerCancelDecision("pending"), {
+    allowed: true,
+    fee: false,
+    code: "CANCEL_FREE",
+  });
+});
+
+test("on_hold routes the customer to support", () => {
+  const d = customerCancelDecision("on_hold");
+  assert.equal(d.allowed, false);
+  assert.equal(d.code, "JOB_ON_HOLD_CONTACT_SUPPORT");
+});
+
 test("in_progress cannot be cancelled by the customer", () => {
   const d = customerCancelDecision("in_progress");
   assert.equal(d.allowed, false);

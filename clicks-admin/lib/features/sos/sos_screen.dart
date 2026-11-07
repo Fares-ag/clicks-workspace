@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
+import '../../core/auth/admin_roles.dart';
+import '../../core/helper/cache_helper.dart';
 import '../../core/components/admin_data_table.dart';
 import '../../core/components/admin_list_screen.dart';
 import '../../core/components/filter_chip_bar.dart';
@@ -45,6 +47,17 @@ class SosScreen extends StatelessWidget {
     final dt = DateTime.tryParse(value.toString());
     if (dt == null) return '—';
     return DateFormat.yMd().add_jms().format(dt.toLocal());
+  }
+
+  /// In call and held by a dispatcher other than me.
+  static bool _claimedByOther(Map<String, dynamic> item) {
+    if (item['status']?.toString() != 'in_call') return false;
+    final claimed = item['claimed_by'];
+    final claimedId = claimed is Map ? claimed['id']?.toString() : null;
+    if (claimedId == null || claimedId.isEmpty) return false;
+    final me = CacheHelper.getUserProfileSync();
+    final myId = (me?['_id'] ?? me?['id'])?.toString();
+    return myId == null || myId != claimedId;
   }
 
   static void _refreshList(BuildContext context) {
@@ -233,6 +246,18 @@ class SosScreen extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_claimedByOther(item) &&
+                AdminRoles.isFullAdmin(
+                  CacheHelper.getUserProfileSync()?['role']?.toString(),
+                )) ...[
+              PrimaryButton(
+                label: 'Take over',
+                compact: true,
+                outlined: true,
+                onPressed: () => _takeOver(context, item),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+            ],
             PrimaryButton(
               label: 'Not a job',
               compact: true,
@@ -258,6 +283,83 @@ class SosScreen extends StatelessWidget {
     );
   }
 
+  /// "4:07" since the SOS was raised — the age dispatch must beat.
+  static String _ageLabel(Map<String, dynamic> item) {
+    final created = DateTime.tryParse(item['createdAt']?.toString() ?? '');
+    int seconds;
+    if (created != null) {
+      seconds = DateTime.now().difference(created.toLocal()).inSeconds;
+    } else {
+      seconds = (item['age_seconds'] as num?)?.toInt() ?? 0;
+    }
+    if (seconds < 0) seconds = 0;
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    final mm = m.toString().padLeft(h > 0 ? 2 : 1, '0');
+    final ss = s.toString().padLeft(2, '0');
+    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
+  }
+
+  static double _outstanding(Map<String, dynamic> item) =>
+      (item['outstanding_balance'] as num?)?.toDouble() ?? 0;
+
+  /// Age, escalation level and outstanding balance for open SOS; the cancel
+  /// reason for closed ones.
+  Widget _waitCell(Map<String, dynamic> item, String status) {
+    if (!_canAct(status)) {
+      return Text(
+        status == 'cancelled' ? (item['cancel_reason']?.toString() ?? '—') : '—',
+        style: AdminTypography.body,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    final level = (item['escalation_level'] as num?)?.toInt() ?? 0;
+    final owes = _outstanding(item);
+    final released = (item['claim_release_count'] as num?)?.toInt() ?? 0;
+    final levelLabel = switch (level) {
+      1 => 'Re-pushed',
+      2 => 'On-call paged',
+      3 => 'Customer told to call',
+      _ => null,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${status == 'pending' ? 'Waiting' : 'In call'} ${_ageLabel(item)}',
+          style: AdminTypography.body.copyWith(
+            fontWeight: FontWeight.w600,
+            color: level >= 2 ? AppColors.danger : null,
+          ),
+        ),
+        if (levelLabel != null)
+          Text('L$level · $levelLabel',
+              style: AdminTypography.caption.copyWith(color: AppColors.danger)),
+        if (released > 0)
+          Text('Claim auto-released ×$released', style: AdminTypography.caption),
+        if (owes > 0)
+          Text('Owes QAR ${owes.toStringAsFixed(2)} — collect on site',
+              style: AdminTypography.caption.copyWith(fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  Future<void> _takeOver(BuildContext context, Map<String, dynamic> item) async {
+    final id = item['_id']?.toString() ?? item['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final res = await DioHelper.postData(url: EndPoints.sosTakeover(id));
+    if (!context.mounted) return;
+    if (res.statusCode == 200) {
+      _toast(context, 'SOS is now yours');
+      _refreshList(context);
+    } else {
+      _toast(context, DioHelper.errorMessage(res) ?? 'Take over failed', error: true);
+    }
+  }
+
   List<Widget> _sosRow(BuildContext context, Map<String, dynamic> item) {
     final status = item['status']?.toString() ?? 'pending';
     final customer = item['customer'];
@@ -267,14 +369,7 @@ class SosScreen extends StatelessWidget {
       Text(name, style: AdminTypography.body.copyWith(fontWeight: FontWeight.w600)),
       Text(_vehicleLabel(item['vehicle']), style: AdminTypography.body),
       StatusPill(label: status.replaceAll('_', ' '), status: status),
-      Text(
-        status == 'cancelled'
-            ? (item['cancel_reason']?.toString() ?? '—')
-            : '—',
-        style: AdminTypography.body,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
+      _waitCell(item, status),
       Text(
         _formatWhen(item['expires_at'] ?? item['updatedAt'] ?? item['createdAt']),
         style: AdminTypography.body,
@@ -305,7 +400,7 @@ class SosScreen extends StatelessWidget {
         AdminTableColumn(label: 'Customer', flex: 2),
         AdminTableColumn(label: 'Vehicle', flex: 3),
         AdminTableColumn(label: 'Status', flex: 2),
-        AdminTableColumn(label: 'Cancel reason', flex: 2),
+        AdminTableColumn(label: 'Waiting / notes', flex: 3),
         AdminTableColumn(label: 'Updated', flex: 2),
         AdminTableColumn(label: 'Actions', flex: 4, align: TextAlign.end),
       ],

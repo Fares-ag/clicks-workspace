@@ -51,6 +51,7 @@ class AdminDrawer extends StatelessWidget {
           Routes.customerMemberships,
           'customer-memberships',
         ),
+        _DrawerItem('Ops Settings', Routes.opsSettings, 'ops-settings'),
       ]);
     }
 

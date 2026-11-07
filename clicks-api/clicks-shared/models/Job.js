@@ -79,6 +79,26 @@ const JobSchema = new mongoose.Schema(
       default: undefined,
     },
     cancel_fee_due: { type: Boolean, default: false },
+    // Refund decision recorded when a PAID job is cancelled (scenario 51).
+    // The Refund itself is created by the WS-D refunds service.
+    cancellation_refund: {
+      decision: {
+        type: String,
+        enum: ["full", "partial", "none"],
+        default: undefined,
+      },
+      amount: { type: Number, default: null, min: 0 },
+      reason: { type: String, default: "", maxlength: 1000 },
+      decided_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null,
+      },
+      decided_at: { type: Date, default: null },
+    },
+    // Free-text address typed by dispatch. For SOS jobs the coordinates come
+    // from the customer's GPS pin and this is a label only (scenario 34).
+    location_label: { type: String, default: "", maxlength: 500 },
     garage: {
       phase: {
         type: String,
