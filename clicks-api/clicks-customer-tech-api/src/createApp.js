@@ -110,6 +110,8 @@ function createTechApp(opts = {}) {
 
   registerTechHealthRoutes(app, { checkRedis: opts.checkRedis === true });
 
+  app.use("/api/config", require("./routes/configRoutes"));
+  app.use(require("./utils/appVersion").appVersionGate);
   app.use("/api/customers", customerRoutes);
   app.use("/api/technicians", technicianRoutes);
   app.use("/api/vehicles", vehicleRoutes);
@@ -192,6 +194,7 @@ async function createTechAppWithSocket(opts = {}) {
   const { initializeSOSSocket } = require("./services/sosSocketService");
   const sosHandlers = initializeSOSSocket(io);
   wireSosNotifyHandlers(app, sosHandlers);
+  app.set("io", io);
 
   return { app, server, io };
 }

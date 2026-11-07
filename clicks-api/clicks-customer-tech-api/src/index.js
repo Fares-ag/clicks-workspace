@@ -4,6 +4,13 @@ const mongoose = require("../../clicks-shared/mongoose");
 const { getCorsOrigins } = require("./utils/requireEnv");
 const { createTechApp } = require("./createApp");
 
+try {
+  require("../../clicks-shared/utils/assertProductionConfig").assertProductionConfig({ service: "tech" });
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+
 const { app } = createTechApp({ stubNotify: false, checkRedis: true });
 const server = http.createServer(app);
 
@@ -80,6 +87,7 @@ async function bootstrap() {
   await attachSocketAdapter(io);
 
   const sosHandlers = initializeSOSSocket(io);
+  app.set("io", io); // /api/customers/internal/disconnect (admin block)
 
   app.set("notifyAssignedTechnician", sosHandlers.notifyAssignedTechnician);
   app.set("notifyJobReassigned", sosHandlers.notifyJobReassigned);
@@ -125,6 +133,8 @@ async function bootstrap() {
   outboxWorkerHandle = startOutboxWorker(30000, {
     types: [OUTBOX_TYPES.PARTNER_ACCRUAL, OUTBOX_TYPES.TECHNICIAN_CREDIT],
   });
+  // Daily, unref'd, idempotent — no stop needed on shutdown.
+  require("../../clicks-shared/services/anonymiseDeletedCustomers").startCustomerAnonymiser();
 
   server.listen(PORT, () => {
     console.log(`Clicks Customer/Technician API running on port ${PORT}`);
