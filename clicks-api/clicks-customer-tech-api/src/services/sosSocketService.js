@@ -35,6 +35,10 @@ const { sendAdminDispatchPush } = require("./fcmService");
 const {
   recordAdminNotificationFireAndForget,
 } = require("./notificationRecordService");
+const {
+  notifyCustomer,
+  setCustomerNotifyTransport,
+} = require("../../../clicks-shared/services/notifyCustomer");
 
 const isDev = process.env.NODE_ENV === "development";
 function devLog(...args) {
@@ -259,6 +263,16 @@ function initializeSOSSocket(io) {
     namespace.to(userRoom(userId)).emit(event, payload);
   }
 
+  // Every customer-facing transition goes through clicks-shared notifyCustomer
+  // (inbox -> this socket room -> push). This process owns the socket server
+  // and the customer FCM app, so it is the local delivery transport.
+  setCustomerNotifyTransport({
+    emit: (customerId, event, payload) =>
+      emitToUser(customerNamespace, String(customerId), event, payload),
+    push: (customerId, push) =>
+      require("./fcmService").sendCustomerPush(String(customerId), push),
+  });
+
   const pendingExpireTimers = new Map(); // sosId -> timeout
   const inCallExpireTimers = new Map(); // sosId -> timeout
   const DISCONNECT_OFFLINE_MS = Number(process.env.TECH_DISCONNECT_OFFLINE_MS || 30000);
@@ -295,7 +309,7 @@ function initializeSOSSocket(io) {
         message ||
         "No dispatcher accepted your SOS request in time. Please try again or call support.",
     };
-    emitToUser(customerNamespace, customerId, "sosExpired", payload);
+    await notifyCustomer(customerId, "sosExpired", payload);
     adminNamespace.emit("sosExpired", payload);
     recordAdminNotificationFireAndForget({
       type: "sos.expired",
@@ -726,10 +740,11 @@ function initializeSOSSocket(io) {
           customer_id: String(sos.customer_id),
         });
 
-        const targetCustomerId = String(customer_id || sos.customer_id);
-        emitToUser(customerNamespace, targetCustomerId, "sosInCall", {
+        // Always the SOS's own customer, never a client-supplied id.
+        await notifyCustomer(String(sos.customer_id), "sosInCall", {
           sos_id: sos._id.toString(),
           status: "in_call",
+          claimed_at: sos.claimed_at,
           message:
             "An operator is reviewing your request and will call you shortly",
         });
@@ -773,8 +788,6 @@ function initializeSOSSocket(io) {
           notifier: {
             technicianPresence: (techId, status) =>
               emitAdminTechnicianPresence(techId, status),
-            customerJobEvent: (customerId, event, payload) =>
-              notifyCustomerJobEvent(customerId, event, payload),
             technicianJobEvent: (techId, event, payload) =>
               notifyTechnicianJobEvent(techId, event, payload),
           },
@@ -1456,9 +1469,19 @@ function initializeSOSSocket(io) {
           return;
         }
 
+        // CAS: a REST call racing this one cannot both move the job (and so
+        // cannot both notify the customer).
+        const enRouteAt = new Date();
+        const moved = await Job.updateOne(
+          { _id: job._id, job_status: "accepted" },
+          { $set: { job_status: "en_route", en_route_at: enRouteAt } }
+        );
+        if (!moved.modifiedCount) {
+          socket.emit("error", { message: "Job status changed — refresh and try again" });
+          return;
+        }
         job.job_status = "en_route";
-        job.en_route_at = new Date();
-        await job.save();
+        job.en_route_at = enRouteAt;
 
         // Confirm to technician
         socket.emit("enRouteConfirmed", {
@@ -1480,8 +1503,8 @@ function initializeSOSSocket(io) {
 
         // Notify customer
         if (job.customer_id) {
-          emitToUser(customerNamespace, job.customer_id.toString(), "technicianEnRoute", {
-            job_id,
+          await notifyCustomer(job.customer_id.toString(), "technicianEnRoute", {
+            job_id: String(job._id),
             status: "en_route",
             en_route_at: job.en_route_at,
             technician: (() => {
@@ -1540,9 +1563,17 @@ function initializeSOSSocket(io) {
           return;
         }
 
+        const arrivedAt = new Date();
+        const moved = await Job.updateOne(
+          { _id: job._id, job_status: "en_route" },
+          { $set: { job_status: "arrived", arrived_at: arrivedAt } }
+        );
+        if (!moved.modifiedCount) {
+          socket.emit("error", { message: "Job status changed — refresh and try again" });
+          return;
+        }
         job.job_status = "arrived";
-        job.arrived_at = new Date();
-        await job.save();
+        job.arrived_at = arrivedAt;
 
         // Confirm to technician
         socket.emit("arrivedConfirmed", {
@@ -1565,10 +1596,10 @@ function initializeSOSSocket(io) {
 
         // Notify customer
         if (job.customer_id) {
-          emitToUser(customerNamespace, job.customer_id.toString(), "technicianArrived", {
-            job_id,
+          await notifyCustomer(job.customer_id.toString(), "technicianArrived", {
+            job_id: String(job._id),
             status: "arrived",
-            arrived_at: job.arrived_at
+            arrived_at: job.arrived_at,
           });
           devLog(`Customer ${job.customer_id} notified: technician arrived`);
         }
@@ -1650,9 +1681,17 @@ function initializeSOSSocket(io) {
           }
         }
 
+        const startedAt = new Date();
+        const moved = await Job.updateOne(
+          { _id: job._id, job_status: "arrived" },
+          { $set: { job_status: "in_progress", started_at: startedAt } }
+        );
+        if (!moved.modifiedCount) {
+          socket.emit("error", { message: "Job status changed — refresh and try again" });
+          return;
+        }
         job.job_status = "in_progress";
-        job.started_at = new Date();
-        await job.save();
+        job.started_at = startedAt;
 
         // Confirm to technician
         socket.emit("jobStartedConfirmed", {
@@ -1675,10 +1714,11 @@ function initializeSOSSocket(io) {
 
         // Notify customer
         if (job.customer_id) {
-          emitToUser(customerNamespace, job.customer_id.toString(), "jobStarted", {
-            job_id,
+          await notifyCustomer(job.customer_id.toString(), "jobStarted", {
+            job_id: String(job._id),
             status: "in_progress",
-            started_at: job.started_at
+            started_at: job.started_at,
+            issue: job.issue || "",
           });
           devLog(`Customer ${job.customer_id} notified: job started`);
         }
@@ -1737,29 +1777,29 @@ function initializeSOSSocket(io) {
           paid_at: job.paid_at,
         });
 
+        // Only the code path that changes the payment notifies the customer,
+        // with the server-priced total (scenario 71).
         const notifyCustomerPaid = async (receiptData) => {
           const customerId = job.customer_id?._id?.toString();
-          const paymentPayload = {
-            job_id,
+          if (!customerId) return;
+          const { priceJob } = require("../../../clicks-shared/services/jobPayment");
+          const pricing = await priceJob(job).catch(() => null);
+          const total = pricing?.total ?? job.paid_amount ?? job.price;
+          await notifyCustomer(customerId, "paymentConfirmed", {
+            job_id: String(job._id),
             job_status: job.job_status,
             payment_status: "paid",
-            total_amount: job.price,
-            receipt: receiptData,
-            technician: job.assignedTechnician
-              ? {
-                  name: `${job.assignedTechnician.firstName} ${job.assignedTechnician.lastName}`,
-                  photo: job.assignedTechnician.profilePicture,
-                }
-              : null,
-          };
-          if (customerId) {
-            emitToUser(customerNamespace, customerId, "paymentConfirmed", paymentPayload);
-            devLog(`Customer ${customerId} notified: payment received`);
-            await pushCustomerEvent(customerId, "paymentConfirmed", paymentPayload);
-          }
+            payment_method: job.payment_method,
+            paid_at: job.paid_at,
+            amount: total,
+            total_amount: total,
+            receipt: { ...receiptData, total_amount: total },
+          });
         };
 
-        // Idempotent notify-only path after REST confirmPayment
+        // Already paid through REST confirmPayment, which notified the customer:
+        // confirm to the technician only. Notifying here again sent a second
+        // "paid" push with job.price instead of pricing.total (scenario 71).
         if (job.payment_status === "paid") {
           const receiptData = buildReceiptData();
           socket.emit("paymentConfirmed", {
@@ -1769,7 +1809,6 @@ function initializeSOSSocket(io) {
             receipt: receiptData,
             message: "Payment already confirmed",
           });
-          notifyCustomerPaid(receiptData);
           return;
         }
 
@@ -1791,7 +1830,7 @@ function initializeSOSSocket(io) {
           message: "Payment confirmed successfully",
         });
 
-        notifyCustomerPaid(receiptData);
+        await notifyCustomerPaid(receiptData);
       } catch (err) {
         console.error("Error confirming payment:", err);
         captureException(err);
@@ -1988,6 +2027,10 @@ function initializeSOSSocket(io) {
         const tech = job.assignedTechnician;
         await notifyCustomerTechnicianAssigned(customerId, {
           job_id: job._id.toString(),
+          sos_id: job.sos_request_id ? String(job.sos_request_id) : undefined,
+          status: job.job_status,
+          // Dedupe: a retried notify-technician for the same assignment is a no-op.
+          assigned_at: job.assigned_at || job.updatedAt,
           technician: {
             name: `${tech.firstName || ""} ${tech.lastName || ""}`.trim(),
             phone: tech.phone,
@@ -2037,27 +2080,9 @@ function initializeSOSSocket(io) {
         }
       }
 
-      const job = await Job.findById(jobId)
-        .populate(
-          "assignedTechnician",
-          "firstName lastName phone profilePicture currentLocation"
-        )
-        .populate("customer_id", "first_name last_name phone_number");
-      if (job?.customer_id && job.assignedTechnician) {
-        const customerId = (job.customer_id._id || job.customer_id).toString();
-        const t = job.assignedTechnician;
-        await notifyCustomerTechnicianAssigned(customerId, {
-          job_id: job._id.toString(),
-          technician: {
-            name: `${t.firstName || ""} ${t.lastName || ""}`.trim(),
-            phone: t.phone,
-            photo: t.profilePicture,
-            latitude: t.currentLocation?.coordinates?.[1],
-            longitude: t.currentLocation?.coordinates?.[0],
-          },
-        });
-      }
-
+      // The customer hears about the new technician from notify-technician
+      // (notifyAssignedTechnician), which jobReassign calls right after this.
+      // Notifying here too sent every reassignment twice.
       return true;
     } catch (error) {
       console.error("Error notifying job reassignment:", error);
@@ -2066,93 +2091,29 @@ function initializeSOSSocket(io) {
     }
   }
 
-  async function pushCustomerEvent(customerId, event, data = {}) {
+  /**
+   * Customer notification for any transition (inbox -> socket room -> push),
+   * via clicks-shared notifyCustomer. Never throws to the caller: the state
+   * change already happened.
+   */
+  async function notifyCustomerJobEvent(customerId, event, data = {}, opts = {}) {
     try {
-      const {
-        sendCustomerPush,
-        customerPushCopyForEvent,
-        CUSTOMER_PUSH_EVENTS,
-      } = require("./fcmService");
-      const {
-        customerTypeForEvent,
-        recordCustomerNotificationFireAndForget,
-      } = require("./notificationRecordService");
-      const jobId =
-        data.job_id?.toString?.() ||
-        data.job_id ||
-        data.jobId?.toString?.() ||
-        "";
-      if (CUSTOMER_PUSH_EVENTS.has(event)) {
-        const copy = customerPushCopyForEvent(event, data);
-        recordCustomerNotificationFireAndForget({
-          customerId,
-          type: customerTypeForEvent(event),
-          title: copy.title,
-          body: copy.body,
-          data: {
-            event,
-            job_id: jobId,
-            sos_id: data.sos_id?.toString?.() || data.sos_id || "",
-          },
-        });
-      }
-      await sendCustomerPush(customerId, {
-        event,
-        type: event,
-        job_id: jobId,
-        sos_id: data.sos_id?.toString?.() || data.sos_id || "",
-        ...data,
-      });
-    } catch (fcmErr) {
-      console.error(`[fcm] customer ${event} push error:`, fcmErr.message);
-      captureException(fcmErr);
+      if (!customerId || !event) return false;
+      const result = await notifyCustomer(String(customerId), event, data || {}, opts);
+      return !result?.skipped;
+    } catch (error) {
+      console.error(`Error notifying customer of ${event}:`, error);
+      captureException(error);
+      return false;
     }
   }
 
-  // Notify customer that technician was assigned
   async function notifyCustomerTechnicianAssigned(customerId, data) {
-    try {
-      devLog(`Notifying customer ${customerId} of technician assignment`);
-      let socketOk = false;
-
-      if (await userHasLiveSockets(customerNamespace, customerId.toString())) {
-        emitToUser(customerNamespace, customerId.toString(), "technicianAssigned", data);
-        devLog(`Customer ${customerId} notified via socket room ${userRoom(customerId)}`);
-        socketOk = true;
-      } else {
-        devLog(`Customer ${customerId} is not connected`);
-      }
-
-      await pushCustomerEvent(customerId, "technicianAssigned", data);
-      return socketOk;
-    } catch (error) {
-      console.error("Error notifying customer:", error);
-      captureException(error);
-      return false;
-    }
+    return notifyCustomerJobEvent(customerId, "technicianAssigned", data);
   }
 
-  // Notify customer of technician acceptance
   async function notifyCustomerTechnicianAccepted(customerId, data) {
-    try {
-      devLog(`Notifying customer ${customerId} of technician acceptance`);
-      let socketOk = false;
-
-      if (await userHasLiveSockets(customerNamespace, customerId.toString())) {
-        emitToUser(customerNamespace, customerId.toString(), "technicianAccepted", data);
-        devLog(`Customer ${customerId} notified of acceptance via socket room ${userRoom(customerId)}`);
-        socketOk = true;
-      } else {
-        devLog(`Customer ${customerId} is not connected`);
-      }
-
-      await pushCustomerEvent(customerId, "technicianAccepted", data);
-      return socketOk;
-    } catch (error) {
-      console.error("Error notifying customer of acceptance:", error);
-      captureException(error);
-      return false;
-    }
+    return notifyCustomerJobEvent(customerId, "technicianAccepted", data);
   }
 
   async function notifySosClaimed({ sos_id, admin_id, customer_id }) {
@@ -2180,15 +2141,14 @@ function initializeSOSSocket(io) {
       },
     });
 
-    const targetCustomerId = String(customer_id || sos.customer_id);
     const sosPayload = {
       sos_id: String(sos_id),
       status: "in_call",
+      claimed_at: sos.claimed_at,
       message:
         "An operator is reviewing your request and will call you shortly",
     };
-    emitToUser(customerNamespace, targetCustomerId, "sosInCall", sosPayload);
-    await pushCustomerEvent(targetCustomerId, "sosInCall", sosPayload);
+    await notifyCustomerJobEvent(String(sos.customer_id), "sosInCall", sosPayload);
     return true;
   }
 
@@ -2197,7 +2157,7 @@ function initializeSOSSocket(io) {
     const name = String(event || "").trim();
     if (!target || !name) return false;
     const data = { sos_id, ...(payload || {}) };
-    emitToUser(customerNamespace, target, name, data);
+    await notifyCustomerJobEvent(target, name, data);
     return true;
   }
 
@@ -2208,26 +2168,6 @@ function initializeSOSSocket(io) {
       return true;
     } catch (error) {
       console.error(`Error emitting ${event} to technician:`, error);
-      captureException(error);
-      return false;
-    }
-  }
-
-  /** Notify customer of fulfill-path status from REST controllers */
-  async function notifyCustomerJobEvent(customerId, event, data) {
-    try {
-      let socketOk = false;
-      if (await userHasLiveSockets(customerNamespace, String(customerId))) {
-        emitToUser(customerNamespace, String(customerId), event, data);
-        socketOk = true;
-      }
-      const { CUSTOMER_PUSH_EVENTS } = require("./fcmService");
-      if (CUSTOMER_PUSH_EVENTS.has(event)) {
-        await pushCustomerEvent(customerId, event, data);
-      }
-      return socketOk;
-    } catch (error) {
-      console.error(`Error emitting ${event} to customer:`, error);
       captureException(error);
       return false;
     }
@@ -2428,7 +2368,14 @@ function initializeSOSSocket(io) {
    * Dispatch needs to re-assign it; the customer hears "finding another
    * technician" rather than silence.
    */
-  async function notifyJobRedispatch({ job_id, customer_id, technician_id, sos_id, reason } = {}) {
+  async function notifyJobRedispatch({
+    job_id,
+    customer_id,
+    technician_id,
+    sos_id,
+    reason,
+    released_at,
+  } = {}) {
     try {
       const payload = {
         job_id: String(job_id || ""),
@@ -2462,12 +2409,10 @@ function initializeSOSSocket(io) {
           job_id: payload.job_id,
           sos_id: payload.sos_id,
           status: "pending",
+          released_at: released_at || undefined,
           message: "Your technician couldn't continue. We're finding another technician for you.",
         };
-        emitToUser(customerNamespace, String(customer_id), "jobReassigning", customerPayload);
-        // INTEGRATION(ws-c): add "jobReassigning" to CUSTOMER_PUSH_EVENTS so
-        // this push (and its inbox row) is actually delivered.
-        await pushCustomerEvent(String(customer_id), "jobReassigning", customerPayload);
+        await notifyCustomerJobEvent(String(customer_id), "jobReassigning", customerPayload);
       }
       return true;
     } catch (error) {
@@ -2484,12 +2429,8 @@ function initializeSOSSocket(io) {
     },
     adminPush: (type, payload) => sendAdminDispatchPush(type, payload),
     recordAdminNotification: (row) => recordAdminNotificationFireAndForget(row),
-    customerEvent: async (customerId, event, payload) => {
-      emitToUser(customerNamespace, String(customerId), event, payload);
-      // INTEGRATION(ws-c): "sosStillConnecting" needs a CUSTOMER_PUSH_EVENTS
-      // entry + copy before this push is delivered.
-      await pushCustomerEvent(String(customerId), event, payload);
-    },
+    customerEvent: (customerId, event, payload) =>
+      notifyCustomerJobEvent(String(customerId), event, payload),
     sendSms: async (to, message) => {
       const { sendSMS } = require("./smsService");
       return sendSMS(to, message);

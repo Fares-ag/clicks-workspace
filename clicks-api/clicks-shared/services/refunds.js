@@ -275,6 +275,29 @@ async function applyRefundEffects(refundDoc) {
       }
     );
   }
+
+  // Tell the customer once (keyed on the refund id), from whichever API
+  // settled it: admin approval or a provider webhook.
+  let customerId = refund.customer_id;
+  if (!customerId && refund.kind === "job" && refund.job_id) {
+    customerId = (await Job.findById(refund.job_id).select("customer_id").lean())?.customer_id;
+  }
+  if (!customerId && refund.kind === "membership" && refund.subscription_id) {
+    customerId = (
+      await CustomerSubscription.findById(refund.subscription_id).select("customer_id").lean()
+    )?.customer_id;
+  }
+  if (customerId && amount > 0) {
+    const { notifyCustomerSafe } = require("./notifyCustomer");
+    await notifyCustomerSafe(String(customerId), "refundProcessed", {
+      refund_id: String(refund._id),
+      job_id: refund.job_id ? String(refund.job_id) : undefined,
+      subscription_id: refund.subscription_id ? String(refund.subscription_id) : undefined,
+      kind: refund.kind,
+      amount,
+      status: "succeeded",
+    });
+  }
   return Refund.findById(refund._id);
 }
 

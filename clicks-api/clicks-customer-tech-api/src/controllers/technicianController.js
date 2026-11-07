@@ -683,7 +683,7 @@ const acceptJob = async (req, res) => {
     deletePayloadCacheKey(`clicks:tech:payload:session:${techId}`).catch(() => {});
 
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-    const notifyCustomer = req.app.get("notifyCustomerTechnicianAccepted");
+    const { notifyCustomerSafe: notifyCustomer } = require("../../../clicks-shared/services/notifyCustomer");
     const jobId = updated._id;
     const customerId = updated.customer_id;
 
@@ -693,12 +693,12 @@ const acceptJob = async (req, res) => {
         if (typeof notifyPresence === "function") {
           await notifyPresence(techId, "On Job");
         }
-        if (typeof notifyCustomer === "function" && customerId) {
+        if (customerId) {
           const tech = await Technician.findById(techId)
             .select("firstName lastName phone profilePicture")
             .lean();
           if (tech) {
-            await notifyCustomer(String(customerId), {
+            await notifyCustomer(String(customerId), "technicianAccepted", {
               job_id: jobId,
               status: "accepted",
               technician: {
@@ -764,6 +764,7 @@ const rejectJob = async (req, res) => {
     job.assignedTechnician = null;
     job.job_status = "pending";
     await job.save();
+    const releasedAt = new Date();
 
     // P1-01: increment rejected-jobs counter in TechnicianEarnings (source of truth)
     await TechnicianEarnings.findOneAndUpdate(
@@ -795,14 +796,15 @@ const rejectJob = async (req, res) => {
 
     if (job.customer_id) {
       try {
-        const notify = req.app.get("notifyCustomerJobEvent");
-        if (typeof notify === "function") {
-          await notify(job.customer_id.toString(), "jobReassigning", {
-            job_id: job._id,
-            status: "pending",
-            reason: rejection_description || "Technician unavailable",
-          });
-        }
+        // The technician's own reason is internal; the customer hears
+        // "finding another technician" (scenario 46).
+        const { notifyCustomer } = require("../../../clicks-shared/services/notifyCustomer");
+        await notifyCustomer(job.customer_id.toString(), "jobReassigning", {
+          job_id: job._id,
+          sos_id: job.sos_request_id ? String(job.sos_request_id) : undefined,
+          status: "pending",
+          released_at: releasedAt,
+        });
       } catch (notifyErr) {
         console.error("Failed to notify customer of rejection:", notifyErr.message);
       }

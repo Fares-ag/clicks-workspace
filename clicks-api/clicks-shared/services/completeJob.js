@@ -37,15 +37,26 @@ let loggedTransactionFallback = false;
  * Validation that differs by caller (signature, job reference, payment
  * collected) stays in the controllers.
  *
+ * The customer is told here (scenario 76), so a completion by dispatch reaches
+ * the customer exactly like one by the technician.
+ *
  * @param {{
  *   jobId: string,
  *   fromStatuses: string[],
  *   set?: object,          — extra fields written with the completion
+ *   completedBy?: "technician"|"admin",
+ *   notify?: boolean,      — default true: jobCompleted to the customer
  * }} input
  * @returns {Promise<{ job: object, receipt: object|null, pricing: object, zeroDue: boolean, partnerEventId: any }>}
  * @throws completionCasMissError when the job was not in an allowed status
  */
-async function completeJob({ jobId, fromStatuses, set = {} } = {}) {
+async function completeJob({
+  jobId,
+  fromStatuses,
+  set = {},
+  completedBy = "technician",
+  notify = true,
+} = {}) {
   if (!Array.isArray(fromStatuses) || !fromStatuses.length) {
     throw new Error("completeJob requires fromStatuses");
   }
@@ -134,6 +145,23 @@ async function completeJob({ jobId, fromStatuses, set = {} } = {}) {
     });
 
   invalidateTechSessionCache(result.updated.assignedTechnician);
+
+  if (notify && result.updated.customer_id) {
+    const { notifyCustomer } = require("./notifyCustomer");
+    await notifyCustomer(String(result.updated.customer_id), "jobCompleted", {
+      job_id: String(result.updated._id),
+      sos_id: result.updated.sos_request_id ? String(result.updated.sos_request_id) : undefined,
+      job_status: "completed",
+      payment_status: result.updated.payment_status,
+      payment_method: result.updated.payment_method,
+      total_amount: pricing.total,
+      completed_at: result.updated.completed_at,
+      completed_by: completedBy,
+    }).catch((err) => {
+      console.error("[completeJob] customer notify failed:", err.message);
+    });
+  }
+
   return {
     job: result.updated,
     receipt: result.receipt,

@@ -79,6 +79,8 @@ async function markJobPaid(req, res, { finance }) {
       reference: req.body?.reference,
       reason: req.body?.reason,
       actor: { type: actor.type, id: actor.id },
+      // The customer hears "payment received" like any other payment path.
+      notify: require("../../../clicks-shared/services/notifyCustomer").notifyCustomerSafe,
     });
     if (!result.alreadyPaid) {
       await recordAudit({

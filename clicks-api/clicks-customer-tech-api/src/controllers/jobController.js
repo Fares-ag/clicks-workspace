@@ -37,6 +37,7 @@ const {
   customerCancelRefusalMessage,
 } = require("../../../clicks-shared/utils/customerCancelPolicy");
 const { sendJobToGarage } = require("../../../clicks-shared/services/jobGarage");
+const { notifyCustomerSafe } = require("../../../clicks-shared/services/notifyCustomer");
 const {
   MOBILE_JOB_LIST_SELECT,
   MOBILE_JOB_LIST_POPULATE,
@@ -254,15 +255,12 @@ const updateJobStatus = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job_status === "en_route" && job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "technicianEnRoute", {
-          job_id: job._id,
-          status: "en_route",
-          en_route_at: job.en_route_at,
-          technician: technicianTrackingPayload(job.assignedTechnician),
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "technicianEnRoute", {
+        job_id: job._id,
+        status: "en_route",
+        en_route_at: job.en_route_at,
+        technician: technicianTrackingPayload(job.assignedTechnician),
+      });
     }
 
     if (req.user.role === "technician") {
@@ -478,10 +476,13 @@ const markCompleted = async (req, res) => {
     let updated;
     let receipt;
     try {
+      // completeJob tells the customer (jobCompleted) — the same call an
+      // admin completion makes, so both paths notify identically.
       ({ job: updated, receipt } = await completeJobService({
         jobId: id,
         fromStatuses: ["in_progress"],
         set: completionSet,
+        completedBy: "technician",
       }));
     } catch (completeErr) {
       if (isCompletionCasMiss(completeErr)) {
@@ -510,9 +511,7 @@ const markCompleted = async (req, res) => {
     });
 
     const assignedTechnician = updated.assignedTechnician;
-    const customerId = updated.customer_id;
     const completedJobId = updated._id.toString();
-    const paymentStatus = updated.payment_status;
     setImmediate(() => {
       (async () => {
         if (assignedTechnician) {
@@ -524,16 +523,6 @@ const markCompleted = async (req, res) => {
           const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
           if (typeof notifyPresence === "function") {
             await notifyPresence(assignedTechnician, nextStatus);
-          }
-        }
-        if (customerId) {
-          const notify = req.app.get("notifyCustomerJobEvent");
-          if (typeof notify === "function") {
-            await notify(customerId.toString(), "jobCompleted", {
-              job_id: completedJobId,
-              job_status: "completed",
-              payment_status: paymentStatus,
-            });
           }
         }
       })().catch((err) => {
@@ -578,14 +567,11 @@ const markArrived = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "technicianArrived", {
-          job_id: job._id,
-          status: "arrived",
-          arrived_at: job.arrived_at,
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "technicianArrived", {
+        job_id: job._id,
+        status: "arrived",
+        arrived_at: job.arrived_at,
+      });
     }
 
     recordTechnicianActivity({
@@ -673,15 +659,12 @@ const startJob = async (req, res) => {
     notifyAdminJobStatusFromReq(req, job);
 
     if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "jobStarted", {
-          job_id: job._id,
-          status: "in_progress",
-          started_at: job.started_at,
-          issue: job.issue || "",
-        });
-      }
+      await notifyCustomerSafe(job.customer_id, "jobStarted", {
+        job_id: job._id,
+        status: "in_progress",
+        started_at: job.started_at,
+        issue: job.issue || "",
+      });
     }
 
     recordTechnicianActivity({
@@ -889,10 +872,11 @@ const findNearbyTechnicians = async (req, res) => {
   }
 };
 
+// cancelJob tells the customer itself (notifyCustomer); the notifier only
+// carries the technician-side and Live Map side effects.
 function cancelNotifierFromReq(req) {
   return {
     technicianPresence: req.app.get("notifyAdminTechnicianPresence"),
-    customerJobEvent: req.app.get("notifyCustomerJobEvent"),
     technicianJobEvent: req.app.get("notifyTechnicianJobEvent"),
   };
 }
@@ -1009,6 +993,7 @@ const cancelJobByTechnician = async (req, res) => {
           technician_id: String(req.user.id),
           sos_id: job.sos_request_id ? String(job.sos_request_id) : null,
           reason,
+          released_at: released.releasedAt || released.job?.updatedAt,
         });
       } catch (notifyErr) {
         console.error("Failed to notify redispatch:", notifyErr.message);
@@ -1089,7 +1074,7 @@ const confirmPayment = async (req, res) => {
     // Idempotency — already paid (do not set Online; tech stays On Job until complete)
     if (isJobPaid(job)) return alreadyPaidResponse(job);
 
-    const notify = req.app.get("notifyCustomerJobEvent");
+    const notify = notifyCustomerSafe;
     const open = await pendingAttempts({ jobId: job._id });
     if (open.length) {
       const check = await liveCheckJobAttempts(job._id, {
@@ -1784,13 +1769,12 @@ const sendCustomerJobToGarage = async (req, res) => {
       }
     }
 
-    const notify = req.app.get("notifyCustomerJobEvent");
-    if (typeof notify === "function" && job.customer_id) {
-      await notify(job.customer_id.toString(), "jobAtGarage", {
-        job_id: job._id,
-        garage: job.garage,
-        job_status: job.job_status,
-      });
+    if (job.customer_id) {
+      await notifyCustomerSafe(
+        job.customer_id,
+        "jobAtGarage",
+        require("../../../clicks-shared/services/jobGarage").garageCustomerPayload(job, "at_garage")
+      );
     }
     notifyAdminJobStatusFromReq(req, job);
 

@@ -1,4 +1,3 @@
-const axios = require("axios");
 const Lead = require("../models/Lead");
 
 const OPEN_LEAD_STATUSES =
@@ -87,14 +86,10 @@ function mapLead(doc) {
   };
 }
 
+// Through the outbox: 5 s timeout, retried on failure (scenario 68).
 async function notifyTechnician(jobId) {
-  const customerTechApiUrl =
-    process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-  await axios.post(
-    `${customerTechApiUrl}/api/sos/notify-technician`,
-    { job_id: jobId },
-    { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-  );
+  const { postToTechApi } = require("../utils/techApiNotify");
+  await postToTechApi("/api/sos/notify-technician", { job_id: String(jobId) });
 }
 
 async function getLeads(req, res) {

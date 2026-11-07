@@ -79,7 +79,13 @@ mongoose
       OUTBOX_TYPES,
     } = require("../../clicks-shared/services/outboxWorker");
     outboxWorkerHandle = startOutboxWorker(30000, {
-      types: [OUTBOX_TYPES.ADMIN_BUSINESS_JOB_NOTIFY],
+      // Cross-API notifies (scenario 68): retried here until the tech API
+      // accepts them or they are marked failed (Sentry alert).
+      types: [
+        OUTBOX_TYPES.ADMIN_BUSINESS_JOB_NOTIFY,
+        OUTBOX_TYPES.TECH_API_NOTIFY,
+        OUTBOX_TYPES.CUSTOMER_NOTIFY,
+      ],
     });
     const { startStatsRefresher } = require("./services/statsRefresher");
     statsRefresherHandle = startStatsRefresher();

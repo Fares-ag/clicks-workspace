@@ -8,7 +8,8 @@
  *   2. the linked SOS gets its terminal outcome;
  *   3. the linked ServiceRequest is moved to cancelled (WS-G);
  *   4. the technician is freed (unless they still hold another live job);
- *   5. customer + technician are notified through the caller's notifier.
+ *   5. the customer is told through notifyCustomer (every actor); the
+ *      technician side goes through the caller's notifier.
  *
  * A PAID job can only be cancelled by an admin, and only with an explicit
  * refund decision (full | partial | none + reason), which is stored on the job.
@@ -131,7 +132,9 @@ async function safeNotify(fn, ...args) {
  * @param {boolean} [args.feeDue]     customer late-cancel fee flag
  * @param {{decision, amount, reason}} [args.refund]  required for paid jobs
  * @param {boolean} [args.countAgainstTechnician]  bump cancel counters
- * @param {{ customerJobEvent?, technicianJobEvent?, technicianPresence? }} [args.notifier]
+ * @param {{ technicianJobEvent?, technicianPresence? }} [args.notifier]
+ *   The customer is always told here through notifyCustomer (inbox -> socket
+ *   -> push, or the outbox from the admin API), for every actor.
  */
 async function cancelJob({
   jobId,
@@ -338,12 +341,8 @@ async function cancelJob({
     await safeNotify(notifier.technicianPresence, technicianId, technicianNextStatus);
   }
   if (job.customer_id) {
-    await safeNotify(
-      notifier.customerJobEvent,
-      String(job.customer_id),
-      "jobCancelled",
-      payload
-    );
+    const { notifyCustomerSafe } = require("./notifyCustomer");
+    await notifyCustomerSafe(String(job.customer_id), "jobCancelled", payload);
   }
   if (technicianId && actor !== "technician") {
     await safeNotify(notifier.technicianJobEvent, technicianId, "jobCancelled", payload);

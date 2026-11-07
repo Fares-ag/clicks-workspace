@@ -43,8 +43,10 @@ function fetchImplFor(req) {
   return req.app.get("skipcashFetch") || fetch;
 }
 
-function notifyFor(req) {
-  return req.app.get("notifyCustomerJobEvent");
+// Payment confirmations go through the one customer notifier (inbox -> socket
+// -> push), whichever API process runs this.
+function notifyFor(_req) {
+  return require("../../../clicks-shared/services/notifyCustomer").notifyCustomerSafe;
 }
 
 function skipcashSnapshot(result, amount) {

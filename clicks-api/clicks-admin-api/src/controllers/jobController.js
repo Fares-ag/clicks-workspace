@@ -3,8 +3,9 @@ const Technician = require("../models/Technician");
 const Source = require("../models/Source");
 const SOSRequest = require("../models/SOSRequest");
 const ServiceRequest = require("../models/ServiceRequest");
-const axios = require('axios');
 const xlsx = require("xlsx");
+const { postToTechApi } = require("../utils/techApiNotify");
+const { notifyCustomerSafe } = require("../../../clicks-shared/services/notifyCustomer");
 const {
   mapHistoricalRow,
   importHistoricalJobs,
@@ -23,11 +24,14 @@ const {
   approveHoldRequest,
   rejectHoldRequest,
   clearPendingHoldRequest,
+  holdCustomerPayload,
+  resumeCustomerPayload,
 } = require("../../../clicks-shared/services/jobHold");
 const {
   sendJobToGarage,
   markGarageReady,
   assertCanResume,
+  garageCustomerPayload,
 } = require("../../../clicks-shared/services/jobGarage");
 const { TECH_BUSY_JOB_STATUSES, ADMIN_COMPLETABLE_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
@@ -306,15 +310,9 @@ async function getJobs(req, res) {
 // POST /api/jobs
 async function createJob(req, res) {
   try {
+    // Through the outbox (5 s timeout, retried; scenario 68).
     const notifyTechnicianFn = async (jobId) => {
-      const customerTechApiUrl =
-        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-      await axios.post(
-        `${customerTechApiUrl}/api/sos/notify-technician`,
-        { job_id: jobId },
-        { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-      );
-      console.log(`Technician notified about job ${jobId}`);
+      await postToTechApi("/api/sos/notify-technician", { job_id: String(jobId) });
     };
 
     const { populatedJob } = await createJobRecord(req.body, {
@@ -658,17 +656,7 @@ async function updateJob(req, res) {
     
     // Notify technician if newly assigned
     if (isNewTechnicianAssignment && assignedTechnician) {
-      try {
-        const customerTechApiUrl = process.env.CUSTOMER_TECH_API_URL || 'http://localhost:5001';
-        await axios.post(
-          `${customerTechApiUrl}/api/sos/notify-technician`,
-          { job_id: job._id.toString() },
-          { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-        );
-        console.log(`Technician ${assignedTechnician} notified about job ${job._id}`);
-      } catch (notifyError) {
-        console.error('Failed to notify technician:', notifyError.message);
-      }
+      await postToTechApi("/api/sos/notify-technician", { job_id: job._id.toString() });
     }
 
     // Diff like against like: `job` comes back with assignedTechnician populated
@@ -799,6 +787,8 @@ async function cancelJobByAdmin(req, res) {
       });
     }
 
+    // cancelJob already told the customer (notifyCustomer -> outbox). The
+    // tech API still tells the technician and refreshes the Live Map.
     await callInternalNotify("/api/sos/notify-job-cancelled", {
       job_id: String(result.job._id),
       customer_id: result.job.customer_id ? String(result.job.customer_id) : null,
@@ -1068,6 +1058,10 @@ async function holdJob(req, res) {
 
     await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
 
+    if (job.customer_id) {
+      await notifyCustomerSafe(job.customer_id, "jobOnHold", holdCustomerPayload(job));
+    }
+
     await recordAudit({
       req,
       action: "job.hold",
@@ -1109,6 +1103,10 @@ async function resumeJob(req, res) {
     const restoredBusy = TECH_BUSY_JOB_STATUSES.includes(job.job_status);
     await applyAdminTechnicianPresence(job.assignedTechnician, job._id, restoredBusy);
 
+    if (job.customer_id) {
+      await notifyCustomerSafe(job.customer_id, "jobResumed", resumeCustomerPayload(job));
+    }
+
     await recordAudit({
       req,
       action: "job.resume",
@@ -1148,6 +1146,10 @@ async function approveHoldRequestJob(req, res) {
     });
 
     await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+
+    if (job.customer_id) {
+      await notifyCustomerSafe(job.customer_id, "jobOnHold", holdCustomerPayload(job));
+    }
 
     await recordAudit({
       req,
@@ -1260,10 +1262,13 @@ async function completeJob(req, res) {
     const { isCompletionCasMiss } = require("../../../clicks-shared/utils/mongoTransactions");
     let completed;
     try {
+      // completeJob notifies the customer (jobCompleted), so an admin
+      // completion reaches them like a technician's (scenario 76).
       completed = await completeJobService({
         jobId: job._id,
         fromStatuses: [job.job_status],
         set,
+        completedBy: "admin",
       });
     } catch (completeErr) {
       if (isCompletionCasMiss(completeErr)) {
@@ -1335,27 +1340,9 @@ async function sendAdminJobToGarage(req, res) {
       },
     });
 
-    try {
-      const customerTechApiUrl =
-        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-      if (job.customer_id) {
-        await axios.post(
-          `${customerTechApiUrl}/api/sos/notify-outcome`,
-          {
-            sos_id: job.sos_request_id || job._id.toString(),
-            customer_id: String(job.customer_id),
-            event: "jobAtGarage",
-            payload: {
-              job_id: job._id.toString(),
-              garage: job.garage,
-              job_status: job.job_status,
-            },
-          },
-          { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-        );
-      }
-    } catch (notifyErr) {
-      console.error("Failed to notify garage send:", notifyErr.message);
+    // Inbox + push + socket (scenario 52: this used to be socket-only).
+    if (job.customer_id) {
+      await notifyCustomerSafe(job.customer_id, "jobAtGarage", garageCustomerPayload(job, "at_garage"));
     }
 
     const populated = await Job.findById(job._id)
@@ -1391,27 +1378,8 @@ async function markAdminGarageReady(req, res) {
       },
     });
 
-    try {
-      const customerTechApiUrl =
-        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-      if (job.customer_id) {
-        await axios.post(
-          `${customerTechApiUrl}/api/sos/notify-outcome`,
-          {
-            sos_id: job.sos_request_id || job._id.toString(),
-            customer_id: String(job.customer_id),
-            event: "jobGarageReady",
-            payload: {
-              job_id: job._id.toString(),
-              garage: job.garage,
-              job_status: job.job_status,
-            },
-          },
-          { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
-        );
-      }
-    } catch (notifyErr) {
-      console.error("Failed to notify garage ready:", notifyErr.message);
+    if (job.customer_id) {
+      await notifyCustomerSafe(job.customer_id, "jobGarageReady", garageCustomerPayload(job, "returning"));
     }
 
     const populated = await Job.findById(job._id)

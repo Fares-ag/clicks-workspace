@@ -1,4 +1,3 @@
-const axios = require("axios");
 const Job = require("../models/Job");
 const {
   JOB_REASSIGN_REASONS,
@@ -20,22 +19,13 @@ async function resetTechnicianPresence(technicianId, excludeJobId) {
   await setTechnicianStatus(technicianId, nextStatus);
 }
 
+/**
+ * Admin API → tech API notify, through the outbox (5 s timeout, retried with
+ * backoff; scenario 68). Never throws.
+ */
 async function callInternalNotify(path, body) {
-  const customerTechApiUrl =
-    process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
-  const secret = process.env.INTERNAL_API_SECRET;
-  if (!secret) {
-    console.warn(`[reassign] skip ${path} — INTERNAL_API_SECRET not set`);
-    return;
-  }
-  try {
-    await axios.post(`${customerTechApiUrl}${path}`, body, {
-      headers: { "x-internal-secret": secret },
-      timeout: 15000,
-    });
-  } catch (err) {
-    console.error(`[reassign] ${path} failed:`, err.message);
-  }
+  const { sendToTechApi } = require("./techApiNotify");
+  return sendToTechApi(path, body);
 }
 
 /**
@@ -230,7 +220,7 @@ async function releaseJobForRedispatch({ jobId, technicianId, reason, note }) {
     });
   }
 
-  return { job: updated, fromTechnicianId };
+  return { job: updated, fromTechnicianId, releasedAt: now };
 }
 
 module.exports = {

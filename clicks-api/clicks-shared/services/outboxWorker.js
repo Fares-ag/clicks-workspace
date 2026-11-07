@@ -6,7 +6,37 @@ const OUTBOX_TYPES = {
   ADMIN_BUSINESS_JOB_NOTIFY: "admin_business_job_notify",
   PARTNER_ACCRUAL: "partner_accrual",
   TECHNICIAN_CREDIT: "technician_credit",
+  /** Admin API → tech API internal call (`notify-technician`, `notify-claim`, ...). */
+  TECH_API_NOTIFY: "tech_api_notify",
+  /** Deliver an already-written customer inbox row (socket + push) via the tech API. */
+  CUSTOMER_NOTIFY: "customer_notify",
 };
+
+/** Cross-API notify calls fail fast; the outbox retries them (scenario 68). */
+function techApiNotifyTimeoutMs() {
+  const n = Number(process.env.TECH_API_NOTIFY_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 5000;
+}
+
+async function postInternal(path, body, { outboxEventId } = {}) {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret) {
+    throw new Error(`INTERNAL_API_SECRET missing — cannot call ${path}`);
+  }
+  const base = process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
+  const headers = { "x-internal-secret": secret };
+  if (outboxEventId) headers["x-outbox-event-id"] = String(outboxEventId);
+  const res = await axios.post(`${base}${path}`, body, {
+    headers,
+    timeout: techApiNotifyTimeoutMs(),
+    validateStatus: () => true,
+  });
+  const status = Number(res?.status) || 0;
+  if (status < 200 || status >= 300) {
+    throw new Error(`${path} returned ${status}: ${JSON.stringify(res?.data ?? null).slice(0, 300)}`);
+  }
+  return res;
+}
 
 const MAX_ATTEMPTS = 8;
 const CLAIM_STALE_MS = 5 * 60 * 1000;
@@ -165,8 +195,31 @@ async function dispatchTechnicianCredit(payload) {
   await creditTechnicianForJob(job);
 }
 
+async function dispatchTechApiNotify(payload, event) {
+  const path = payload?.path;
+  if (!path || typeof path !== "string" || !path.startsWith("/api/")) {
+    throw new Error("tech_api_notify payload missing a /api/ path");
+  }
+  await postInternal(path, payload.body || {}, { outboxEventId: event?._id });
+}
+
+async function dispatchCustomerNotify(payload, event) {
+  if (!payload?.customer_id || !payload?.event) {
+    throw new Error("customer_notify payload missing customer_id or event");
+  }
+  await postInternal("/api/notifications/internal/deliver", payload, {
+    outboxEventId: event?._id,
+  });
+}
+
 async function dispatchEvent(event) {
   switch (event.type) {
+    case OUTBOX_TYPES.TECH_API_NOTIFY:
+      await dispatchTechApiNotify(event.payload, event);
+      break;
+    case OUTBOX_TYPES.CUSTOMER_NOTIFY:
+      await dispatchCustomerNotify(event.payload, event);
+      break;
     case OUTBOX_TYPES.ADMIN_BUSINESS_JOB_NOTIFY:
       await dispatchAdminBusinessJobNotify(event.payload);
       break;
@@ -342,4 +395,5 @@ module.exports = {
   startOutboxWorker,
   stopOutboxWorker,
   dispatchTechnicianCredit,
+  techApiNotifyTimeoutMs,
 };

@@ -1,20 +1,14 @@
 const Notification = require("../../../clicks-shared/models/Notification");
 
-const CUSTOMER_EVENT_TYPES = {
-  technicianAssigned: "technician_assigned",
-  technicianAccepted: "technician_accepted",
-  technicianEnRoute: "en_route",
-  technicianArrived: "arrived",
-  jobStarted: "in_progress",
-  jobCompleted: "job_completed",
-  jobCancelled: "job_cancelled",
-  paymentConfirmed: "payment_received",
-  sosInCall: "sos_update",
-};
+const {
+  CUSTOMER_EVENTS,
+  customerTypeForEvent,
+} = require("../../../clicks-shared/constants/customerEvents");
 
-function customerTypeForEvent(event) {
-  return CUSTOMER_EVENT_TYPES[event] || String(event || "update");
-}
+/** event name → inbox `type` (from the shared catalog). */
+const CUSTOMER_EVENT_TYPES = Object.fromEntries(
+  Object.entries(CUSTOMER_EVENTS).map(([event, spec]) => [event, spec.type])
+);
 
 /**
  * Persist an admin-broadcast notification. Best-effort — never throws to callers.
@@ -37,6 +31,10 @@ function recordAdminNotificationFireAndForget(payload) {
   });
 }
 
+/**
+ * Low-level inbox write. Customer-facing transitions must go through
+ * clicks-shared/services/notifyCustomer (inbox → socket → push) instead.
+ */
 async function recordCustomerNotification({
   customerId,
   type,
@@ -57,12 +55,6 @@ async function recordCustomerNotification({
   });
 }
 
-function recordCustomerNotificationFireAndForget(payload) {
-  recordCustomerNotification(payload).catch((err) => {
-    console.error("[notification] failed to record customer notification:", err.message);
-  });
-}
-
 function serializeCustomerNotification(doc) {
   const row = typeof doc.toObject === "function" ? doc.toObject() : doc;
   return {
@@ -75,6 +67,9 @@ function serializeCustomerNotification(doc) {
     type: row.type,
     read: Boolean(row.read),
     createdAt: row.createdAt,
+    event: row.event || row.data?.event || null,
+    job_id: row.data?.job_id || null,
+    sos_id: row.data?.sos_id || null,
     data: row.data || {},
   };
 }
@@ -85,6 +80,5 @@ module.exports = {
   recordAdminNotification,
   recordAdminNotificationFireAndForget,
   recordCustomerNotification,
-  recordCustomerNotificationFireAndForget,
   serializeCustomerNotification,
 };

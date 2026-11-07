@@ -131,6 +131,10 @@ async function applyJobPayment(
         payment_status: "paid",
         payment_method: updated.payment_method,
         total_amount: pricing.total,
+        // What was actually taken (0 for a waiver), shown in the push copy.
+        amount: updated.paid_amount ?? pricing.total,
+        // notifyCustomer dedupe key: one "paid" notification per payment.
+        paid_at: updated.paid_at,
       });
     } catch (err) {
       console.error("paymentConfirmed notify failed:", err.message);

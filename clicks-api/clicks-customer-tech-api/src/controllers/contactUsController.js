@@ -5,10 +5,10 @@ const {
   categoryCodeFor,
 } = require("../../../clicks-shared/constants/contactUsCategories");
 const {
-  recordCustomerNotification,
   recordAdminNotificationFireAndForget,
 } = require("../services/notificationRecordService");
-const { sendCustomerPush, sendAdminDispatchPush } = require("../services/fcmService");
+const { sendAdminDispatchPush } = require("../services/fcmService");
+const { notifyCustomerSafe } = require("../../../clicks-shared/services/notifyCustomer");
 
 /** Customer-facing view of a ticket (no admin ids). */
 function serializeTicket(doc) {
@@ -37,27 +37,19 @@ function serializeTicket(doc) {
 }
 
 /**
- * Inbox row + socket + push for the customer. The inbox row is awaited so
- * "My requests" / Notifications always show it; push and socket are
- * best-effort.
+ * Support-ticket ack / reply / status change through the one customer
+ * notifier: inbox row (awaited) -> socket -> push. `event` is one of
+ * supportTicketReceived | supportTicketReply | supportTicketStatus.
  */
-async function notifyCustomerTicket(app, customerId, { type, title, body, ticket }) {
-  const data = {
+async function notifyCustomerTicket(customerId, event, ticket, extra = {}) {
+  await notifyCustomerSafe(String(customerId), event, {
     kind: "support_ticket",
     ticket_id: String(ticket._id),
     ticket_number: ticket.ticket_number || "",
-  };
-  try {
-    await recordCustomerNotification({ customerId, type, title, body, data });
-  } catch (err) {
-    console.error("[contact-us] customer inbox write failed:", err.message);
-  }
-  const io = app?.get?.("io");
-  if (io) io.of("/customer").to(`user:${customerId}`).emit(type, { ...data, title, body });
-  // INTEGRATION(ws-c): add a support-ticket event to CUSTOMER_PUSH_EVENTS /
-  // notifyCustomer(); until then the push carries no `event` so the
-  // allow-list does not drop it.
-  sendCustomerPush(String(customerId), { title, body, data }).catch?.(() => {});
+    job_id: ticket.job_id ? String(ticket.job_id) : undefined,
+    status: ticket.status,
+    ...extra,
+  });
 }
 
 function alertAdminsNewTicket(app, ticket) {
@@ -120,12 +112,7 @@ const createContactUsRequest = async (req, res) => {
       job_id: jobId || null,
     });
 
-    await notifyCustomerTicket(req.app, customer_id, {
-      type: "support_ticket_received",
-      title: "We received your request",
-      body: `Ticket ${contactUs.ticket_number}. Our team will reply here.`,
-      ticket: contactUs,
-    });
+    await notifyCustomerTicket(customer_id, "supportTicketReceived", contactUs);
     alertAdminsNewTicket(req.app, contactUs);
 
     res.status(201).json({
@@ -184,18 +171,12 @@ const notifyTicketUpdate = async (req, res) => {
     const ticket = await ContactUs.findById(id).lean();
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
     const kind = str(req.body?.kind, { maxLength: 32 }) === "status" ? "status" : "reply";
-    await notifyCustomerTicket(req.app, ticket.customer_id, {
-      type: kind === "reply" ? "support_ticket_reply" : "support_ticket_status",
-      title:
-        kind === "reply"
-          ? `Reply on ticket ${ticket.ticket_number}`
-          : `Ticket ${ticket.ticket_number} updated`,
-      body:
-        kind === "reply"
-          ? str(req.body?.message, { maxLength: 160 }) || "Clicks Support replied to your request."
-          : `Status: ${ticket.status.replace("_", " ")}`,
+    await notifyCustomerTicket(
+      ticket.customer_id,
+      kind === "reply" ? "supportTicketReply" : "supportTicketStatus",
       ticket,
-    });
+      kind === "reply" ? { message: str(req.body?.message, { maxLength: 160 }) } : {}
+    );
     res.json({ message: "Customer notified" });
   } catch (err) {
     console.error("notifyTicketUpdate failed:", err.message);
