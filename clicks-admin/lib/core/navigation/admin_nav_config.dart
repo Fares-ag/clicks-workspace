@@ -102,6 +102,24 @@ const kAdminNavItems = <AdminNavItem>[
     moduleId: 'finance-users',
   ),
   AdminNavItem(
+    label: 'Membership Plans',
+    iconAsset: 'assets/icons/li-heart-handshake.svg',
+    path: '/subscription-plans',
+    moduleId: 'subscription-plans',
+  ),
+  AdminNavItem(
+    label: 'Customer Memberships',
+    iconAsset: 'assets/icons/users.svg',
+    path: '/customer-memberships',
+    moduleId: 'customer-memberships',
+  ),
+  AdminNavItem(
+    label: 'Ops Settings',
+    iconAsset: 'assets/icons/configurator.svg',
+    path: '/ops-settings',
+    moduleId: 'ops-settings',
+  ),
+  AdminNavItem(
     label: 'SOS Inbox',
     iconAsset: 'assets/icons/call.svg',
     path: '/sos',
