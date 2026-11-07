@@ -135,6 +135,7 @@ function createAdminApp() {
   app.use("/api/account-deletion", accountDeletionRoutes);
   app.use("/api/receipts", require("./routes/receipts"));
   app.use("/api/sos", require("./routes/sos"));
+  app.use("/api/ops-settings", require("./routes/opsSettings"));
   app.use("/api/service-requests", require("./routes/serviceRequests"));
   app.use("/api/business", require("./routes/businessPortal"));
   app.use("/api/businesses", require("./routes/businesses"));
