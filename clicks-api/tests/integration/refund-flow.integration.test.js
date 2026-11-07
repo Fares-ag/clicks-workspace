@@ -247,6 +247,61 @@ describe("Refunds (scenario 83)", () => {
     expect(reject.code).toBe("REFUND_NOT_PAID");
   });
 
+  test("refund and ledger lists carry a job summary for the admin / finance screens", async () => {
+    const { job, paymentId } = await cardPaidJob(90);
+    await Job.updateOne({ _id: job._id }, { $set: { job_reference: "JOB-REF-77" } });
+    const create = await request(adminApp)
+      .post("/api/payments/refunds")
+      .set(asRequester())
+      .send({ job_id: job._id.toString(), amount: 10, reason: "Goodwill" });
+    expect(create.status).toBe(201);
+
+    const list = await request(adminApp)
+      .get("/api/payments/refunds")
+      .query({ status: "requested" })
+      .set(asApprover());
+    expect(list.status).toBe(200);
+    expect(list.body.total).toBe(1);
+    expect(list.body.refunds[0].job).toMatchObject({
+      _id: job._id.toString(),
+      job_reference: "JOB-REF-77",
+      clientName: "Test Client",
+      payment_status: "paid",
+    });
+
+    const one = await request(adminApp)
+      .get(`/api/payments/refunds/${create.body.refund._id}`)
+      .set(asApprover());
+    expect(one.status).toBe(200);
+    expect(one.body.refund.job.job_reference).toBe("JOB-REF-77");
+
+    const finance = await seedFinanceUser("fin-pass-3", { role: "operator" });
+    const login = await request(adminApp)
+      .post("/api/finance/auth/login")
+      .send({ email: finance.email, password: "fin-pass-3" });
+    const financeList = await request(adminApp)
+      .get("/api/finance/refunds")
+      .query({ job_id: job._id.toString() })
+      .set({ Authorization: `Bearer ${login.body.accessToken}` });
+    expect(financeList.status).toBe(200);
+    expect(financeList.body.refunds[0].job.job_reference).toBe("JOB-REF-77");
+
+    const ledger = await request(adminApp)
+      .get("/api/payments/payment-attempts")
+      .query({ job_id: job._id.toString() })
+      .set(asApprover());
+    expect(ledger.status).toBe(200);
+    const attempt = ledger.body.attempts.find((a) => a.provider_payment_id === paymentId);
+    expect(attempt.job.job_reference).toBe("JOB-REF-77");
+
+    // A membership refund has no job: the summary is null, not missing.
+    await Refund.updateOne({ _id: create.body.refund._id }, { $set: { job_id: null } });
+    const noJob = await request(adminApp)
+      .get(`/api/payments/refunds/${create.body.refund._id}`)
+      .set(asApprover());
+    expect(noJob.body.refund.job).toBeNull();
+  });
+
   test("dispatchers cannot touch refunds", async () => {
     const res = await request(adminApp)
       .get("/api/payments/refunds")
