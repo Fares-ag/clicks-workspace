@@ -10,6 +10,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/components/clicks_logo.dart';
+import '../../core/config/public_config.dart';
 import '../../core/components/header_icon_button.dart';
 import '../../core/helper/app_snack_bars.dart';
 import '../../core/sos_services/customer_socket_service.dart';
@@ -107,18 +108,76 @@ class HomeScreen extends StatelessWidget {
           ),
           Expanded(
             child: Center(
-              child: _SosHero(
-                onTap: () {
-                  openConfirmVehicleBottomSheet(
-                    context,
-                    null,
-                    isEmergency: true,
-                  );
-                },
-              ),
+              // Scenario 27: when the server has SOS switched off, say so up
+              // front with a call button — instead of failing after the
+              // customer picked a vehicle and waited for GPS.
+              child: PublicConfig.publicSos == false
+                  ? const _SosUnavailableCard()
+                  : _SosHero(
+                      onTap: () {
+                        openConfirmVehicleBottomSheet(
+                          context,
+                          null,
+                          isEmergency: true,
+                        );
+                      },
+                    ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SosUnavailableCard extends StatelessWidget {
+  const _SosUnavailableCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 24.w),
+      child: Container(
+        padding: EdgeInsets.all(20.r),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(color: ColorsManager.washBorder),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.support_agent, size: 40.r, color: ColorsManager.mainColor),
+            SizedBox(height: 12.h),
+            Text(
+              'realtime.sos_unavailable_title'.tr(),
+              textAlign: TextAlign.center,
+              style: TextStyles.font20Bold,
+            ),
+            SizedBox(height: 6.h),
+            Text(
+              'realtime.sos_unavailable_body'.tr(),
+              textAlign: TextAlign.center,
+              style: TextStyles.font14RegularGrey,
+            ),
+            SizedBox(height: 16.h),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ColorsManager.mainColor,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(vertical: 14.h),
+                ),
+                onPressed: PublicConfig.callSupport,
+                icon: const Icon(Icons.phone),
+                label: Text(
+                  '${'realtime.call_us'.tr()}  ${PublicConfig.supportPhone}',
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

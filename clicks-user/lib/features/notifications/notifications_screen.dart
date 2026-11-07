@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/services/customer_notification_router.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -156,6 +157,17 @@ class _NotificationsBody extends StatelessWidget {
                                     context
                                         .read<NotificationsCubit>()
                                         .markAsRead(notif.id);
+                                  }
+                                  // Open what the row is about, by its
+                                  // current state (scenario 72).
+                                  final data = notif.data ?? const {};
+                                  if ((data['job_id'] ?? '').toString().isNotEmpty ||
+                                      (data['sos_id'] ?? '').toString().isNotEmpty ||
+                                      data['kind'] == 'support_ticket') {
+                                    CustomerNotificationRouter.handleTap({
+                                      ...data,
+                                      'event': data['event'] ?? notif.type,
+                                    });
                                   }
                                 },
                               );

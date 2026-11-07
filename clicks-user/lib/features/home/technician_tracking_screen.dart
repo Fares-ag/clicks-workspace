@@ -10,7 +10,10 @@ import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/helper/google_maps_loader.dart';
 import 'package:clicks_user/core/helper/technician_location.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/session_resume.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
 import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
+import 'package:clicks_user/core/sos_services/event_scope.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,6 +25,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:clicks_user/core/config/app_config.dart';
 import 'package:easy_localization/easy_localization.dart';
 
+import 'finding_technician_screen.dart';
 import 'job_in_progress_screen.dart';
 import 'job_cancel_api.dart';
 import '../settings/ui/cubit/settings_cubit.dart';
@@ -39,20 +43,25 @@ void _log(String msg) {
 class TrackingArgs {
   final String jobId;
   final Map<String, dynamic> techInfo; // name, phone, photo, rating
-  final double customerLat;
-  final double customerLng;
-  final String initialPhase; // 'en_route' | 'arrived'
+  /// The job's own coordinates. Null when unknown — the ETA is then hidden
+  /// rather than computed to a made-up central-Doha point (scenario 61).
+  final double? customerLat;
+  final double? customerLng;
+  final String initialPhase; // 'assigned' | 'en_route' | 'arrived' | 'on_hold'
   final double? techLat;  // initial technician latitude
   final double? techLng;  // initial technician longitude
+  /// Server cancel policy (`kind`: free | fee | contact_support | none).
+  final Map<String, dynamic>? cancelPolicy;
 
   const TrackingArgs({
     required this.jobId,
     required this.techInfo,
-    required this.customerLat,
-    required this.customerLng,
+    this.customerLat,
+    this.customerLng,
     this.initialPhase = 'en_route',
     this.techLat,
     this.techLng,
+    this.cancelPolicy,
   });
 }
 
@@ -106,19 +115,69 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   late Map<String, dynamic> _techInfo;
   Timer? _locationPollTimer;
+  Timer? _staleTicker;
+  int _pollTick = 0;
   bool _cancelling = false;
+  bool _leaving = false;
 
-  bool get _canCancelJob =>
-      _phase == 'en_route' ||
-      _phase == 'arrived' ||
-      _phase == 'assigned' ||
-      _phase == 'accepted';
+  /// The customer's point: the job's coordinates (args, or loaded from the
+  /// job). Null → no customer pin, no route line, no ETA (scenario 61).
+  double? _custLat;
+  double? _custLng;
+  bool get _hasCustomerPoint => _custLat != null && _custLng != null;
 
-  bool get _cancelHasFee => _phase == 'en_route' || _phase == 'arrived';
+  /// Server cancel policy for this job (scenario 63); null until known.
+  Map<String, dynamic>? _cancelPolicy;
+
+  /// Dispatch hold reason while the job is paused (scenario 49).
+  String? _holdReason;
+
+  /// When the technician's position was last reported (scenario 59).
+  DateTime? _lastTechFixAt;
+  late final DateTime _openedAt = DateTime.now();
+  static const _staleAfter = Duration(seconds: 60);
+
+  late final EventScope _scope = EventScope(jobId: widget.args.jobId);
+  StreamSubscription<Map<String, dynamic>>? _syncSub;
+
+  bool get _locationStale {
+    final last = _lastTechFixAt ?? _openedAt;
+    return DateTime.now().difference(last) > _staleAfter;
+  }
+
+  int get _staleMinutes {
+    final last = _lastTechFixAt;
+    if (last == null) return 0;
+    return DateTime.now().difference(last).inMinutes;
+  }
+
+  String? get _policyKind => _cancelPolicy?['kind']?.toString();
+
+  bool get _canCancelJob {
+    final kind = _policyKind;
+    if (kind != null) return kind == 'free' || kind == 'fee';
+    return _phase == 'en_route' || _phase == 'arrived' || _phase == 'assigned';
+  }
+
+  bool get _cancelHasFee {
+    final kind = _policyKind;
+    if (kind != null) return kind == 'fee';
+    return _phase == 'en_route' || _phase == 'arrived';
+  }
+
+  String get _cancelNote {
+    if (!_cancelHasFee) return 'realtime.cancel_free_note'.tr();
+    final amount = _cancelPolicy?['fee_amount'];
+    if (amount is num && amount > 0) {
+      return 'realtime.cancel_fee_amount'
+          .tr(namedArgs: {'amount': amount.toStringAsFixed(2)});
+    }
+    return 'home.cancel_fee_note'.tr();
+  }
 
   Future<void> _cancelJob() async {
     if (_cancelling || !_canCancelJob) return;
-    final feeNote = _cancelHasFee ? '\n${'home.cancel_fee_note'.tr()}' : '';
+    final feeNote = '\n$_cancelNote';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -156,8 +215,25 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   @override
   void initState() {
     super.initState();
-    _phase = widget.args.initialPhase;
+    _phase = widget.args.initialPhase == 'accepted'
+        ? 'assigned'
+        : widget.args.initialPhase;
+    _custLat = widget.args.customerLat;
+    _custLng = widget.args.customerLng;
+    _cancelPolicy = widget.args.cancelPolicy;
     _techInfo = Map<String, dynamic>.from(widget.args.techInfo);
+    ActiveSessionScreen.enter(
+      Routes.technicianTracking,
+      widget.args.jobId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
+    // A resync (reconnect / resume) that finds this same job refreshes it.
+    _syncSub = SessionSync.instance.updates.listen((_) {
+      if (mounted) _refreshTechnicianFromServer();
+    });
+    _staleTicker = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
     // Set initial technician location from args (sent with enroute event)
     final (techLat, techLng) = TechnicianLocation.latLngFrom(widget.args.techInfo);
     if (techLat != null &&
@@ -181,10 +257,15 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
       context.read<SosCubit>().socketService.ensureConnected();
       _refreshTechnicianFromServer();
     });
+    // Poll this job (not "the" active job — two cars, scenario 62): position
+    // every 5 s while en route, and job_status in every phase so a missed
+    // socket event cannot leave the screen behind (scenario 58).
     _locationPollTimer = Timer.periodic(
       const Duration(seconds: 5),
       (_) {
-        if (mounted && _phase == 'en_route') {
+        if (!mounted) return;
+        _pollTick++;
+        if (_phase == 'en_route' || _pollTick % 3 == 0) {
           _refreshTechnicianFromServer();
         }
       },
@@ -193,25 +274,46 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   Future<void> _refreshTechnicianFromServer() async {
     try {
-      final data = await SessionService.getCustomerActiveJob();
-      final job = data?['active_job'];
-      if (job is! Map || !mounted) return;
+      final data = await SessionService.getJob(widget.args.jobId);
+      final job = data?['job'];
+      if (job is! Map || !mounted || _leaving) return;
 
-      final jobId = job['_id']?.toString() ?? job['id']?.toString();
-      if (jobId != widget.args.jobId) return;
+      final policy = data?['cancel_policy'];
+      if (policy is Map) _cancelPolicy = Map<String, dynamic>.from(policy);
+
+      if (!_hasCustomerPoint) {
+        final point = SessionResume.customerLatLng(job, context);
+        if (point != null) {
+          _custLat = point.$1;
+          _custLng = point.$2;
+        }
+      }
+
+      if (_applyServerStatus(Map<String, dynamic>.from(job))) return;
 
       final tech = job['assignedTechnician'];
-      if (tech is! Map) return;
+      if (tech is! Map) {
+        setState(() {});
+        return;
+      }
 
       final first = tech['firstName']?.toString() ?? '';
       final last = tech['lastName']?.toString() ?? '';
       final (lat, lng) = TechnicianLocation.latLngFrom(tech);
+      final reportedAt = DateTime.tryParse(tech['lastLocationAt']?.toString() ?? '');
+      if (reportedAt != null) {
+        final local = reportedAt.toLocal();
+        if (_lastTechFixAt == null || local.isAfter(_lastTechFixAt!)) {
+          _lastTechFixAt = local;
+        }
+      }
 
       setState(() {
         _techInfo = {
           'name': '$first $last'.trim(),
           'phone': tech['phone']?.toString() ?? '',
           'photo': tech['profilePicture']?.toString() ?? '',
+          'rating': _techInfo['rating'],
           if (lat != null) 'latitude': lat,
           if (lng != null) 'longitude': lng,
         };
@@ -223,6 +325,70 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
     } catch (e) {
       _log('⚠️ refresh tech location: $e');
     }
+  }
+
+  /// Follow the job's server status. Returns true when the screen is leaving.
+  bool _applyServerStatus(Map<String, dynamic> job) {
+    final status = job['job_status']?.toString() ?? '';
+    switch (status) {
+      case 'assigned':
+      case 'accepted':
+      case 'en_route':
+      case 'arrived':
+        final next = SessionResume.trackingInitialPhase(
+          status,
+          SessionResume.resolveGaragePhase(job),
+        );
+        if (_phase != next) {
+          setState(() {
+            _phase = next;
+            _holdReason = null;
+          });
+          _updateMarkers();
+        }
+        return false;
+      case 'on_hold':
+        setState(() {
+          _phase = 'on_hold';
+          _holdReason = job['hold_reason']?.toString();
+        });
+        return false;
+      case 'pending':
+        _openFindingTechnician(job['job_reference']?.toString() ?? '');
+        return true;
+      case 'cancelled':
+        _leaveForHome('job_progress.job_cancelled'.tr());
+        return true;
+      case 'in_progress':
+      case 'completed':
+        _leaving = true;
+        // In progress / completed (paid or not): the session routes it.
+        SessionSync.instance.resync(reason: 'tracking:$status', force: true);
+        Future<void>.delayed(const Duration(seconds: 2), () {
+          if (mounted) _leaving = false;
+        });
+        return true;
+    }
+    return false;
+  }
+
+  void _openFindingTechnician(String jobReference) {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    context.offNamed(
+      Routes.findingTechnician,
+      arguments: FindingTechnicianArgs(
+        jobId: widget.args.jobId,
+        jobReference: jobReference,
+      ),
+    );
+  }
+
+  void _leaveForHome(String message) {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    AppSnackBars.errorSnackBar(message);
+    context.offAllNamed(Routes.home);
   }
 
   void _applyTechnicianLocation(LatLng newPos, {bool fromPoll = false}) {
@@ -278,6 +444,9 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   @override
   void dispose() {
+    ActiveSessionScreen.leave(Routes.technicianTracking, widget.args.jobId);
+    _syncSub?.cancel();
+    _staleTicker?.cancel();
     _animController?.dispose();
     _animUpdateTimer?.cancel();
     _pendingLocationTimer?.cancel();
@@ -368,7 +537,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   /// Fetches the real driving route from the Google Directions API.
   Future<void> _fetchRoute(LatLng techPos) async {
-    if (_fetchingRoute) return;
+    if (_fetchingRoute || !_hasCustomerPoint) return;
     _fetchingRoute = true;
 
     try {
@@ -377,8 +546,7 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
         googleApiKey: AppConfig.googleMapsApiKey,
         request: PolylineRequest(
           origin: PointLatLng(techPos.latitude, techPos.longitude),
-          destination: PointLatLng(
-              widget.args.customerLat, widget.args.customerLng),
+          destination: PointLatLng(_custLat!, _custLng!),
           mode: TravelMode.driving,
         ),
       );
@@ -399,16 +567,17 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   void _updateMarkers() {
     final markers = <Marker>{};
 
-    // Customer location marker (red pin)
-    markers.add(
-      Marker(
-        markerId: const MarkerId('customer'),
-        position:
-            LatLng(widget.args.customerLat, widget.args.customerLng),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: InfoWindow(title: 'tracking.your_location'.tr()),
-      ),
-    );
+    // Customer location marker (red pin) — only for a real point.
+    if (_hasCustomerPoint) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('customer'),
+          position: LatLng(_custLat!, _custLng!),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: InfoWindow(title: 'tracking.your_location'.tr()),
+        ),
+      );
+    }
 
     // Technician location marker (van icon with heading rotation)
     if (_techLocation != null) {
@@ -428,10 +597,10 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
       );
 
       // Route polyline from tech → customer if en_route
-      if (_phase == 'en_route') {
+      if (_phase == 'en_route' && _hasCustomerPoint) {
         final routePoints = _routePoints.isNotEmpty
             ? _routePoints
-            : [_techLocation!, LatLng(widget.args.customerLat, widget.args.customerLng)];
+            : [_techLocation!, LatLng(_custLat!, _custLng!)];
         _polylines = {
           Polyline(
             polylineId: const PolylineId('route'),
@@ -449,25 +618,23 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   }
 
   void _animateToTech() {
+    if (_techLocation != null && _mapController != null && !_hasCustomerPoint) {
+      _mapController!.animateCamera(CameraUpdate.newLatLngZoom(_techLocation!, 14));
+      return;
+    }
     if (_techLocation != null && _mapController != null) {
+      final custLat = _custLat!;
+      final custLng = _custLng!;
       _mapController!.animateCamera(
         CameraUpdate.newLatLngBounds(
           LatLngBounds(
             southwest: LatLng(
-              _techLocation!.latitude < widget.args.customerLat
-                  ? _techLocation!.latitude
-                  : widget.args.customerLat,
-              _techLocation!.longitude < widget.args.customerLng
-                  ? _techLocation!.longitude
-                  : widget.args.customerLng,
+              _techLocation!.latitude < custLat ? _techLocation!.latitude : custLat,
+              _techLocation!.longitude < custLng ? _techLocation!.longitude : custLng,
             ),
             northeast: LatLng(
-              _techLocation!.latitude > widget.args.customerLat
-                  ? _techLocation!.latitude
-                  : widget.args.customerLat,
-              _techLocation!.longitude > widget.args.customerLng
-                  ? _techLocation!.longitude
-                  : widget.args.customerLng,
+              _techLocation!.latitude > custLat ? _techLocation!.latitude : custLat,
+              _techLocation!.longitude > custLng ? _techLocation!.longitude : custLng,
             ),
           ),
           80,
@@ -501,6 +668,15 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   // ---------- Banner text per phase ----------
   String get _bannerText {
     switch (_phase) {
+      case 'assigned':
+        return 'realtime.assigned_banner'.tr();
+      case 'returning':
+        return 'home.garage_returning_title'.tr();
+      case 'on_hold':
+        final reason = _holdReason?.trim() ?? '';
+        return reason.isEmpty
+            ? 'realtime.on_hold_banner'.tr()
+            : 'realtime.on_hold_reason'.tr(namedArgs: {'reason': reason});
       case 'en_route':
         return 'home.sit_tight'.tr();
       case 'arrived':
@@ -514,14 +690,15 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   String get _statusLabel => JobStatusLabels.labelFor(_phase);
 
-  /// Calculate ETA in minutes based on straight-line distance at ~40 km/h.
-  int get _etaMinutes {
-    if (_techLocation == null) return 0;
+  /// Straight-line ETA at ~40 km/h, labelled approximate. Null — hidden —
+  /// without a real customer point (61) or with a stale position (59).
+  int? get _etaMinutes {
+    if (_techLocation == null || !_hasCustomerPoint || _locationStale) return null;
     final distanceMeters = Geolocator.distanceBetween(
       _techLocation!.latitude,
       _techLocation!.longitude,
-      widget.args.customerLat,
-      widget.args.customerLng,
+      _custLat!,
+      _custLng!,
     );
     final distanceKm = distanceMeters / 1000;
     return (distanceKm / 40 * 60).ceil().clamp(1, 999);
@@ -553,7 +730,11 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
     return GoogleMap(
       initialCameraPosition: CameraPosition(
-        target: LatLng(widget.args.customerLat, widget.args.customerLng),
+        // The job's point, else the technician; only the camera falls back
+        // to central Qatar — never the ETA.
+        target: _hasCustomerPoint
+            ? LatLng(_custLat!, _custLng!)
+            : _techLocation ?? const LatLng(25.2854, 51.531),
         zoom: 14,
       ),
       markers: _markers,
@@ -575,8 +756,12 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: BlocListener<SosCubit, SosState>(
+        // Only this job's events (two live jobs, scenario 62).
+        listenWhen: (_, state) => _scope.matchesState(state),
         listener: (context, state) {
+          if (_leaving) return;
           if (state is LocationUpdated) {
+            _lastTechFixAt = state.at ?? DateTime.now();
             // Buffer location and throttle to 20-second intervals
             _pendingTechLocation = LatLng(state.latitude, state.longitude);
             _pendingTechHeading = state.heading;
@@ -598,6 +783,50 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                 }
               });
             }
+          } else if (state is TechnicianAssigned) {
+            // Dispatch reassigned the job (scenario 47): new technician, back
+            // to the assigned phase, old pin dropped, details reloaded.
+            setState(() {
+              _phase = 'assigned';
+              _holdReason = null;
+              _techLocation = null;
+              _routePoints = [];
+              _lastTechFixAt = null;
+              _techInfo = Map<String, dynamic>.from(state.technicianInfo);
+            });
+            _updateMarkers();
+            _refreshTechnicianFromServer();
+            AppSnackBars.successSnackBar('realtime.new_technician'.tr());
+          } else if (state is TechnicianAccepted) {
+            if (state.technicianInfo.isNotEmpty) {
+              setState(() => _techInfo = {..._techInfo, ...state.technicianInfo});
+            }
+          } else if (state is TechnicianEnRoute) {
+            setState(() {
+              _phase = 'en_route';
+              _holdReason = null;
+              if (state.technicianInfo.isNotEmpty) {
+                _techInfo = {..._techInfo, ...state.technicianInfo};
+              }
+            });
+            _refreshTechnicianFromServer();
+          } else if (state is JobReassigning) {
+            // The technician handed the job back (scenario 46).
+            AppSnackBars.errorSnackBar('realtime.finding_another'.tr());
+            _openFindingTechnician('');
+          } else if (state is JobOnHold) {
+            setState(() {
+              _phase = 'on_hold';
+              _holdReason = state.reason;
+            });
+            _updateMarkers();
+          } else if (state is JobResumed) {
+            setState(() {
+              _phase = SessionResume.trackingInitialPhase(state.jobStatus, null);
+              _holdReason = null;
+            });
+            AppSnackBars.successSnackBar('realtime.resumed'.tr());
+            _refreshTechnicianFromServer();
           } else if (state is TechnicianArrived) {
             setState(() => _phase = 'arrived');
             _updateMarkers();
@@ -656,11 +885,17 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
               ),
             );
           } else if (state is JobCompleted) {
-            // Show rating bottom sheet
-            _showRatingSheet(state);
-          } else if (state is JobCancelled || state is SosCancelled) {
-            AppSnackBars.errorSnackBar('job_progress.job_cancelled'.tr());
-            context.offAllNamed(Routes.home);
+            if (state.paymentStatus == 'paid') {
+              _showRatingSheet(state);
+            } else {
+              // Unpaid (e.g. completed by dispatch): the session routes it
+              // to payment — rating is for paid jobs only (scenario 76).
+              SessionSync.instance.resync(reason: 'completed', force: true);
+            }
+          } else if (state is JobCancelled) {
+            _leaveForHome(state.cancelledBy == 'admin'
+                ? 'realtime.job_cancelled_by_team'.tr()
+                : 'job_progress.job_cancelled'.tr());
           } else if (state is JobAtGarage) {
             AppSnackBars.successSnackBar('home.garage_card_title'.tr());
           } else if (state is JobGarageReady) {
@@ -781,8 +1016,9 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                               ),
                             ),
                           ),
-                          // ETA pill (show only when en_route and we have a location)
-                          if (_phase == 'en_route' && _techLocation != null)
+                          // ETA pill: en route, real customer point, fresh
+                          // position (scenarios 59, 61).
+                          if (_phase == 'en_route' && _etaMinutes != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 6),
@@ -791,11 +1027,32 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                '$_etaMinutes min',
+                                'realtime.eta_approx'.tr(
+                                    namedArgs: {'minutes': '$_etaMinutes'}),
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white,
+                                ),
+                              ),
+                            )
+                          else if (_phase == 'en_route' && _locationStale)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF2F4F7),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                _lastTechFixAt == null
+                                    ? 'realtime.location_stale_now'.tr()
+                                    : 'realtime.location_stale'.tr(
+                                        namedArgs: {'minutes': '${_staleMinutes < 1 ? 1 : _staleMinutes}'}),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF475467),
                                 ),
                               ),
                             ),
@@ -872,8 +1129,8 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
       isDismissible: false,
       enableDrag: false,
       builder: (_) => RatingBottomSheet(
-        technicianName: widget.args.techInfo['name'] ?? 'the technician',
-        technicianPhotoUrl: widget.args.techInfo['photo'] ?? '',
+        technicianName: (_techInfo['name'] ?? widget.args.techInfo['name'] ?? '').toString(),
+        technicianPhotoUrl: (_techInfo['photo'] ?? widget.args.techInfo['photo'] ?? '').toString(),
         jobId: widget.args.jobId,
         onSubmitted: () {
           Navigator.of(context).pop(); // close sheet

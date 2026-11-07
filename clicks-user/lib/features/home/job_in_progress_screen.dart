@@ -3,6 +3,8 @@ import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/session_sync.dart';
+import 'package:clicks_user/core/sos_services/event_scope.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -99,9 +101,22 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
 
   JobProgressArgs get args => widget.args;
 
+  late final EventScope _scope = EventScope(jobId: args.jobId);
+
+  @override
+  void dispose() {
+    ActiveSessionScreen.leave(Routes.jobInProgress, args.jobId);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    ActiveSessionScreen.enter(
+      Routes.jobInProgress,
+      args.jobId,
+      () => mounted && (ModalRoute.of(context)?.isCurrent ?? true),
+    );
     _paid = args.paymentStatus?.toString() == 'paid';
     _cashChosen = args.paymentMethod?.toString() == 'cash';
     _total = args.price;
@@ -165,13 +180,31 @@ class _JobInProgressScreenState extends State<JobInProgressScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7F9),
       body: BlocListener<SosCubit, SosState>(
+        // Only this job's events: with two live jobs, another job's
+        // completion used to open the rating sheet here (scenario 62).
+        listenWhen: (_, state) => _scope.matchesState(state),
         listener: (context, state) {
-          if (state is PaymentConfirmed &&
-              (state.jobId.isEmpty || state.jobId == args.jobId)) {
+          if (state is PaymentConfirmed) {
             setState(() => _paid = true);
-          } else if (state is JobCancelled || state is SosCancelled) {
-            AppSnackBars.errorSnackBar('job_progress.job_cancelled'.tr());
+          } else if (state is JobCancelled) {
+            AppSnackBars.errorSnackBar(state.cancelledBy == 'admin'
+                ? 'realtime.job_cancelled_by_team'.tr()
+                : 'job_progress.job_cancelled'.tr());
             context.offAllNamed(Routes.home);
+          } else if (state is JobOnHold || state is JobAtGarage) {
+            // Paused by dispatch / sent to a garage: the session routes it
+            // to the job's details with the reason (scenarios 49, 52).
+            if (state is JobOnHold && state.reason.isNotEmpty) {
+              AppSnackBars.errorSnackBar(
+                'realtime.on_hold_reason'.tr(namedArgs: {'reason': state.reason}),
+              );
+            }
+            SessionSync.instance.resync(reason: 'in_progress:hold', force: true);
+          } else if (state is JobCompleted &&
+              state.paymentStatus != 'paid' &&
+              !_paid) {
+            // Completed unpaid (e.g. by dispatch): pay first, then rate.
+            SessionSync.instance.resync(reason: 'completed', force: true);
           } else if (state is JobCompleted) {
             showModalBottomSheet(
               context: context,
