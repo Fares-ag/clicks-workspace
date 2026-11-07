@@ -26,6 +26,8 @@ class _MembershipPlanFormScreenState extends State<MembershipPlanFormScreen> {
   final _monthlyIncluded = TextEditingController();
   final _yearlyIncluded = TextEditingController();
   bool _active = true;
+  /// Off = SOS, towing, jump start and breakdown are never covered (default).
+  bool _coversEmergency = false;
   bool _saving = false;
   bool get _isEdit => widget.planId != null;
 
@@ -91,6 +93,7 @@ class _MembershipPlanFormScreenState extends State<MembershipPlanFormScreen> {
     _nameAr.text = plan['name_ar']?.toString() ?? '';
     _discount.text = plan['discountPercent']?.toString() ?? '0';
     _active = plan['active'] != false;
+    _coversEmergency = plan['coversEmergency'] == true;
     final intervals = plan['intervals'] is List ? plan['intervals'] as List : [];
     final month = _interval(intervals, 'month');
     final year = _interval(intervals, 'year');
@@ -109,6 +112,7 @@ class _MembershipPlanFormScreenState extends State<MembershipPlanFormScreen> {
       'name_ar': _nameAr.text.trim(),
       'discountPercent': num.tryParse(_discount.text.trim()) ?? 0,
       'active': _active,
+      'coversEmergency': _coversEmergency,
       'intervals': [
         {
           'interval': 'month',
@@ -182,6 +186,15 @@ class _MembershipPlanFormScreenState extends State<MembershipPlanFormScreen> {
           title: const Text('Active'),
           value: _active,
           onChanged: (v) => setState(() => _active = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Covers roadside emergencies'),
+          subtitle: const Text(
+            'SOS, towing, jump start and breakdown. Off: members pay full price for these.',
+          ),
+          value: _coversEmergency,
+          onChanged: (v) => setState(() => _coversEmergency = v),
         ),
         TextField(
           controller: _monthlyPrice,
