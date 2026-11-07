@@ -45,6 +45,11 @@ router.post(
   jobController.uploadCustomerSignature
 );
 router.post("/:id/rate", authenticate(["customer"]), jobController.rateJob);
+router.post(
+  "/:id/rating-prompted",
+  authenticate(["customer"]),
+  jobController.markRatingPrompted
+);
 router.get(
   "/:id/activity-detail",
   approvedTechnician,
