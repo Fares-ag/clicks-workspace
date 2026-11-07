@@ -163,7 +163,80 @@ async function reassignJob({
   };
 }
 
+/** Statuses a technician may hand back for re-dispatch (scenario 48). */
+const TECHNICIAN_RELEASE_STATUSES = [
+  "accepted",
+  "en_route",
+  "arrived",
+  "in_progress",
+];
+
+/**
+ * A technician who cannot finish (breakdown, accident) hands the job back.
+ * The job returns to `pending` with no technician so dispatch can send
+ * someone else; the SOS stays linked and the customer is not abandoned.
+ * Conditional on the job still being this technician's and unpaid, so a
+ * concurrent complete/payment/reassign wins cleanly.
+ *
+ * @returns {Promise<{ job: object, fromTechnicianId: string } | null>}
+ *   null when the CAS missed (caller reports why).
+ */
+async function releaseJobForRedispatch({ jobId, technicianId, reason, note }) {
+  const fromTechnicianId = str(technicianId, { maxLength: 32 }).trim();
+  if (!fromTechnicianId) throw httpError(400, "technician id is required");
+
+  const now = new Date();
+  const updated = await Job.findOneAndUpdate(
+    {
+      _id: jobId,
+      assignedTechnician: fromTechnicianId,
+      job_status: { $in: TECHNICIAN_RELEASE_STATUSES },
+      payment_status: { $ne: "paid" },
+    },
+    {
+      $set: {
+        job_status: "pending",
+        assignedTechnician: null,
+        assigned_at: null,
+        accepted_at: null,
+        en_route_at: null,
+        arrived_at: null,
+        started_at: null,
+        rejection_description: str(note || reason, { maxLength: 500 }),
+      },
+      $push: {
+        rejection_reasons: str(reason, { maxLength: 200 }) || "technician_cancelled",
+        reassignment_history: {
+          from_technician: fromTechnicianId,
+          to_technician: null,
+          reassigned_at: now,
+          reason: "technician_cancelled",
+          reason_note: str(note || reason, { maxLength: 500 }),
+          reassigned_by: null,
+        },
+      },
+    },
+    { new: true }
+  );
+  if (!updated) return null;
+
+  if (updated.sos_request_id) {
+    const SOSRequest = require("../models/SOSRequest");
+    await SOSRequest.updateOne(
+      { _id: updated.sos_request_id, job_id: updated._id },
+      { $set: { assigned_technician: null } }
+    ).catch((err) => {
+      console.error("[redispatch] SOS technician clear failed:", err.message);
+    });
+  }
+
+  return { job: updated, fromTechnicianId };
+}
+
 module.exports = {
   reassignJob,
+  releaseJobForRedispatch,
+  callInternalNotify,
   JOB_REASSIGN_ALLOWED_STATUSES,
+  TECHNICIAN_RELEASE_STATUSES,
 };
