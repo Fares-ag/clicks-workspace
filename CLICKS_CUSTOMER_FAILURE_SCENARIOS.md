@@ -51,7 +51,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 
 ## A. Account and access (1–21)
 
-### 1. New customer registers with the current app build
+### 1. New customer registers with the current app build ✅ (fix/ws-fhi-identity)
 - **What happens:** The working-tree `register` requires a 6-digit `otp` in the request body (`API/controllers/customerController.js:35-46`). The app verifies the OTP through a separate endpoint, then calls register **without** `otp` (`APP/features/auth/register/ui/cubit/register_cubit.dart:220-229`). `findAndVerifyOtp` rejects an empty code (`SH/utils/otpVerify.js:73`) and returns 400 "Invalid or expired code". **[verified]**
 - **Customer expects:** An account after entering the code.
 - **Business needs:** Sign-ups to work on the day marketing starts.
@@ -60,7 +60,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** The app sends `otp` in the register call, or the server accepts a short-lived token issued by `verifyOtp`. Deploy the server only together with an app build that matches it.
 - **Launch blocker:** **YES**
 
-### 2. Customer double-taps "Create account"
+### 2. Customer double-taps "Create account" ✅ (fix/ws-fhi-identity)
 - **What happens:** Both requests pass the existence check. The unique index rejects the second with E11000, which comes back as 500 "Registration failed" along with the raw Mongo error text (`customerController.js:89-91`).
 - **Customer expects:** One account and a success message.
 - **Business needs:** One account, and no internal details leaked to clients.
@@ -69,7 +69,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Treat E11000 on phone or email as a 409 with a friendly message. Never return `err.message`.
 - **Launch blocker:** NO
 
-### 3. Customer deleted their account and wants to come back
+### 3. Customer deleted their account and wants to come back ✅ (fix/ws-fhi-identity)
 - **What happens:** `deleteAccount` writes `deleted_at` and `deleted_reason`, but neither field exists in the Customer schema (`SH/models/Customer.js:4-21`), so strict mode drops them silently. Only `status: "Inactive"` is saved. **[verified: the schema has no `deleted_at`]** Then:
   - The "restore deleted account" branch can never run.
   - `sendRegisterOTP` returns "OTP sent" without sending anything.
@@ -82,7 +82,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Add `deleted_at` and `deleted_reason` to the schema. Define a policy: either re-register with a fresh record after anonymising the old one, or restore after OTP. Tell the customer the truth in the app.
 - **Launch blocker:** NO. It becomes a blocker once account deletion is advertised, which the App Store requires.
 
-### 4. Customer deletes their account during an active tow, or with an active membership
+### 4. Customer deletes their account during an active tow, or with an active membership ✅ (fix/ws-fhi-identity)
 - **What happens:** The only guard is "completed and unpaid" (`customerController.js:188-195`). Not checked:
   - a pending or in-call SOS
   - an en-route or in-progress job
@@ -101,7 +101,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Block deletion while any live SOS, job or booking exists. Warn about an active membership and define whether it is refunded or forfeited. Anonymise personal data after a retention window. Record the reason.
 - **Launch blocker:** **YES**, because of the store requirement and live-job orphaning.
 
-### 5. Account deletion fails because of an unpaid job
+### 5. Account deletion fails because of an unpaid job ✅ (fix/ws-fhi-identity)
 - **What happens:** A 409 `UNPAID_JOB_HOLD` becomes `ErrorSettingsState()` with no message, and the screen only listens for success (`settings_screen.dart:39-44`).
 - **Customer expects:** To be told why it failed.
 - **Business needs:** The customer pointed at what they owe.
@@ -110,7 +110,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Show the reason and a "Pay now" link.
 - **Launch blocker:** NO
 
-### 6. A foreign number with the same last 8 digits resets a Qatar customer's password
+### 6. A foreign number with the same last 8 digits resets a Qatar customer's password ✅ (fix/ws-fhi-identity)
 - **What happens:** `phoneLookupValues` adds `+974<last 8 digits>` for **any** input (`SH/utils/phone.js:18-30`). **[verified]** Password reset texts the OTP to the raw number entered and then resets whichever customer `findCustomerByPhone` matches. So a +44 number ending 5551 2345 receives the code and resets the password of +974 5551 2345.
 - **Customer expects:** Only they can reset their password.
 - **Business needs:** No account takeover.
@@ -119,7 +119,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Only apply the last-8-digit fallback to inputs that are 8 digits or start with +974 or 974. Send the OTP to the **stored** number of the matched account, never to the raw input.
 - **Launch blocker:** **YES**
 
-### 7. An expat with a foreign number, or a legacy customer with duplicate rows, tries to log in
+### 7. An expat with a foreign number, or a legacy customer with duplicate rows, tries to log in ◐ partial (fix/ws-fhi-identity: dedupe script ready; run it, then sync-indexes)
 - **What happens:** The same suffix match makes login and registration collide across countries. The code itself notes that legacy rows exist in several formats with "dedupe migration pending" (`customerController.js:17-22`). `findOne` over the `$or` returns whichever row Mongo happens to return.
 - **Customer expects:** Login works every time.
 - **Business needs:** One identity per person.
@@ -128,7 +128,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Run the dedupe migration before launch, add a unique index on the normalised E.164 number, and match on the exact number only.
 - **Launch blocker:** PRE-SCALE
 
-### 8. Customer registers with "Ali@x.com" and later types "ali@x.com"
+### 8. Customer registers with "Ali@x.com" and later types "ali@x.com" ✅ (fix/ws-fhi-identity)
 - **What happens:** Email is neither lower-cased nor trimmed (`customerController.js:29, 49`). Changing to an email that's already taken returns 500.
 - **Customer expects:** The same account.
 - **Business needs:** One account per email.
@@ -137,7 +137,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Lower-case and trim on write and on lookup. Return 409 for a duplicate email.
 - **Launch blocker:** NO
 
-### 9. The OTP SMS never arrives
+### 9. The OTP SMS never arrives ◐ partial (fix/ws-fhi-identity: body parsing, prod console refusal, volume alert; no fallback provider)
 - **What happens:**
   - A SMSala response with a 2xx status but an error in the body counts as sent (`API/services/smsService.js:114`).
   - There is no retry, no fallback provider, and no voice or WhatsApp option.
@@ -158,7 +158,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Keep the last two codes valid within the window, or show "use the most recent code".
 - **Launch blocker:** NO
 
-### 11. An attacker SMS-bombs a customer's number, or drains the SMSala balance
+### 11. An attacker SMS-bombs a customer's number, or drains the SMSala balance ✅ (fix/ws-fhi-identity)
 - **What happens:** Customer `otp/send` and `forgot-password` have no per-phone cap. They accept any international number, and the only limit is 20 per IP per 15 minutes, held in memory (`API/middleware/rateLimiter.js:28-39`). The technician flow does have a 3-per-hour per-phone cap (`technicianController.js:879-891`).
 - **Customer expects:** Not to be spammed.
 - **Business needs:** SMS cost under control. SMS is also the only route into sign-up and password reset.
@@ -167,7 +167,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Cap sends per phone (3 per hour, 10 per day). Restrict OTP to +974 at launch. Keep limiter state in Redis. Alert on daily SMS spend.
 - **Launch blocker:** **YES**
 
-### 12. The 7-day token expires during a breakdown
+### 12. The 7-day token expires during a breakdown ✅ (fix/ws-fhi-identity)
 - **What happens:** The token is a fixed 7-day JWT with no refresh (`customerController.js:122-126`). On 401 the app wipes storage and goes to Login (`APP/core/api/dio_helper.dart:30-44`). The SOS cubit isn't reset and the socket keeps retrying with the stale token, up to 999 times, each failure sent to Sentry (`customer_socket_service.dart:55-87`).
 - **Customer expects:** To stay signed in during an emergency.
 - **Business needs:** A customer in trouble never logged out.
@@ -176,7 +176,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Add a refresh token, or a sliding expiry renewed on every authenticated call. Never force a logout while a live SOS or job exists. Rebuild the socket's auth after re-login.
 - **Launch blocker:** **YES.** The first cohort hits day 7 in the first week.
 
-### 13. Customer resets their password after their phone was stolen
+### 13. Customer resets their password after their phone was stolen ✅ (fix/ws-fhi-identity)
 - **What happens:** Reset and change-password only re-hash the password. There is no token version, and logout does nothing on the server (`customerController.js:177-178, 349-350, 440-443`).
 - **Customer expects:** The thief is locked out.
 - **Business needs:** Revocation.
@@ -185,7 +185,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Store `token_version` on the Customer, put it in the JWT, and bump it on reset or logout-all.
 - **Launch blocker:** PRE-SCALE
 
-### 14. Admin blocks a customer who is signed in
+### 14. Admin blocks a customer who is signed in ✅ (fix/ws-fhi-identity)
 - **What happens:** Every REST call returns 403 `ACCOUNT_INACTIVE` (`API/middleware/auth.js:19-28`), but the app only reacts to 401. The splash screen treats the 403 body as an empty session and opens Home. The socket checks role only, not status (`SOCK:94-95`).
 - **Customer expects:** To be told the account is blocked and why.
 - **Business needs:** A block actually blocks, live socket included.
@@ -212,7 +212,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Change the number with an OTP sent to the new number, plus an audit log entry.
 - **Launch blocker:** NO
 
-### 17. A customer with the last name "Al" or "Wu"
+### 17. A customer with the last name "Al" or "Wu" ✅ (fix/ws-fhi-identity)
 - **What happens:** Register accepts it, but edit profile rejects last names shorter than 3 characters (`edit_profile_screen.dart:199-200`). Separately, a first name of 51–80 characters passes register and then fails the schema, returning a 500.
 - **Customer expects:** To save their profile.
 - **Business needs:** Validation that agrees across screens.
@@ -221,7 +221,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** One validation rule shared by client and server.
 - **Launch blocker:** NO
 
-### 18. Customer reinstalls on iOS, or a phone is handed to a family member
+### 18. Customer reinstalls on iOS, or a phone is handed to a family member ✅ (fix/ws-fhi-identity)
 - **What happens:**
   - iOS keeps the Keychain across reinstalls, so the app signs straight back into the previous user.
   - `CacheHelper.init` runs before `runApp` with no try/catch (`cache_helper.dart:16-35`), so a corrupted secure-storage read can crash the app on every launch.
@@ -233,7 +233,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Wipe storage on first run, using a flag in plain preferences. Wrap init in try/catch and reset on failure. Set `allowBackup=false`, or exclude secure storage from backup.
 - **Launch blocker:** PRE-SCALE
 
-### 19. The API changes and old app versions stay in the field
+### 19. The API changes and old app versions stay in the field ✅ (fix/ws-fhi-identity)
 - **What happens:** There is no minimum-version check anywhere. `appVersion` is a local constant that is never sent (`APP/core/config/app_config.dart:256`).
 - **Customer expects:** An update prompt, not a broken app.
 - **Business needs:** A way to stop old clients.
@@ -242,7 +242,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Send `X-App-Version` on every request. Add `/config/min-version` checked at splash. Show a blocking update screen.
 - **Launch blocker:** **YES.** It has to be in the first store build, because it can't be added afterwards.
 
-### 20. An Arabic-speaking customer hits an error at a critical moment
+### 20. An Arabic-speaking customer hits an error at a critical moment ◐ partial (fix/ws-fhi-identity: auth/settings/SOS/payment strings; other screens still to sweep)
 - **What happens:**
   - All server errors are in English, and the app shows `response.data["error"]` as-is.
   - The SOS GPS and connection errors (`sos_cubit.dart:345,367,388`), card-payment errors (`skipcash_api.dart:49,54`) and the forgot-password flow are hardcoded in English.
@@ -285,7 +285,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Normalise (strip spaces, convert Arabic to Latin digits, upper-case) and validate the format.
 - **Launch blocker:** NO
 
-### 24. A customer edits a vehicle and the request carries extra fields
+### 24. A customer edits a vehicle and the request carries extra fields ✅ (fix/ws-fhi-identity)
 - **What happens:** `Object.assign(vehicle, req.body)` (`vehicleController.js:117`). A crafted request can set `customer_id` and move the car onto another account, or set a plate that belongs to someone else.
 - **Customer expects:** Not applicable; this is abuse.
 - **Business needs:** Data integrity.
@@ -316,7 +316,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 
 ## C. Raising an SOS (27–41)
 
-### 27. `LAUNCH_PUBLIC_SOS` is not set in production
+### 27. `LAUNCH_PUBLIC_SOS` is not set in production ◐ partial (fix/ws-fhi-identity: boot assertion + flags in /config/public; app does not hide SOS yet)
 - **What happens:** It defaults to **OFF** in production when unset (`API/utils/featureFlags.js:15`). The app never reads the flag, so the customer selects a vehicle, waits for GPS, and only then gets "unavailable".
 - **Customer expects:** SOS works, or the button is hidden.
 - **Business needs:** The core product switched on.
@@ -445,7 +445,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** At zero, show "Still connecting you. Tap to call us now", backed by the escalation in scenario 38.
 - **Launch blocker:** Part of 38.
 
-### 41. Customer taps a "Call us" button
+### 41. Customer taps a "Call us" button ◐ partial (fix/ws-fhi-identity: session_resume.dart still has the placeholder number)
 - **What happens:** The app has **three different numbers** **[verified]**:
   - `tel:70090220` (timer screen)
   - `tel:70919191` (activity details)
@@ -685,7 +685,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** The fix for scenario 58 (re-fetch on reconnect) solves most of it. Deploy at low-traffic hours until then.
 - **Launch blocker:** Covered by 58.
 
-### 66. Railway runs two instances, or zero-downtime deploys overlap
+### 66. Railway runs two instances, or zero-downtime deploys overlap ◐ partial (fix/ws-fhi-identity: boot assertion + Railway pin; Redis adapter later)
 - **What happens:** Without `REDIS_URL`, the in-memory adapter is used (`API/utils/socketAdapter.js:503-514`). `adminNamespace.emit('newSOSRequest')` then reaches only the dispatchers on the same instance, and nothing pins the replica count to 1 (`railway.tech.toml`).
 - **Customer expects:** The SOS is seen.
 - **Business needs:** Every dispatcher sees every SOS.
@@ -694,7 +694,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Pin replicas to 1 and disable deploy overlap for the tech API, or turn on the Redis adapter. Fail the boot when more than one instance is detected without Redis.
 - **Launch blocker:** **YES** (configuration check)
 
-### 67. The database is slow when the customer opens the app
+### 67. The database is slow when the customer opens the app ✅ (fix/ws-fhi-identity)
 - **What happens:** Dio accepts every status below 600 (`dio_helper.dart:19`). `getCustomerSession` returns `{error: …}` as if it were a session, so resume falls through to Home. Raw Mongo messages such as "buffering timed out" reach users.
 - **Customer expects:** "Having trouble connecting, retrying…"
 - **Business needs:** A live job is never hidden.
@@ -725,7 +725,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Send a `notification` block plus an `apns` block (alert, sound, `content-available`) alongside the data, and test on a real iPhone. Use a high-priority notification message on Android too.
 - **Launch blocker:** **YES**
 
-### 70. A push token rotates, and an old-token error arrives later
+### 70. A push token rotates, and an old-token error arrives later ✅ (fix/ws-fhi-identity)
 - **What happens:** On `not-registered`, `fcm_token` is set to null **without checking which token failed** (`fcmService.js:178-186, 258-263`).
 - **Customer expects:** Pushes keep working.
 - **Business needs:** Delivery that is reliable.
@@ -845,7 +845,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Block `confirmPayment` while a card session is pending until the technician explicitly cancels it, after a live check against SkipCash. Record the ignored webhook as a duplicate needing a refund.
 - **Launch blocker:** **YES**
 
-### 81. The webhook secret is wrong in Railway
+### 81. The webhook secret is wrong in Railway ◐ partial (fix/ws-fhi-identity: secret required at boot; webhook-401 alert left to ws-de)
 - **What happens:** The secret falls back to `KEY_SECRET` (`SH/utils/skipcash.js:149`). If SkipCash signs with a different key, every webhook returns 401. Payment then works only through app polling, and nothing alerts anyone.
 - **Customer expects:** Not applicable; they don't see it.
 - **Business needs:** To know payment confirmation is broken.
@@ -1022,7 +1022,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Use an atomic sequential receipt counter, and store the method and transaction id on the receipt. Add an admin page listing failed outbox events with a Replay button. Put every completion path through one shared `completeJob` service.
 - **Launch blocker:** **YES** (one completion path, and receipt numbering)
 
-### 99. Customer checks their job history and argues with the arrival time
+### 99. Customer checks their job history and argues with the arrival time ✅ (fix/ws-fhi-identity)
 - **What happens:** Activity times are parsed from UTC and never converted to local time (`APP/features/activity/models/job_history_response.dart:161`, with no `.toLocal()` in `APP/features/activity`). **[verified]** Every time shows 3 hours early.
 - **Customer expects:** Correct times.
 - **Business needs:** Credible records in disputes.
@@ -1031,7 +1031,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Call `.toLocal()` on every parsed server date.
 - **Launch blocker:** **YES** (trivial fix)
 
-### 100. Customer submits a complaint through Contact Us
+### 100. Customer submits a complaint through Contact Us ✅ (fix/ws-fhi-identity)
 - **What happens:**
   - Rows are saved, but the admin app calls a customer-only route and gets 403.
   - It reads the wrong response key, and calls `/contact-us/:id`, which doesn't exist.
