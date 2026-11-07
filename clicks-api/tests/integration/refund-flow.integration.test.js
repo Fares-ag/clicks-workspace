@@ -95,13 +95,41 @@ describe("Refunds (scenario 83)", () => {
       .set(asApprover())
       .send();
     expect(approve.status).toBe(200);
-    expect(approve.body.refund.status).toBe("succeeded");
+    // SkipCash accepted the refund but settles it asynchronously (StatusId 7):
+    // nothing moves on our books until SkipCash confirms.
+    expect(approve.body.refund.status).toBe("processing");
     expect(approve.body.refund.provider_refund_id).toBe("refund-1");
-    expect(approve.body.refund.credit_note_number).toMatch(/^CN-\d{4}-000001$/);
+    expect(approve.body.refund.credit_note_number || "").toBe("");
+    expect((await Job.findById(job._id)).payment_status).toBe("paid");
 
     expect(sc.calls.refund).toBe(1);
-    expect(sc.refunds[0].body).toMatchObject({ PaymentId: paymentId, Amount: "50.00" });
-    expect(sc.refunds[0].authorization).toBeTruthy();
+    // Refund contract: Id + KeyId (+ Amount), signature over Id,KeyId only.
+    expect(sc.refunds[0].body).toEqual({
+      Id: paymentId,
+      KeyId: process.env.SKIPCASH_KEY_ID,
+      Amount: "50.00",
+    });
+    const crypto = require("crypto");
+    const expectedSig = crypto
+      .createHmac("sha256", process.env.SKIPCASH_KEY_SECRET)
+      .update(`Id=${paymentId},KeyId=${process.env.SKIPCASH_KEY_ID}`)
+      .digest("base64");
+    expect(sc.refunds[0].authorization).toBe(expectedSig);
+
+    // SkipCash's refund webhook (StatusId 6) completes it.
+    const confirm = await sendWebhook(techApp, {
+      PaymentId: paymentId,
+      Amount: "50.00",
+      StatusId: 6,
+      TransactionId: `tx-${job._id}`,
+      Custom1: job._id.toString(),
+      VisaId: "visa",
+    });
+    expect(confirm.status).toBe(200);
+    const confirmed = await Refund.findById(refundId);
+    expect(confirmed.status).toBe("succeeded");
+    expect(confirmed.provider_confirmed_at).toBeTruthy();
+    expect(confirmed.credit_note_number).toMatch(/^CN-\d{4}-000001$/);
 
     const fresh = await Job.findById(job._id);
     expect(fresh.payment_status).toBe("partially_refunded");
@@ -138,24 +166,53 @@ describe("Refunds (scenario 83)", () => {
       .post(`/api/payments/refunds/${rest.body.refund._id}/approve`)
       .set(asApprover())
       .send();
-    expect((await Job.findById(job._id)).payment_status).toBe("refunded");
+    expect((await Job.findById(job._id)).payment_status).toBe("partially_refunded");
 
-    // SkipCash's refund webhook (StatusId 6) confirms; it creates nothing new.
+    // This time the webhook is lost: the reconciler's payment lookup sees the
+    // refund settled (StatusId 6) and completes it. It creates nothing new.
+    sc.setStatus(paymentId, 6);
+    const { reconcileProcessingRefunds } = require("../../clicks-shared/services/paymentReconciler");
+    const later = new Date(Date.now() + 11 * 60 * 1000);
+    const summary = await reconcileProcessingRefunds({ fetchImpl: sc.fetch, now: later });
+    expect(summary).toMatchObject({ checked: 1, refunded: 1 });
+    expect((await Refund.findById(rest.body.refund._id)).status).toBe("succeeded");
+    expect((await Job.findById(job._id)).payment_status).toBe("refunded");
+    expect(await Refund.countDocuments({})).toBe(2);
+
+    const actions = (await AdminAuditLog.find({}).lean()).map((a) => a.action);
+    expect(actions.filter((a) => a === "refund.request")).toHaveLength(2);
+    expect(actions.filter((a) => a === "refund.approve")).toHaveLength(2);
+  });
+
+  test("SkipCash reports the submitted refund failed (StatusId 8): case failed, books untouched", async () => {
+    const { job, paymentId } = await cardPaidJob(90);
+    const create = await request(adminApp)
+      .post("/api/payments/refunds")
+      .set(asRequester())
+      .send({ job_id: job._id.toString(), reason: "Technician no-show" });
+    const approve = await request(adminApp)
+      .post(`/api/payments/refunds/${create.body.refund._id}/approve`)
+      .set(asApprover())
+      .send();
+    expect(approve.body.refund.status).toBe("processing");
+
     const hook = await sendWebhook(techApp, {
       PaymentId: paymentId,
-      Amount: "50.00",
-      StatusId: 6,
+      Amount: "90.00",
+      StatusId: 8,
       TransactionId: `tx-${job._id}`,
       Custom1: job._id.toString(),
       VisaId: "visa",
     });
     expect(hook.status).toBe(200);
-    expect(await Refund.countDocuments({})).toBe(2);
-    expect((await Refund.findById(refundId)).provider_confirmed_at).toBeTruthy();
-
-    const actions = (await AdminAuditLog.find({}).lean()).map((a) => a.action);
-    expect(actions.filter((a) => a === "refund.request")).toHaveLength(2);
-    expect(actions.filter((a) => a === "refund.approve")).toHaveLength(2);
+    const failed = await Refund.findById(create.body.refund._id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toMatch(/failed/i);
+    expect(failed.credit_note_number || "").toBe("");
+    expect((await Job.findById(job._id)).payment_status).toBe("paid");
+    const attempt = await PaymentAttempt.findOne({ provider_payment_id: paymentId });
+    expect(attempt.status).toBe("paid");
+    expect(Number(attempt.refunded_amount) || 0).toBe(0);
   });
 
   test("SkipCash failure leaves the case failed; finance completes it with a portal reference", async () => {

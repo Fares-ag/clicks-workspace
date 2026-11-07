@@ -1,6 +1,6 @@
 const CustomerSubscription = require("../models/CustomerSubscription");
 const { activateSubscription } = require("./membershipEntitlement");
-const { isPaidStatus, isRefundedStatus, amountsMatch, formatAmount } = require("../utils/skipcash");
+const { isPaidStatus, isRefundedStatus, isRefundFailedStatus, isPendingRefundStatus, amountsMatch, formatAmount } = require("../utils/skipcash");
 const {
   recordProviderResult,
   claimOutcome,
@@ -45,6 +45,15 @@ async function settleMembershipAttempt(
   });
   const sub = att.subscription_id ? await CustomerSubscription.findById(att.subscription_id) : null;
 
+  if (isRefundFailedStatus(statusId)) {
+    const { recordProviderRefundFailed } = require("./refunds");
+    const refund = await recordProviderRefundFailed({ attempt: att });
+    return { state: "refund_failed", attempt: att, subscription: sub, refund };
+  }
+  if (isPendingRefundStatus(statusId)) {
+    // A refund we submitted is still settling at SkipCash; nothing to apply.
+    return { state: "refund_pending", attempt: att, subscription: sub };
+  }
   if (isRefundedStatus(statusId)) {
     const { recordProviderRefund } = require("./refunds");
     const refund = await recordProviderRefund({ attempt: att, amount });

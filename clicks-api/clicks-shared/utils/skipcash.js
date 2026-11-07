@@ -19,11 +19,14 @@ const PAYMENT_SIGN_KEYS = [
 ];
 
 /**
- * Fields signed on a refund request, in order. ASSUMPTION: SkipCash signs the
- * refund call the same way as create-payment (comma-joined Key=Value pairs,
- * HMAC-SHA256 with the key secret). See refundPayment() in skipcashClient.
+ * Fields signed on a refund request, in order: `Id` (the SkipCash payment id)
+ * then `KeyId`, comma-joined Key=Value, HMAC-SHA256 with the key secret,
+ * Base64, sent raw in Authorization. `Amount` travels in the body but is NOT
+ * signed. Source: the samt-qa/skipcash-laravel SDK (SignatureFields::REFUND),
+ * which cites dev.skipcash.app/doc — confirm against the SkipCash sandbox
+ * before launch. See refundPayment() in services/skipcashClient.
  */
-const REFUND_SIGN_KEYS = ["Uid", "KeyId", "PaymentId", "Amount"];
+const REFUND_SIGN_KEYS = ["Id", "KeyId"];
 
 /** Fields SkipCash includes in the webhook Authorization HMAC, in order. */
 const WEBHOOK_SIGN_KEYS = [
@@ -53,6 +56,14 @@ const PRODUCTION_BASE_URL = "https://api.skipcash.app";
 
 function isPaidStatus(statusId) {
   return Number(statusId) === SKIPCASH_STATUS.PAID;
+}
+
+function isPendingRefundStatus(statusId) {
+  return Number(statusId) === SKIPCASH_STATUS.PENDING_REFUND;
+}
+
+function isRefundFailedStatus(statusId) {
+  return Number(statusId) === SKIPCASH_STATUS.REFUND_FAILED;
 }
 
 function isRefundedStatus(statusId) {
@@ -177,6 +188,8 @@ module.exports = {
   PRODUCTION_BASE_URL,
   isPaidStatus,
   isRefundedStatus,
+  isPendingRefundStatus,
+  isRefundFailedStatus,
   isReusableStatus,
   formatAmount,
   amountsMatch,

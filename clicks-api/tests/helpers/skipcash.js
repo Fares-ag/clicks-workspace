@@ -59,7 +59,7 @@ function fakeSkipcash() {
       const body = JSON.parse(opts.body || "{}");
       refunds.push({ body, authorization: opts.headers?.Authorization });
       if (failRefund) return jsonResponse({ hasError: true, errorMessage: failRefund }, 400);
-      const p = payments.get(body.PaymentId);
+      const p = payments.get(body.Id);
       if (p) p.refunded = (p.refunded || 0) + Number(body.Amount);
       return ok({ id: `refund-${refunds.length}`, statusId: 7 });
     }

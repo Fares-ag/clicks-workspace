@@ -52,6 +52,8 @@ const RefundSchema = new mongoose.Schema(
     credit_note_number: { type: String, default: "" },
     approved_at: { type: Date, default: null },
     completed_at: { type: Date, default: null },
+    /** When the refund call was accepted by SkipCash (it then settles async). */
+    provider_submitted_at: { type: Date, default: null },
     /** Set when SkipCash's refund webhook (StatusId 6) confirms it. */
     provider_confirmed_at: { type: Date, default: null },
     /** Effects on job / receipt / attempt applied exactly once. */

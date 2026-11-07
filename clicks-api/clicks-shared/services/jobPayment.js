@@ -2,7 +2,7 @@ const Job = require("../models/Job");
 const RepairProcedure = require("../models/RepairProcedure");
 const PaymentAttempt = require("../models/PaymentAttempt");
 const { computeJobPricing } = require("../utils/jobPricing");
-const { formatAmount, amountsMatch, isRefundedStatus } = require("../utils/skipcash");
+const { formatAmount, amountsMatch, isRefundedStatus, isRefundFailedStatus, isPendingRefundStatus } = require("../utils/skipcash");
 const { deletePayloadCacheKey } = require("../utils/payloadCache");
 const { issueJobReceipt, findJobReceipt } = require("./receipts");
 const {
@@ -177,6 +177,15 @@ async function settleJobAttempt(
   });
   const att = recorded.attempt;
 
+  if (isRefundFailedStatus(statusId)) {
+    const { recordProviderRefundFailed } = require("./refunds");
+    const refund = await recordProviderRefundFailed({ attempt: att });
+    return { state: "refund_failed", attempt: att, refund };
+  }
+  if (isPendingRefundStatus(statusId)) {
+    // A refund we submitted is still settling at SkipCash; nothing to apply.
+    return { state: "refund_pending", attempt: att };
+  }
   if (isRefundedStatus(statusId)) {
     const { recordProviderRefund } = require("./refunds");
     const refund = await recordProviderRefund({ attempt: att, amount });

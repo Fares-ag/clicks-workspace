@@ -3,6 +3,7 @@ const Refund = require("../models/Refund");
 const PaymentAttempt = require("../models/PaymentAttempt");
 const { addCreditNote, findJobReceipt } = require("./receipts");
 const { alertOps, round2 } = require("./paymentAttempts");
+const { isRefundedStatus } = require("../utils/skipcash");
 
 const OPEN_STATUSES = ["requested", "processing"];
 const EPSILON = 0.009;
@@ -349,18 +350,40 @@ async function approveRefund({ refundId, approvedBy, fetchImpl, manualReference 
       { amount: claimed.amount },
       { fetchImpl }
     );
+    // SkipCash settles refunds asynchronously: the call usually answers
+    // "pending refund" (7) and the outcome arrives later as a webhook or a
+    // payment lookup (6 refunded / 8 refund failed). Only an immediate 6 is a
+    // completed refund; anything else stays `processing`, so the books, the
+    // receipt credit note and the job's payment status move only once
+    // SkipCash confirms (recordProviderRefund / recordProviderRefundFailed,
+    // and the reconciler re-checks processing refunds).
+    if (isRefundedStatus(result.statusId)) {
+      await Refund.updateOne(
+        { _id: claimed._id },
+        {
+          $set: {
+            status: "succeeded",
+            provider_refund_id: result.refundId || "",
+            provider_response: result.raw || null,
+            completed_at: new Date(),
+            provider_confirmed_at: new Date(),
+          },
+        }
+      );
+      return applyRefundEffects(claimed);
+    }
     await Refund.updateOne(
       { _id: claimed._id },
       {
         $set: {
-          status: "succeeded",
+          status: "processing",
           provider_refund_id: result.refundId || "",
           provider_response: result.raw || null,
-          completed_at: new Date(),
+          provider_submitted_at: new Date(),
         },
       }
     );
-    return applyRefundEffects(claimed);
+    return Refund.findById(claimed._id);
   } catch (err) {
     await Refund.updateOne(
       { _id: claimed._id },
@@ -464,6 +487,32 @@ async function recordProviderRefund({ attempt, amount } = {}) {
   return applyRefundEffects(created);
 }
 
+/**
+ * SkipCash says a refund failed (StatusId 8). The submitted refund goes back
+ * to `failed` (no money moved, no credit note), so finance can retry it or
+ * finish it in the SkipCash portal and record the reference. Ops is alerted:
+ * the customer was told they would get their money back.
+ */
+async function recordProviderRefundFailed({ attempt, note } = {}) {
+  if (!attempt) return null;
+  const open = await Refund.findOneAndUpdate(
+    { attempt_id: attempt._id, status: "processing" },
+    {
+      $set: {
+        status: "failed",
+        error: String(note || "SkipCash reported the refund failed (StatusId 8)").slice(0, 500),
+      },
+    },
+    { new: true, sort: { createdAt: 1 } }
+  );
+  alertOps("SkipCash refund failed", {
+    attempt_id: String(attempt._id),
+    refund_id: open ? String(open._id) : null,
+    note: note || null,
+  });
+  return open;
+}
+
 async function listRefunds({ status, jobId, subscriptionId, page = 1, limit = 50 } = {}) {
   const filter = {};
   if (status) filter.status = String(status);
@@ -489,6 +538,7 @@ module.exports = {
   approveRefund,
   rejectRefund,
   recordProviderRefund,
+  recordProviderRefundFailed,
   applyRefundEffects,
   listRefunds,
   attemptPaidJob,

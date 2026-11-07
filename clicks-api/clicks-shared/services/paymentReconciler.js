@@ -71,6 +71,73 @@ async function reconcilePendingAttempts({
   return summary;
 }
 
+const REFUND_RECHECK_AFTER_MS = 10 * 60 * 1000;
+const REFUND_RECHECK_MAX_AGE_MS = 14 * DAY_MS;
+
+/** First numeric status among the fields SkipCash may use for refund state. */
+function refundStatusOf(remote) {
+  for (const key of ["refundStatusId", "RefundStatusId", "refundStatus", "statusId", "StatusId"]) {
+    const v = remote?.[key];
+    if (v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v))) return Number(v);
+  }
+  return null;
+}
+
+/**
+ * Refunds submitted to SkipCash but not yet confirmed (status `processing`).
+ * SkipCash settles refunds asynchronously and reports the result by webhook;
+ * if that webhook is lost, this lookup on the original payment applies it:
+ * 6 refunded -> succeeded (credit note, payment status), 8 refund failed ->
+ * failed + ops alert. Processing past 14 days is left for the stale report.
+ */
+async function reconcileProcessingRefunds({ fetchImpl, now = new Date(), limit = 100 } = {}) {
+  const Refund = require("../models/Refund");
+  const { getPayment } = require("./skipcashClient");
+  const { recordProviderRefund, recordProviderRefundFailed } = require("./refunds");
+  const refunds = await Refund.find({
+    status: "processing",
+    method: "provider",
+    attempt_id: { $ne: null },
+    provider_submitted_at: {
+      $lte: new Date(now.getTime() - REFUND_RECHECK_AFTER_MS),
+      $gte: new Date(now.getTime() - REFUND_RECHECK_MAX_AGE_MS),
+    },
+  })
+    .sort({ provider_submitted_at: 1 })
+    .limit(limit);
+
+  const summary = { checked: 0, refunded: 0, failed: 0, pending: 0, errors: 0 };
+  for (const refund of refunds) {
+    summary.checked += 1;
+    try {
+      const attempt = await PaymentAttempt.findById(refund.attempt_id);
+      if (!attempt) continue;
+      const remote = await getPayment(attempt.provider_payment_id, { fetchImpl });
+      const status = refundStatusOf(remote);
+      if (status === 6) {
+        await recordProviderRefund({ attempt, amount: refund.amount });
+        summary.refunded += 1;
+      } else if (status === 8) {
+        await recordProviderRefundFailed({ attempt, note: "SkipCash lookup: refund failed" });
+        summary.failed += 1;
+      } else {
+        summary.pending += 1;
+      }
+    } catch (err) {
+      summary.errors += 1;
+      console.error(
+        JSON.stringify({
+          level: "warn",
+          msg: "refund_reconcile_lookup_failed",
+          refund_id: String(refund._id),
+          error: err.message,
+        })
+      );
+    }
+  }
+  return summary;
+}
+
 /** Attempts SkipCash never resolved within 48h — someone must look at these. */
 async function findStalePendingAttempts({ now = new Date(), limit = 500 } = {}) {
   return PaymentAttempt.find({
@@ -121,6 +188,12 @@ function startPaymentReconciler({
         if (summary.checked) {
           console.log(JSON.stringify({ level: "info", msg: "payment_reconcile", ...summary }));
         }
+        const refunds = await reconcileProcessingRefunds({
+          fetchImpl: typeof fetchImpl === "function" ? fetchImpl : undefined,
+        });
+        if (refunds.checked) {
+          console.log(JSON.stringify({ level: "info", msg: "refund_reconcile", ...refunds }));
+        }
         const daily = await acquireLease(STALE_REPORT_LEASE, DAY_MS);
         if (daily) await reportStalePendingAttempts();
       } catch (err) {
@@ -159,6 +232,7 @@ async function stopPaymentReconciler(handle) {
 
 module.exports = {
   reconcilePendingAttempts,
+  reconcileProcessingRefunds,
   findStalePendingAttempts,
   reportStalePendingAttempts,
   startPaymentReconciler,

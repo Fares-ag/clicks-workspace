@@ -202,10 +202,11 @@ async function refundPayment(paymentId, { amount } = {}, { fetchImpl, env } = {}
       code: "SKIPCASH_INVALID_AMOUNT",
     });
   }
+  // Body per the SkipCash refund contract: Id + KeyId (+ Amount; omitting it
+  // means a full refund — we always send the exact amount approved).
   const payload = {
-    Uid: randomUUID(),
+    Id: id,
     KeyId: cfg.keyId,
-    PaymentId: id,
     Amount: formatted,
   };
   const path =
