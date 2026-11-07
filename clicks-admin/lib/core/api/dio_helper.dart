@@ -32,6 +32,9 @@ class DioHelper {
           if (retried != null) {
             return handler.resolve(retried);
           }
+          if (isBusinessRefusal(response)) {
+            return handler.next(response);
+          }
           if (response.statusCode == 401 || response.statusCode == 403) {
             final url = response.requestOptions.path;
             if (!_isAuthPath(url)) {
@@ -54,6 +57,24 @@ class DioHelper {
         },
       ),
     );
+  }
+
+  /// A 403 that carries a machine `code` (REFUND_SAME_APPROVER,
+  /// REFUND_APPROVER_ROLE, REFUND_DECISION_FORBIDDEN, WAIVE_ADMIN_ONLY, ...)
+  /// is a rule refusal on a live session, not a dead token: show the message,
+  /// don't refresh-and-retry or log the admin out.
+  static bool isBusinessRefusal(Response response) {
+    if (response.statusCode != 403) return false;
+    final data = response.data;
+    return data is Map &&
+        data['code'] != null &&
+        data['code'].toString().isNotEmpty;
+  }
+
+  static bool _needsRefresh(Response response) {
+    final status = response.statusCode;
+    if (status != 401 && status != 403) return false;
+    return !isBusinessRefusal(response);
   }
 
   static bool _isAuthPath(String path) {
@@ -144,7 +165,7 @@ class DioHelper {
     bool auth = true,
   }) async {
     final res = await dio.get(url, queryParameters: query, options: _authOptions(auth));
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) return retried;
@@ -164,7 +185,7 @@ class DioHelper {
       queryParameters: query,
       options: options,
     );
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) {
@@ -180,7 +201,7 @@ class DioHelper {
     bool auth = true,
   }) async {
     final res = await dio.post(url, data: data, options: _authOptions(auth));
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) return retried;
@@ -194,7 +215,7 @@ class DioHelper {
     bool auth = true,
   }) async {
     final res = await dio.put(url, data: data, options: _authOptions(auth));
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) return retried;
@@ -208,7 +229,7 @@ class DioHelper {
     bool auth = true,
   }) async {
     final res = await dio.patch(url, data: data, options: _authOptions(auth));
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) return retried;
@@ -221,7 +242,7 @@ class DioHelper {
     bool auth = true,
   }) async {
     final res = await dio.delete(url, options: _authOptions(auth));
-    if (res.statusCode == 401 || res.statusCode == 403) {
+    if (_needsRefresh(res)) {
       res.requestOptions.extra['_handledStatus'] = res.statusCode;
       final retried = await _maybeRefreshAndRetry(res.requestOptions);
       if (retried != null) return retried;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyDownloadJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
+import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyDownloadJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useCancelJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
 import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import ReassignJobModal from "../../components/ReassignJobModal.jsx";
@@ -20,6 +20,8 @@ import {
   buildJobMapsLink,
 } from "../../utils/formatJobLocationDisplay.js";
 import JobProgressTimeline from "./JobProgressTimeline.jsx";
+import JobPaymentSection from "../Payments/JobPaymentSection.jsx";
+import { useAdminRole } from "../../utils/adminRoles";
 
 function getJobVehicleInfo(job) {
   if (!job) return null;
@@ -51,6 +53,8 @@ function JobDetails() {
   const [holdJob] = useHoldJobMutation();
   const [resumeJob] = useResumeJobMutation();
   const [completeJob] = useCompleteJobMutation();
+  const [cancelJobRequest] = useCancelJobMutation();
+  const { isFullAdmin } = useAdminRole();
   const [approveHoldRequest] = useApproveHoldRequestMutation();
   const [rejectHoldRequest] = useRejectHoldRequestMutation();
   const [downloadJobReceipt, { isFetching: downloadingReceipt }] = useLazyDownloadJobReceiptQuery();
@@ -59,6 +63,11 @@ function JobDetails() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelReasonText, setCancelReasonText] = useState('');
+  // Paid jobs: the server requires a refund decision from a Super Admin / Admin.
+  const [cancelRefund, setCancelRefund] = useState('full');
+  const [cancelRefundAmount, setCancelRefundAmount] = useState('');
+  const [cancelRefundReason, setCancelRefundReason] = useState('');
+  const [cancelError, setCancelError] = useState('');
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [showRejectHoldModal, setShowRejectHoldModal] = useState(false);
   const [rejectHoldNote, setRejectHoldNote] = useState('');
@@ -321,30 +330,69 @@ function JobDetails() {
   const currentProfit = financials.currentProfit !== undefined ? financials.currentProfit : 0;
   const isPaid = financials.isPaid || false;
 
+  const resetCancelForm = () => {
+    setShowCancelModal(false);
+    setCancelReason('');
+    setCancelReasonText('');
+    setCancelRefund('full');
+    setCancelRefundAmount('');
+    setCancelRefundReason('');
+    setCancelError('');
+  };
+
   // Handle cancel job - show confirmation modal
   const handleCancelJob = () => {
-    if (!socket || !job) return;
+    if (!job) return;
+    setCancelError('');
     setShowCancelModal(true);
   };
 
-  // Confirm cancel job
-  const confirmCancelJob = () => {
-    const reason = cancelReason === 'Other' 
-      ? (cancelReasonText.trim() || 'Cancelled by admin') 
-      : (cancelReason || 'Cancelled by admin');
-    
-    setCancelling(true);
-    setShowCancelModal(false);
-    
-    socket.emit('adminCancelJob', {
-      job_id: job._id,
-      customer_id: job.customer_id?._id || job.customer_id,
-      technician_id: job.assignedTechnician?._id || job.assignedTechnician,
-      reason
-    });
+  const cancelIsPaid = job?.payment_status === 'paid';
 
-    setCancelReason('');
-    setCancelReasonText('');
+  // Confirm cancel job — POST /jobs/:id/cancel (shared cancel service). The
+  // generic PUT refuses status "cancelled" (USE_DEDICATED_ENDPOINT).
+  const confirmCancelJob = async () => {
+    const reason = cancelReason === 'Other'
+      ? (cancelReasonText.trim() || 'Cancelled by admin')
+      : (cancelReason || 'Cancelled by admin');
+    const body = { id: job._id, reason };
+    if (cancelIsPaid) {
+      body.refund = cancelRefund;
+      body.refund_reason = cancelRefundReason.trim() || reason;
+      if (cancelRefund === 'partial') {
+        const amount = Number(cancelRefundAmount);
+        if (!(amount > 0)) {
+          setCancelError('Enter the refund amount');
+          return;
+        }
+        body.refund_amount = amount;
+      }
+    }
+
+    setCancelling(true);
+    setCancelError('');
+    try {
+      const res = await cancelJobRequest(body).unwrap();
+      const decision = res?.refund?.decision;
+      const requestError = res?.job?.cancellation_refund?.request_error;
+      resetCancelForm();
+      setSuccessMessage({
+        title: res?.already_cancelled ? 'Job was already cancelled' : 'Job cancelled',
+        subtitle: !decision
+          ? 'The technician was released and the customer notified.'
+          : decision === 'none'
+            ? 'No refund will be made.'
+            : requestError
+              ? `The refund case could not be opened: ${requestError}. Request it from Payment & refunds.`
+              : 'A refund case was opened. Another Super Admin must approve it before money moves.',
+      });
+      setShowSuccessModal(true);
+      refetch();
+    } catch (err) {
+      setCancelError(err?.data?.message || err?.data?.error || 'Failed to cancel job');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const handleHoldJob = () => {
@@ -871,6 +919,8 @@ function JobDetails() {
               </div>
             </div>
           )}
+
+          {isFullAdmin && <JobPaymentSection job={job} onChanged={refetch} />}
 
           {/* Customer e-signature (tech app gates complete on this) */}
           {['arrived', 'in_progress', 'completed'].includes(job.job_status) && (
@@ -1585,7 +1635,7 @@ function JobDetails() {
       {showCancelModal && (
         <div className="confirmation-modal-backdrop">
           <div className="confirmation-modal" style={{ maxWidth: '520px' }}>
-            <button className="confirmation-modal-close" onClick={() => { setShowCancelModal(false); setCancelReason(''); setCancelReasonText(''); }} aria-label="Close">
+            <button className="confirmation-modal-close" onClick={resetCancelForm} aria-label="Close">
               <span className="confirmation-modal-close-x">&#10005;</span>
             </button>
             <div className="confirmation-modal-content">
@@ -1629,17 +1679,77 @@ function JobDetails() {
                 />
               )}
 
+              {cancelIsPaid && !isFullAdmin && (
+                <p className="pay-error" style={{ marginTop: '12px', textAlign: 'left' }}>
+                  This job is paid. Only a Super Admin / Admin can cancel it, with a refund decision.
+                </p>
+              )}
+              {cancelIsPaid && isFullAdmin && (
+                <div className="pay-modal-body" style={{ padding: '12px 0 0' }}>
+                  <strong>This job is paid. What happens to the money?</strong>
+                  <div className="pay-radio-group">
+                    {[
+                      ['full', 'Full refund'],
+                      ['partial', 'Partial refund'],
+                      ['none', 'No refund'],
+                    ].map(([value, label]) => (
+                      <label key={value} className="pay-radio">
+                        <input
+                          type="radio"
+                          name="cancelRefund"
+                          value={value}
+                          checked={cancelRefund === value}
+                          onChange={() => setCancelRefund(value)}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {cancelRefund === 'partial' && (
+                    <label className="pay-field">
+                      <span className="pay-field-label">Refund amount (QAR)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={cancelRefundAmount}
+                        onChange={(e) => setCancelRefundAmount(e.target.value)}
+                      />
+                    </label>
+                  )}
+                  <label className="pay-field">
+                    <span className="pay-field-label">
+                      Refund reason (for finance)<span className="pay-optional"> (defaults to the cancel reason)</span>
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={1000}
+                      value={cancelRefundReason}
+                      onChange={(e) => setCancelRefundReason(e.target.value)}
+                    />
+                  </label>
+                  {cancelRefund !== 'none' && (
+                    <span className="pay-field-hint">
+                      Opens a refund case; a different Super Admin must approve it before money moves.
+                    </span>
+                  )}
+                </div>
+              )}
+              {cancelError && (
+                <p className="pay-error" style={{ marginTop: '12px', textAlign: 'left' }}>{cancelError}</p>
+              )}
+
               <div className="confirmation-modal-actions" style={{ marginTop: '20px' }}>
-                <button className="confirmation-modal-cancel" onClick={() => { setShowCancelModal(false); setCancelReason(''); setCancelReasonText(''); }}>
+                <button className="confirmation-modal-cancel" onClick={resetCancelForm} disabled={cancelling}>
                   Go Back
                 </button>
-                <button 
-                  className="confirmation-modal-confirm" 
+                <button
+                  className="confirmation-modal-confirm"
                   onClick={confirmCancelJob}
-                  disabled={!cancelReason || (cancelReason === 'Other' && !cancelReasonText.trim())}
-                  style={{ opacity: (!cancelReason || (cancelReason === 'Other' && !cancelReasonText.trim())) ? 0.5 : 1 }}
+                  disabled={cancelling || !cancelReason || (cancelReason === 'Other' && !cancelReasonText.trim()) || (cancelIsPaid && !isFullAdmin)}
+                  style={{ opacity: (cancelling || !cancelReason || (cancelReason === 'Other' && !cancelReasonText.trim()) || (cancelIsPaid && !isFullAdmin)) ? 0.5 : 1 }}
                 >
-                  Confirm Cancellation
+                  {cancelling ? 'Cancelling...' : 'Confirm Cancellation'}
                 </button>
               </div>
             </div>

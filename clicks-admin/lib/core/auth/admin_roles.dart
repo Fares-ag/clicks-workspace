@@ -29,6 +29,9 @@ class AdminRoles {
     '/subscription-plans',
     '/customer-memberships',
     '/ops-settings',
+    '/refunds',
+    '/payment-ledger',
+    '/failed-events',
   ];
 
   static const opsAllowedPrefixes = [

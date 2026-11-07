@@ -26,6 +26,10 @@ export const FULL_ADMIN_ONLY_PREFIXES = [
   // Login attempts, IPs and GPS pings — security data, not dispatch data.
   "/technician-logs",
   "/data-analysis",
+  // Refund approvals, the SkipCash ledger and outbox replay move money.
+  "/refunds",
+  "/payment-ledger",
+  "/failed-events",
 ];
 
 /** Route prefixes allowed for ops roles (Job Dispatcher, etc.). */

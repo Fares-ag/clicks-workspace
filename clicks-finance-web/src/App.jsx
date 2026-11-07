@@ -11,6 +11,7 @@ import Vendors from "./pages/Vendors/Vendors";
 import Purchases from "./pages/Purchases/Purchases";
 import Settlements from "./pages/Settlements/Settlements";
 import SettlementDetail from "./pages/Settlements/SettlementDetail";
+import Refunds from "./pages/Refunds/Refunds";
 
 function App() {
   const token = useSelector((state) => state.auth.token);
@@ -36,6 +37,7 @@ function App() {
         <Route path="/purchases" element={<Purchases />} />
         <Route path="/settlements" element={<Settlements />} />
         <Route path="/settlements/:id" element={<SettlementDetail />} />
+        <Route path="/refunds" element={<Refunds />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

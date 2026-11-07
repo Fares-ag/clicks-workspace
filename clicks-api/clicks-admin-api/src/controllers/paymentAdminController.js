@@ -56,6 +56,30 @@ function sendError(res, err, fallback) {
   });
 }
 
+const JOB_SUMMARY_FIELDS =
+  "job_reference clientName clientMobileNumber job_status payment_status payment_method price refunded_amount";
+
+/**
+ * Admin / finance refund and ledger screens show which job a row is about.
+ * Adds `job` (a small summary, or null) next to each row's raw job_id.
+ */
+async function withJobSummaries(rows) {
+  const ids = [
+    ...new Set(
+      (rows || [])
+        .map((row) => (row?.job_id ? String(row.job_id) : ""))
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  if (ids.length === 0) return (rows || []).map((row) => ({ ...row, job: null }));
+  const jobs = await Job.find({ _id: { $in: ids } }).select(JOB_SUMMARY_FIELDS).lean();
+  const byId = new Map(jobs.map((job) => [String(job._id), job]));
+  return rows.map((row) => ({
+    ...row,
+    job: row?.job_id ? byId.get(String(row.job_id)) || null : null,
+  }));
+}
+
 function skipcashFetchFor(req) {
   return req.app.get("skipcashFetch") || undefined;
 }
@@ -118,7 +142,7 @@ async function listRefundsHandler(req, res) {
       page: req.query.page,
       limit: req.query.limit,
     });
-    res.json(data);
+    res.json({ ...data, refunds: await withJobSummaries(data.refunds) });
   } catch (err) {
     sendError(res, err, "Failed to list refunds");
   }
@@ -131,7 +155,8 @@ async function getRefundHandler(req, res) {
     }
     const refund = await Refund.findById(req.params.id).lean();
     if (!refund) return res.status(404).json({ message: "Refund not found" });
-    res.json({ refund });
+    const [withJob] = await withJobSummaries([refund]);
+    res.json({ refund: withJob });
   } catch (err) {
     sendError(res, err, "Failed to fetch refund");
   }
@@ -281,7 +306,7 @@ async function listJobAttempts(req, res) {
     }
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
     const attempts = await PaymentAttempt.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
-    res.json({ attempts });
+    res.json({ attempts: await withJobSummaries(attempts) });
   } catch (err) {
     sendError(res, err, "Failed to list payment attempts");
   }

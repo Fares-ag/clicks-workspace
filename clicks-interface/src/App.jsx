@@ -53,6 +53,9 @@ const AddBusiness = lazyPage(() => import("./pages/BusinessManagement/AddBusines
 const BusinessDetails = lazyPage(() => import("./pages/BusinessManagement/BusinessDetails.jsx"));
 const Finance = lazyPage(() => import("./pages/Finance/Finance.jsx"));
 const FinanceUsers = lazyPage(() => import("./pages/FinanceUsers/FinanceUsers.jsx"));
+const Refunds = lazyPage(() => import("./pages/Payments/Refunds.jsx"));
+const PaymentLedger = lazyPage(() => import("./pages/Payments/PaymentLedger.jsx"));
+const FailedEvents = lazyPage(() => import("./pages/Payments/FailedEvents.jsx"));
 const Partners = lazyPage(() => import("./pages/PartnerManagement/Partners.jsx"));
 const PartnerDetails = lazyPage(() => import("./pages/PartnerManagement/PartnerDetails.jsx"));
 const TechnicianLogs = lazyPage(() => import("./pages/TechnicianLogs/TechnicianLogs.jsx"));
@@ -117,6 +120,9 @@ function App() {
         <Route path="/businesses/:id" element={<BusinessDetails />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/finance-users" element={<FinanceUsers />} />
+        <Route path="/refunds" element={<Refunds />} />
+        <Route path="/payment-ledger" element={<PaymentLedger />} />
+        <Route path="/failed-events" element={<FailedEvents />} />
         <Route path="/partners" element={<Partners />} />
         <Route path="/partners/:id" element={<PartnerDetails />} />
         <Route path="/jobs" element={<Jobs />} />

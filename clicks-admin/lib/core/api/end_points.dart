@@ -30,6 +30,18 @@ class EndPoints {
   static String jobGarage(String id) => '/jobs/$id/garage';
   static String jobGarageReady(String id) => '/jobs/$id/garage/ready';
   static String jobComplete(String id) => '/jobs/$id/complete';
+  static String jobMarkPaid(String id) => '/jobs/$id/mark-paid';
+
+  // Payments (full admin): refund cases, payment ledger, failed outbox events.
+  static const String refunds = '/payments/refunds';
+  static String refund(String id) => '/payments/refunds/$id';
+  static String refundApprove(String id) => '/payments/refunds/$id/approve';
+  static String refundReject(String id) => '/payments/refunds/$id/reject';
+  static String refundCreditNote(String id) =>
+      '/payments/refunds/$id/credit-note';
+  static const String paymentAttempts = '/payments/payment-attempts';
+  static const String outboxFailed = '/payments/outbox/failed';
+  static String outboxReplay(String id) => '/payments/outbox/$id/replay';
   static String jobHoldRequestApprove(String id) => '/jobs/$id/hold-request/approve';
   static String jobHoldRequestReject(String id) => '/jobs/$id/hold-request/reject';
   static String jobReassign(String id) => '/jobs/$id/reassign';

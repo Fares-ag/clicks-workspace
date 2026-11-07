@@ -10,6 +10,7 @@ import {
   useReauditJobMutation,
   useUpdateFinanceMutation,
 } from "../../store/portalApi";
+import JobPayments from "../Refunds/JobPayments.jsx";
 import "./JobDetail.css";
 import "../Jobs/Jobs.css";
 
@@ -422,6 +423,8 @@ function JobDetail() {
             </dd>
           </dl>
         </section>
+
+        <JobPayments job={job} onChanged={refetch} />
 
         <section className="job-detail-card job-detail-finance">
           <h2>Finance</h2>

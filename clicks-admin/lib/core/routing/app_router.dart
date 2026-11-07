@@ -14,6 +14,10 @@ import '../../features/leads/lead_detail_screen.dart';
 import '../../features/leads/leads_screen.dart';
 import '../../features/live_map/live_map_screen.dart';
 import '../../features/ops_settings/ops_settings_screen.dart';
+import '../../features/payments/failed_events_screen.dart';
+import '../../features/payments/payment_ledger_screen.dart';
+import '../../features/payments/refund_detail_screen.dart';
+import '../../features/payments/refunds_screen.dart';
 import '../../features/main/admin_shell.dart';
 import '../../features/phase2/admin_detail_screen.dart';
 import '../../features/phase2/admin_form_screen.dart';
@@ -102,6 +106,12 @@ class AppRouter {
         return _shell(const CallsScreen(), name);
       case Routes.opsSettings:
         return _shell(const OpsSettingsScreen(), name);
+      case Routes.refunds:
+        return _shell(const RefundsScreen(), name);
+      case Routes.paymentLedger:
+        return _shell(const PaymentLedgerScreen(), name);
+      case Routes.failedEvents:
+        return _shell(const FailedEventsScreen(), name);
       case Routes.vehicleMakes:
         return _shell(const VehicleMakesScreen(), name);
       case Routes.vehicleModels:
@@ -182,6 +192,10 @@ class AppRouter {
     if (jobMatch != null) {
       final id = jobMatch.group(1)!;
       return _shell(JobDetailScreen(jobId: id), path);
+    }
+    final refundMatch = RegExp(r'^/refunds/([^/]+)$').firstMatch(path);
+    if (refundMatch != null) {
+      return _shell(RefundDetailScreen(refundId: refundMatch.group(1)!), path);
     }
     final clientMatch = RegExp(r'^/clients/([^/]+)$').firstMatch(path);
     if (clientMatch != null) {
@@ -310,6 +324,7 @@ class AppRouter {
     if (path.startsWith('/admin-management')) return '/admin-management';
     if (path.startsWith('/businesses')) return '/businesses';
     if (path.startsWith('/partners')) return '/partners';
+    if (path.startsWith('/refunds')) return '/refunds';
     return path;
   }
 }

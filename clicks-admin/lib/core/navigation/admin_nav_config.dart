@@ -78,6 +78,24 @@ const kAdminNavItems = <AdminNavItem>[
     moduleId: 'finance',
   ),
   AdminNavItem(
+    label: 'Refunds',
+    iconAsset: 'assets/icons/earnings-chart.svg',
+    path: '/refunds',
+    moduleId: 'refunds',
+  ),
+  AdminNavItem(
+    label: 'Payment Ledger',
+    iconAsset: 'assets/icons/earnings-chart.svg',
+    path: '/payment-ledger',
+    moduleId: 'payment-ledger',
+  ),
+  AdminNavItem(
+    label: 'Failed Events',
+    iconAsset: 'assets/icons/configurator.svg',
+    path: '/failed-events',
+    moduleId: 'failed-events',
+  ),
+  AdminNavItem(
     label: 'Finance Users',
     iconAsset: 'assets/icons/admin.svg',
     path: '/finance-users',
@@ -139,6 +157,7 @@ String titleForPath(String path) {
   if (path.contains('/convert')) return 'Convert Lead';
   if (path.startsWith('/leads/new')) return 'Add Lead';
   if (path.startsWith('/jobs/')) return 'Job Details';
+  if (path.startsWith('/refunds/')) return 'Refund';
   if (path.startsWith('/leads/')) return 'Lead Details';
   if (path.startsWith('/technicians/')) return 'Technician Details';
   if (path.startsWith('/subscription-plans')) return 'Membership Plans';
