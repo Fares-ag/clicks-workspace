@@ -26,6 +26,11 @@ const SubscriptionPlanSchema = new mongoose.Schema(
     name_ar: { type: String, default: "", trim: true },
     discountPercent: { type: Number, default: 0, min: 0, max: 100 },
     eligibleServiceTypes: { type: [String], default: [] },
+    /**
+     * Emergency service types (SOS, towing, jump start, breakdown) are excluded
+     * from membership cover unless an admin turns this on for the plan.
+     */
+    coversEmergency: { type: Boolean, default: false },
     intervals: { type: [IntervalSchema], default: [] },
     active: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },

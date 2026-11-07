@@ -131,6 +131,7 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     jobData.location;
 
   const job = await Job.create(jobData);
+  await require("./membershipEntitlement").reserveMembershipQuota(job); // WS-E: hold the included visit atomically (never throws)
 
   const populatedJob = await Job.findById(job._id)
     .populate("assignedTechnician", "firstName lastName phone profilePicture currentLocation")

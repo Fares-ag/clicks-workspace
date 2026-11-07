@@ -101,10 +101,31 @@ function findInterval(plan, interval) {
   return list.find((row) => row.interval === interval) || null;
 }
 
+const QATAR_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Calendar months in Qatar time (UTC+3, no DST), clamped to the last day of
+ * the target month: 31 Jan + 1 month = 28/29 Feb, never 2/3 March. Server
+ * timezone does not matter.
+ */
 function addMonths(date, months) {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + Number(months));
-  return d;
+  const ms = new Date(date).getTime();
+  if (!Number.isFinite(ms)) return new Date(NaN);
+  const q = new Date(ms + QATAR_UTC_OFFSET_MS);
+  const total = q.getUTCMonth() + Math.trunc(Number(months) || 0);
+  const year = q.getUTCFullYear() + Math.floor(total / 12);
+  const month = ((total % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const wall = Date.UTC(
+    year,
+    month,
+    Math.min(q.getUTCDate(), lastDay),
+    q.getUTCHours(),
+    q.getUTCMinutes(),
+    q.getUTCSeconds(),
+    q.getUTCMilliseconds()
+  );
+  return new Date(wall - QATAR_UTC_OFFSET_MS);
 }
 
 async function seedMembershipPlans(SubscriptionPlan) {
