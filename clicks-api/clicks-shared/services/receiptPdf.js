@@ -29,6 +29,8 @@ const METHOD_LABELS = {
   card: "Card",
   wallet: "Wallet",
   fawran: "Fawran",
+  membership: "Membership",
+  waived: "Waived",
 };
 const NAVY = { r: 0.035, g: 0.2, b: 0.271 };
 const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
@@ -116,6 +118,9 @@ function last4(value) {
 }
 
 function receiptNumber(receipt = {}, job = {}) {
+  // Sequential REC-YYYY-000001 assigned at issue; receipts issued before
+  // numbering existed keep the legacy date + id-suffix number below.
+  if (receipt.receipt_number) return String(receipt.receipt_number);
   const issued = receipt.issued_at || job.completed_at || job.paid_at || job.dateTime;
   const id = receipt._id || job._id || "0000";
   return `REC-${qatarYmd(issued)}-${last4(id)}`;
@@ -188,20 +193,42 @@ function skipcashRef(job = {}) {
   return String(skip.transaction_id || skip.payment_id || skip.visa_id || "").trim();
 }
 
-function methodLabel(job = {}) {
-  if (skipcashRef(job)) return "SkipCash";
-  const method = String(job.payment_method || "").toLowerCase();
+function receiptMethod(receipt = {}, job = {}) {
+  return String(receipt.payment_method || job.payment_method || "").toLowerCase();
+}
+
+function methodLabel(job = {}, receipt = {}) {
+  const method = receiptMethod(receipt, job);
+  // A SkipCash id on the job only means a checkout was opened; the receipt's
+  // method says how it was actually paid.
+  if ((method === "card" || !method) && (receipt.provider_payment_id || skipcashRef(job))) {
+    return "SkipCash";
+  }
   return METHOD_LABELS[method] || (method ? method : "");
+}
+
+function refundState(receipt = {}, job = {}) {
+  const status = String(receipt.payment_status || job.payment_status || "").toLowerCase();
+  if (status === "refunded" || status === "partially_refunded") return status;
+  return "";
 }
 
 function isPaid(receipt = {}, job = {}) {
   const status = String(receipt.payment_status || job.payment_status || "").toLowerCase();
-  return status === "paid" || status === "confirmed";
+  return (
+    status === "paid" ||
+    status === "confirmed" ||
+    status === "refunded" ||
+    status === "partially_refunded"
+  );
 }
 
 function paymentHeadline(receipt = {}, job = {}) {
+  const refund = refundState(receipt, job);
+  if (refund === "refunded") return "REFUNDED";
+  if (refund === "partially_refunded") return "PARTIALLY REFUNDED";
   const paid = isPaid(receipt, job);
-  const method = methodLabel(job);
+  const method = methodLabel(job, receipt);
   if (paid && method) return `PAID  |  ${method}`;
   if (paid) return "PAID";
   if (method) return `UNPAID  |  ${method}`;
@@ -210,12 +237,23 @@ function paymentHeadline(receipt = {}, job = {}) {
 
 function paymentDetail(receipt = {}, job = {}) {
   const paid = isPaid(receipt, job);
-  const method = methodLabel(job) || "-";
+  const method = methodLabel(job, receipt) || "-";
+  if (refundState(receipt, job)) {
+    return `Refunded QAR ${money(receipt.refunded_amount || job.refunded_amount || 0)}.`;
+  }
+  if (receiptMethod(receipt, job) === "membership") return "Covered by membership.";
+  if (receiptMethod(receipt, job) === "waived") return "Balance waived.";
   if (paid) return `Payment received in full by ${method}.`;
   return `Balance outstanding. Intended method: ${method}.`;
 }
 
+function hasSnapshot(receipt = {}) {
+  return Boolean(receipt && receipt.snapshot && receipt.snapshot.snapshot_at);
+}
+
+/** An issued receipt renders its frozen lines, never the job's current repairs. */
 function resolveRepairs(receipt = {}, repairs) {
+  if (hasSnapshot(receipt)) return Array.isArray(receipt.items) ? receipt.items : [];
   if (Array.isArray(repairs)) return repairs;
   return Array.isArray(receipt.items) ? receipt.items : [];
 }
@@ -264,10 +302,18 @@ function moneyWords(value) {
 
 function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
   const repairList = resolveRepairs(receipt, repairs);
-  const pricing = computeJobPricing(job, repairList);
+  const snap = hasSnapshot(receipt) ? receipt.snapshot : null;
+  const pricedJob = snap
+    ? {
+        ...job,
+        price: snap.base_price,
+        membership: snap.membership ? { ...(job.membership || {}), ...snap.membership } : job.membership,
+      }
+    : job;
+  const pricing = computeJobPricing(pricedJob, repairList);
   const items = [];
-  const callout = Number(job.price) || 0;
-  const calloutLabel = job.jobType || job.issue || "Call-out";
+  const callout = Number(pricedJob.price) || 0;
+  const calloutLabel = (snap && snap.job_type) || job.jobType || job.issue || "Call-out";
   if (callout > 0) {
     items.push({ description: calloutLabel, quantity: 1, price: callout });
   }
@@ -288,7 +334,7 @@ function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
     items.push({ description: "Distance fee", quantity: 1, price: distanceFee });
   }
 
-  const membership = membershipFromJob(job);
+  const membership = membershipFromJob(pricedJob);
   const gross = roundMoney(
     items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
   );
@@ -548,12 +594,27 @@ function buildContentStream({ receipt, job, repairs, photos = [] }) {
   textAt("F2", 9, LAYOUT.desc, payY, paymentHeadline(receipt, job));
   textRight("F1", 9, LAYOUT.amtRight, payY, clip(paymentDetail(receipt, job), 48));
   y -= 22;
-  const skipRef = skipcashRef(job);
-  if (skipRef) {
+  const skipRef = receipt.transaction_id || receipt.provider_payment_id || skipcashRef(job);
+  if (skipRef && methodLabel(job, receipt) === "SkipCash") {
     fill(0.32, 0.36, 0.4);
     textAt("F1", 8, 40, y, `SkipCash reference  ${clip(skipRef, 42)}`);
     y -= 16;
   }
+  (Array.isArray(receipt.credit_notes) ? receipt.credit_notes : []).forEach((note) => {
+    if (y < 120) return;
+    fill(0.62, 0.18, 0.16);
+    textAt(
+      "F1",
+      8,
+      40,
+      y,
+      clip(
+        `Credit note ${note.number}  |  -QAR ${money(note.amount)}  |  ${formatQatarWhen(note.issued_at)}  |  ${note.reason || ""}`,
+        110
+      )
+    );
+    y -= 14;
+  });
 
   if (photos.length) {
     y -= 6;
@@ -668,6 +729,81 @@ function assemblePdf(stream, photos = []) {
   return Buffer.concat(chunks);
 }
 
+function buildCreditNoteStream({ receipt = {}, job = {}, refund = {}, creditNote = {} }) {
+  const lines = [];
+  const add = (text) => lines.push(text);
+  const fill = (r, g, b) => add(`${r} ${g} ${b} rg`);
+  const navy = () => fill(NAVY.r, NAVY.g, NAVY.b);
+  const rect = (x, y, w, h) => add(`${x} ${y} ${w} ${h} re f`);
+  const textAt = (font, size, x, y, value) => {
+    add(`BT /${font} ${size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${pdfEscape(value)}) Tj ET`);
+  };
+  const textRight = (font, size, rightX, y, value) => {
+    textAt(font, size, rightX - stringWidth(value, size, font), y, value);
+  };
+  const customer = customerIdentity(job);
+  const amount = Number(creditNote.amount ?? refund.amount) || 0;
+
+  navy();
+  rect(0, 832, 595, 10);
+  add("q");
+  add(`${LOGO.drawWidth} 0 0 ${LOGO.drawHeight} ${LAYOUT.left} 770 cm`);
+  add("/Im1 Do");
+  add("Q");
+  navy();
+  textRight("F2", 14, LAYOUT.right, 806, "CREDIT NOTE");
+  fill(0.35, 0.4, 0.44);
+  textRight("F1", 9, LAYOUT.right, 788, String(creditNote.number || refund.credit_note_number || ""));
+  textRight("F1", 9, LAYOUT.right, 774, formatQatarWhen(creditNote.issued_at || refund.completed_at));
+  textAt("F1", 8, LAYOUT.left, 756, `${BRAND.legalName}  |  ${BRAND.city}, ${BRAND.country}  |  Tel ${BRAND.support}`);
+  navy();
+  rect(LAYOUT.left, 748, LAYOUT.width, 1.2);
+
+  let y = 726;
+  const rows = kvPairs([
+    ["Against receipt", receiptNumber(receipt, job)],
+    ["Job", jobRef(job, receipt)],
+    ["Customer", customer.name],
+    ["Mobile", customer.mobile],
+    ["Reason", clip(refund.reason || creditNote.reason || "", 60)],
+    ["Refund ref", refund.provider_refund_id || refund.manual_reference || ""],
+  ]);
+  rows.forEach(([label, value]) => {
+    fill(0.45, 0.5, 0.53);
+    textAt("F1", 9, LAYOUT.left, y, label);
+    fill(0.08, 0.12, 0.16);
+    textAt("F1", 9, LAYOUT.left + 100, y, clip(value, 60));
+    y -= 16;
+  });
+  y -= 10;
+  navy();
+  rect(LAYOUT.left, y - 6, LAYOUT.width, 24);
+  fill(1, 1, 1);
+  textAt("F2", 10, LAYOUT.desc, y + 2, "AMOUNT CREDITED");
+  textRight("F2", 10, LAYOUT.amtRight, y + 2, `-QAR ${money(amount)}`);
+  y -= 30;
+  fill(0.32, 0.36, 0.4);
+  textAt("F1", 8, LAYOUT.left, y, clip(`Amount in words: ${moneyWords(amount)}`, 92));
+  y -= 14;
+  textAt("F1", 8, LAYOUT.left, y, `Original total QAR ${money(receipt.total_amount)}.`);
+  navy();
+  rect(0, 0, 595, 10);
+  return lines.join("\n");
+}
+
+/** Credit note PDF for a refund against a job receipt. */
+async function buildCreditNotePdf({ receipt, job, refund, creditNote } = {}) {
+  return assemblePdf(
+    buildCreditNoteStream({
+      receipt: receipt || {},
+      job: job || {},
+      refund: refund || {},
+      creditNote: creditNote || {},
+    }),
+    []
+  );
+}
+
 async function buildReceiptPdf({ receipt, job, repairs, photos } = {}) {
   const rows = resolveRepairs(receipt || {}, repairs);
   const images = Array.isArray(photos) ? photos : await fetchRepairReceiptImages(rows);
@@ -686,6 +822,7 @@ module.exports = {
   BRAND,
   LOGO_DATA_URI,
   buildReceiptPdf,
+  buildCreditNotePdf,
   buildLineItems,
   customerIdentity,
   receiptNumber,

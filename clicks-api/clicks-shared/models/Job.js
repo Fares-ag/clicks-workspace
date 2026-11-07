@@ -55,10 +55,10 @@ const JobSchema = new mongoose.Schema(
       enum: ["pending", "assigned", "accepted", "en_route", "arrived", "in_progress", "on_hold", "completed", "cancelled"],
       default: "pending"
     },
-    // Separate Payment Status: unpaid → paid
+    // Separate Payment Status: unpaid → paid → (partially_)refunded
     payment_status: {
       type: String,
-      enum: ["unpaid", "paid"],
+      enum: ["unpaid", "paid", "partially_refunded", "refunded"],
       default: "unpaid"
     },
     // Timestamps for job flow tracking
@@ -127,10 +127,36 @@ const JobSchema = new mongoose.Schema(
     task_description: { type: String },
     rejection_reasons: [{ type: String }],
     rejection_description: { type: String, maxlength: 500 },
+    // membership: fully covered by a plan; waived: nothing collected by decision.
     payment_method: {
       type: String,
-      enum: ["card", "wallet", "cash", "fawran"],
+      enum: ["card", "wallet", "cash", "fawran", "membership", "waived"],
     },
+    /** Amount actually collected when the job was marked paid. */
+    paid_amount: { type: Number, default: null },
+    refunded_amount: { type: Number, default: 0, min: 0 },
+    /** PaymentAttempt whose capture paid this job (card). */
+    paid_attempt_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PaymentAttempt",
+      default: null,
+    },
+    /** Finance/admin reference for payments confirmed outside the provider. */
+    payment_reference: { type: String, default: "" },
+    paid_by: {
+      type: { type: String, default: undefined },
+      id: { type: mongoose.Schema.Types.ObjectId, default: undefined },
+    },
+    /** True while a card checkout is pending: repairs and price are frozen. */
+    price_locked: { type: Boolean, default: false },
+    /** Short per-job checkout mutex (createSession). */
+    payment_lock_until: { type: Date, default: null },
+    payment_flags: {
+      amount_mismatch: { type: Boolean, default: false },
+      duplicate_capture: { type: Boolean, default: false },
+    },
+    deleted_at: { type: Date, default: null },
+    deleted_by: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", default: null },
     skipcash: {
       payment_id: { type: String, default: "" },
       pay_url: { type: String, default: "" },
@@ -154,6 +180,10 @@ const JobSchema = new mongoose.Schema(
         default: null,
       },
       consumedAt: { type: Date, default: null },
+      /** Quota held for this job at creation (see reserveMembershipQuota). */
+      reserved_at: { type: Date, default: null },
+      reserved_key: { type: String, default: "" },
+      released_at: { type: Date, default: null },
     },
     rating: { type: Number, min: 1, max: 5 },
     rating_description: { type: String, maxlength: 500, default: "" },

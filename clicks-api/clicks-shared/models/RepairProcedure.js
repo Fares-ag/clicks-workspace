@@ -8,11 +8,27 @@ const RepairProcedureSchema = new mongoose.Schema({
   description: { type: String, required: true },
   /** Per-line technician notes */
   notes: { type: String, default: "" },
-  quantity: { type: Number, default: 1 },
-  /** Amount charged to the customer for this line */
-  price: { type: Number, required: true },
+  quantity: {
+    type: Number,
+    default: 1,
+    min: [1, "Quantity must be at least 1"],
+    validate: {
+      validator: Number.isInteger,
+      message: "Quantity must be a whole number",
+    },
+  },
+  /** Amount charged to the customer for this line. Never negative or zero:
+   *  discounts are a membership/finance concern, not a technician line item. */
+  price: {
+    type: Number,
+    required: true,
+    validate: {
+      validator: (v) => Number.isFinite(v) && v > 0,
+      message: "Price must be greater than 0",
+    },
+  },
   /** Parts/labor cost for profit calculation */
-  cost: { type: Number, default: 0 },
+  cost: { type: Number, default: 0, min: 0 },
   receipt_image_url: { type: String },
   created_at: { type: Date, default: Date.now }
 });

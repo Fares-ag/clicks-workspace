@@ -57,4 +57,8 @@ module.exports = {
   TechnicianActivityLog: require("./TechnicianActivityLog"),
   PlatformStats: require("./PlatformStats"),
   Notification: require("./Notification"),
+  PaymentAttempt: require("./PaymentAttempt"),
+  Refund: require("./Refund"),
+  Counter: require("./Counter"),
+  OpsLease: require("./OpsLease"),
 };
