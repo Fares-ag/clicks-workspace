@@ -139,6 +139,31 @@ export const jobApi = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Job"],
     }),
+    // Shared cancel service. A paid job needs a refund decision
+    // ({ refund: "full" | "partial" | "none", refund_amount?, refund_reason })
+    // from a Super Admin / Admin; PUT /jobs/:id refuses status "cancelled".
+    cancelJob: builder.mutation({
+      query: ({ id, reason, refund, refund_amount, refund_reason }) => ({
+        url: `/jobs/${id}/cancel`,
+        method: "POST",
+        body: {
+          reason,
+          ...(refund ? { refund, refund_reason } : {}),
+          ...(refund === "partial" ? { refund_amount } : {}),
+        },
+      }),
+      invalidatesTags: ["Job", "Refund"],
+    }),
+    // Audited mark paid / waive (full admin): reference for a payment,
+    // reason for a waiver.
+    markJobPaid: builder.mutation({
+      query: ({ id, payment_method, reference, reason }) => ({
+        url: `/jobs/${id}/mark-paid`,
+        method: "POST",
+        body: { payment_method, reference, reason },
+      }),
+      invalidatesTags: ["Job", "PaymentAttempt"],
+    }),
     completeJob: builder.mutation({
       query: ({ id, completion_notes, job_reference }) => ({
         url: `/jobs/${id}/complete`,
@@ -277,6 +302,8 @@ export const {
   useHoldJobMutation,
   useResumeJobMutation,
   useCompleteJobMutation,
+  useCancelJobMutation,
+  useMarkJobPaidMutation,
   useApproveHoldRequestMutation,
   useRejectHoldRequestMutation,
   useDeleteJobMutation,

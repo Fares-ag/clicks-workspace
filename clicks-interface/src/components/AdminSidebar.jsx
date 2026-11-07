@@ -70,6 +70,21 @@ const navItems = [
     to: "/finance",
   },
   {
+    label: "Refunds",
+    icon: "/icons/earnings-chart.svg",
+    to: "/refunds",
+  },
+  {
+    label: "Payment Ledger",
+    icon: "/icons/earnings-chart.svg",
+    to: "/payment-ledger",
+  },
+  {
+    label: "Failed Events",
+    icon: "/icons/configurator.svg",
+    to: "/failed-events",
+  },
+  {
     label: "Finance Users",
     icon: "/icons/admin.svg",
     to: "/finance-users",

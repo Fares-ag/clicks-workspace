@@ -60,8 +60,13 @@ async function baseQueryWithReauth(args, api, extraOptions) {
     url === "/auth/login" ||
     url === "/auth/refresh-token" ||
     url === "/auth/logout";
+  // A 403 with a machine `code` (REFUND_SAME_APPROVER, REFUND_DECISION_FORBIDDEN,
+  // ...) is a rule refusal on a live session: surface it, don't refresh/retry.
+  const isRuleRefusal =
+    result.error?.status === 403 && Boolean(result.error?.data?.code);
   const needsRefresh =
     !isAuthEndpoint &&
+    !isRuleRefusal &&
     (result.error?.status === 401 || result.error?.status === 403);
 
   if (needsRefresh) {
@@ -120,8 +125,11 @@ export const apiSlice = createApi({
     "LiveMapTechnician",
     "NavBadges",
     "Notifications",
+    "OutboxEvent",
     "Partner",
+    "PaymentAttempt",
     "Performance",
+    "Refund",
     "Repair",
     "ServiceRequest",
     "SOS",
