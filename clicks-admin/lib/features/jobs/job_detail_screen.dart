@@ -28,6 +28,7 @@ import '../../core/socket/admin_socket_service.dart';
 import '../../core/theme/admin_typography.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../payments/job_payment_card.dart';
 
 class JobDetailScreen extends StatefulWidget {
   const JobDetailScreen({super.key, required this.jobId});
@@ -643,6 +644,24 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     }
   }
 
+  /// What happened to the money after a cancel: a full/partial decision opens
+  /// a refund case that still needs a second approver (or failed to open).
+  String _cancelledMessage(dynamic data) {
+    if (data is! Map) return 'Job cancelled';
+    if (data['already_cancelled'] == true) return 'Job was already cancelled';
+    final refund = data['refund'];
+    final job = data['job'];
+    final stored = job is Map ? job['cancellation_refund'] : null;
+    if (refund is! Map) return 'Job cancelled';
+    final decision = refund['decision']?.toString() ?? '';
+    if (decision == 'none') return 'Job cancelled — no refund';
+    final requestError = stored is Map ? stored['request_error']?.toString() ?? '' : '';
+    if (requestError.isNotEmpty) {
+      return 'Job cancelled, but the refund case could not be opened: $requestError';
+    }
+    return 'Job cancelled — refund case opened, awaiting approval by another Super Admin';
+  }
+
   /// Cancel via POST /jobs/:id/cancel (shared cancel service on the server).
   /// A paid job needs a refund decision — full, partial (with amount) or
   /// none — plus a reason; only Super Admin / Admin may take it.
@@ -783,7 +802,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       if (!mounted) return;
       if (res.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Job cancelled')),
+          SnackBar(content: Text(_cancelledMessage(res.data))),
         );
         await _load();
       } else {
@@ -1381,6 +1400,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               ],
             ),
           ),
+        ],
+        if (AdminRoles.isFullAdmin(CacheHelper.getUserProfileSync()?['role']?.toString())) ...[
+          const SizedBox(height: AppSpacing.md),
+          JobPaymentCard(job: job, onChanged: _load),
         ],
         if (status != 'completed' && status != 'cancelled') ...[
           const SizedBox(height: AppSpacing.md),

@@ -36,6 +36,11 @@ class Routes {
   static const membershipPlanNew = '/subscription-plans/new';
   static const customerMemberships = '/customer-memberships';
   static const opsSettings = '/ops-settings';
+  static const refunds = '/refunds';
+  static const paymentLedger = '/payment-ledger';
+  static const failedEvents = '/failed-events';
+
+  static String refundDetailPath(String id) => '/refunds/$id';
 
   static String membershipPlanEditPath(String id) =>
       '/subscription-plans/$id/edit';
