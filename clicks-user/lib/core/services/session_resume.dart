@@ -4,6 +4,7 @@ import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/activity/models/job_history_response.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
+import 'package:clicks_user/features/home/job_price.dart';
 import 'package:clicks_user/features/home/payment_hold_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
 import 'package:clicks_user/features/services/service_waiting_screen.dart';
@@ -242,11 +243,8 @@ class SessionResume {
     return '$makeName $modelName ${vehicle['year'] ?? ''}'.trim();
   }
 
-  static int? _priceOf(Map job) {
-    final raw = job['price'] ?? job['estimate'];
-    if (raw is num) return raw.toInt();
-    return int.tryParse(raw?.toString() ?? '');
-  }
+  // Server-priced total (pricing.total), not job.price — see job_price.dart.
+  static num? _priceOf(Map job) => jobPayableTotal(job);
 
   /// `at_garage` | `returning`, or null when the vehicle is not in garage flow.
   static String? resolveGaragePhase(Map job, {String? sessionKind}) {

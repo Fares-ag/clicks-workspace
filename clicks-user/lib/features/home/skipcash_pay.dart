@@ -31,6 +31,10 @@ class SkipcashPay {
               payUrl: payUrl,
               returnUrl: session.returnUrl ?? '',
               summaryTitle: 'home.pay_job_title'.tr(),
+              // The amount SkipCash will charge, as priced by the server.
+              summaryAmount: (session.amount ?? '').isNotEmpty
+                  ? '${'common.qar'.tr()} ${session.amount}'
+                  : null,
             ),
           ),
         ),

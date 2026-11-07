@@ -6,6 +6,8 @@ import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:clicks_user/features/activity/models/job_history_response.dart';
 import 'package:clicks_user/features/activity/widgets/contact_support_sheet.dart';
+import 'package:clicks_user/features/home/job_price.dart';
+import 'package:clicks_user/features/home/skipcash_api.dart';
 import 'package:clicks_user/features/home/skipcash_pay.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -14,7 +16,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 class PaymentHoldArgs {
   final String jobId;
   final String jobReference;
-  final int? price;
+  /// Server-priced total (pricing.total), 2 decimals when shown.
+  final num? price;
 
   const PaymentHoldArgs({
     required this.jobId,
@@ -26,7 +29,7 @@ class PaymentHoldArgs {
     return PaymentHoldArgs(
       jobId: job['_id']?.toString() ?? job['id']?.toString() ?? '',
       jobReference: job['job_reference']?.toString() ?? '',
-      price: job['price'] is num ? (job['price'] as num).toInt() : null,
+      price: jobPayableTotal(job),
     );
   }
 }
@@ -42,8 +45,23 @@ class PaymentHoldScreen extends StatefulWidget {
 class _PaymentHoldScreenState extends State<PaymentHoldScreen> {
   var _paying = false;
   var _cashChosen = false;
+  num? _total;
 
   PaymentHoldArgs get args => widget.args;
+
+  @override
+  void initState() {
+    super.initState();
+    _total = args.price;
+    _refreshTotal();
+  }
+
+  Future<void> _refreshTotal() async {
+    if (args.jobId.isEmpty) return;
+    final total = await SkipcashApi.fetchTotal(args.jobId);
+    if (!mounted || total == null) return;
+    setState(() => _total = total);
+  }
 
   Future<void> _payNow() async {
     if (_paying || args.jobId.isEmpty) return;
@@ -129,10 +147,10 @@ class _PaymentHoldScreenState extends State<PaymentHoldScreen> {
                       .copyWith(fontWeight: FontWeight.w600),
                 ),
               ],
-              if (args.price != null) ...[
+              if (_total != null) ...[
                 SizedBox(height: 8.h),
                 Text(
-                  '${'common.qar'.tr()} ${args.price}',
+                  '${'common.qar'.tr()} ${formatQarAmount(_total!)}',
                   style: TextStyles.font16RegularBlack,
                 ),
               ],
@@ -211,7 +229,7 @@ JobDto unpaidJobDto(PaymentHoldArgs args) {
     jobType: '',
     issue: '',
     location: '',
-    price: args.price,
+    price: args.price?.round(),
     status: JobStatus.completed,
     paymentStatus: 'unpaid',
     rejectionReasons: const [],

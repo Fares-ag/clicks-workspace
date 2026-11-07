@@ -26,7 +26,7 @@ class _MembershipHubScreenState extends State<MembershipHubScreen> {
     context.read<MembershipCubit>().load();
   }
 
-  Future<void> _cancel(String id) async {
+  Future<void> _cancel(CustomerMembership membership) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -49,10 +49,28 @@ class _MembershipHubScreenState extends State<MembershipHubScreen> {
     );
     if (ok != true || !mounted) return;
     try {
-      await MembershipApi.cancel(id);
+      await MembershipApi.cancel(membership.id);
       if (!mounted) return;
+      final end = membership.endDate;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'membership.cancel_scheduled'.tr(namedArgs: {
+              'date': end == null || end.isEmpty
+                  ? ''
+                  : DateFormat.yMMMd(context.locale.languageCode)
+                      .format(DateTime.tryParse(end)?.toLocal() ?? DateTime.now()),
+            }),
+          ),
+        ),
+      );
       await context.read<MembershipCubit>().load();
-    } catch (_) {}
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
   }
 
   @override
@@ -108,11 +126,12 @@ class _MembershipHubScreenState extends State<MembershipHubScreen> {
                   ],
                 ),
               ),
-              MembershipStickyCta(
-                label: 'membership.cancel'.tr(),
-                outlined: true,
-                onPressed: () => _cancel(active.id),
-              ),
+              if (!active.cancelAtPeriodEnd)
+                MembershipStickyCta(
+                  label: 'membership.cancel'.tr(),
+                  outlined: true,
+                  onPressed: () => _cancel(active),
+                ),
             ],
           );
         },
@@ -227,7 +246,10 @@ class _ActiveCard extends StatelessWidget {
           if ((membership.endDate ?? '').isNotEmpty) ...[
             SizedBox(height: 4.h),
             Text(
-              'membership.renews'.tr(namedArgs: {
+              (membership.cancelAtPeriodEnd
+                      ? 'membership.ends_on'
+                      : 'membership.renews')
+                  .tr(namedArgs: {
                 'date': _fmt(membership.endDate),
               }),
               style: TextStyles.font14RegularGrey.copyWith(

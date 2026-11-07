@@ -95,7 +95,10 @@ class _MembershipReviewScreenState extends State<MembershipReviewScreen> {
               jobId: '',
               payUrl: payUrl,
               returnUrl: session.returnUrl ?? '',
-              checkPaid: () => MembershipApi.isPaid(subId),
+              // Stop polling once the payment is settled either way; a paid
+              // duplicate is reported below instead of looking like success.
+              checkPaid: () async =>
+                  (await MembershipApi.status(subId))?.isSettled ?? false,
               summaryTitle: 'membership.review_plan'.tr(
                 namedArgs: {'plan': plan.localizedName(arabic)},
               ),
@@ -107,6 +110,13 @@ class _MembershipReviewScreenState extends State<MembershipReviewScreen> {
         ),
       );
       if (paid == true && mounted) {
+        final result = await MembershipApi.status(subId);
+        if (!mounted) return;
+        if (result != null && result.isPaidDuplicate) {
+          AppSnackBars.errorSnackBar(
+            result.message ?? 'membership.paid_duplicate'.tr(),
+          );
+        }
         await context.read<MembershipCubit>().load();
         if (!mounted) return;
         Navigator.of(context).popUntil(
