@@ -18,6 +18,7 @@ const { initializeSOSSocket } = require("./services/sosSocketService");
 const { attachSocketAdapter } = require("./utils/socketAdapter");
 
 let outboxWorkerHandle;
+let paymentReconcilerHandle;
 
 // Matches the admin API: without this a stray rejection (a Redis blip inside
 // the adapter's publish, say) hits Node's default throw mode and takes the
@@ -44,6 +45,8 @@ async function shutdown(signal) {
   try {
     const { stopOutboxWorker } = require("../../clicks-shared/services/outboxWorker");
     await stopOutboxWorker(outboxWorkerHandle);
+    const { stopPaymentReconciler } = require("../../clicks-shared/services/paymentReconciler");
+    await stopPaymentReconciler(paymentReconcilerHandle);
 
     // Socket.IO first. server.close() waits for open connections to drain and
     // a WebSocket never drains on its own, so awaiting it first meant every
@@ -125,6 +128,18 @@ async function bootstrap() {
   outboxWorkerHandle = startOutboxWorker(30000, {
     types: [OUTBOX_TYPES.PARTNER_ACCRUAL, OUTBOX_TYPES.TECHNICIAN_CREDIT],
   });
+
+  // Card payments whose webhook never arrived: every 5 min, one instance (lease).
+  if (process.env.NODE_ENV !== "test" && process.env.PAYMENT_RECONCILE_DISABLED !== "true") {
+    const { startPaymentReconciler } = require("../../clicks-shared/services/paymentReconciler");
+    paymentReconcilerHandle = startPaymentReconciler({
+      intervalMs: Number(process.env.PAYMENT_RECONCILE_INTERVAL_MS) || 5 * 60 * 1000,
+      notify: (...args) => {
+        const fn = app.get("notifyCustomerJobEvent");
+        return typeof fn === "function" ? fn(...args) : undefined;
+      },
+    });
+  }
 
   server.listen(PORT, () => {
     console.log(`Clicks Customer/Technician API running on port ${PORT}`);

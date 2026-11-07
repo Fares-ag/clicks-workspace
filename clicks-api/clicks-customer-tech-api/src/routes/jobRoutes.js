@@ -71,10 +71,22 @@ router.post(
   authenticate(["customer"]),
   require("../controllers/skipcashController").createSession
 );
+// Customer polling and the technician's "re-check card payment" button.
 router.get(
   "/:id/skipcash/status",
-  authenticate(["customer"]),
+  customerOrApprovedTechnician,
   require("../controllers/skipcashController").getStatus
+);
+router.post(
+  "/:id/skipcash/recheck",
+  customerOrApprovedTechnician,
+  require("../controllers/skipcashController").getStatus
+);
+// Technician cancels an open card checkout (after a live SkipCash check).
+router.post(
+  "/:id/skipcash/cancel",
+  approvedTechnician,
+  require("../controllers/skipcashController").cancelCheckout
 );
 router.post("/:id/hold-request", approvedTechnician, jobController.requestHold);
 router.delete(
