@@ -21,13 +21,31 @@ const {
  */
 async function collectedCashForJob(job, fallbackAmount, session) {
   const method = job.payment_method || "cash";
+  // card / wallet / fawran go to the company; membership and waived jobs
+  // collect nothing at all — there is never a job.price fallback for those.
   if (method !== "cash") return 0;
 
   const query = Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
   if (session) query.session(session);
   const receipt = await query;
   const total = Number(receipt?.total_amount);
-  return Number.isFinite(total) && total > 0 ? total : fallbackAmount;
+  // A receipt for 0 is a valid "nothing collected", not a missing value.
+  if (receipt && Number.isFinite(total) && total >= 0) return total;
+
+  // No receipt yet: the customer owes the priced total (base + repairs −
+  // membership), not the bare job price.
+  try {
+    const RepairProcedure = require("../models/RepairProcedure");
+    const { computeJobPricing } = require("../utils/jobPricing");
+    const repairsQuery = RepairProcedure.find({ job_id: job._id });
+    if (session) repairsQuery.session(session);
+    const repairs = await repairsQuery;
+    const priced = Number(computeJobPricing(job, repairs).total);
+    if (Number.isFinite(priced) && priced >= 0) return priced;
+  } catch (err) {
+    console.error("collectedCashForJob pricing fallback failed:", err.message);
+  }
+  return fallbackAmount;
 }
 
 /**

@@ -795,10 +795,53 @@ async function reassignJob(req, res) {
 }
 
 // DELETE /api/jobs/:id
+/**
+ * Soft delete: the job moves to the archive collection (still readable via
+ * GET /api/jobs/:id) with deleted_at/deleted_by, instead of being destroyed.
+ * Refused once money is involved — a paid or refunded job, or one with a card
+ * checkout still open, stays in the books; cancel or refund it instead.
+ */
 async function deleteJob(req, res) {
   try {
-    const job = await Job.findByIdAndDelete(req.params.id);
+    const { PaymentAttempt } = require("../../../clicks-shared/models");
+    const JobArchive = require("../../../clicks-shared/models/JobArchive");
+    const job = await Job.findById(req.params.id);
     if (!job) return res.status(404).json({ message: "Job not found" });
+
+    if (["paid", "partially_refunded", "refunded"].includes(job.payment_status)) {
+      return res.status(409).json({
+        message: "A paid job cannot be deleted. Cancel or refund it instead.",
+        code: "JOB_PAID",
+      });
+    }
+    const moneyAttempt = await PaymentAttempt.exists({
+      job_id: job._id,
+      status: { $in: ["pending", "paid", "partially_refunded", "refunded"] },
+    });
+    if (moneyAttempt) {
+      return res.status(409).json({
+        message: "This job has a card payment on record and cannot be deleted.",
+        code: "JOB_HAS_PAYMENT",
+      });
+    }
+
+    const archived = job.toObject();
+    archived.deleted_at = new Date();
+    archived.deleted_by = req.user?.id || null;
+    const session = await Job.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await JobArchive.create([archived], { session });
+        await Job.deleteOne({ _id: job._id }, { session });
+      });
+    } catch (txnErr) {
+      const { isReplicaSetTransactionError } = require("../../../clicks-shared/utils/mongoTransactions");
+      if (!isReplicaSetTransactionError(txnErr)) throw txnErr;
+      await JobArchive.create(archived);
+      await Job.deleteOne({ _id: job._id });
+    } finally {
+      await session.endSession();
+    }
 
     await recordAudit({
       req,
@@ -810,10 +853,11 @@ async function deleteJob(req, res) {
         clientMobileNumber: serializeAuditValue(job.clientMobileNumber),
         job_status: serializeAuditValue(job.job_status),
         assignedTechnician: serializeAuditValue(job.assignedTechnician),
+        soft_deleted: true,
       },
     });
 
-    res.json({ message: "Job deleted" });
+    res.json({ message: "Job deleted", archived: true });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete job", error: err.message });
   }
@@ -1102,71 +1146,38 @@ async function completeJob(req, res) {
         ? req.body.job_reference.trim().slice(0, 64)
         : "";
 
-    const prevStatus = job.job_status;
-    job.job_status = "completed";
-    job.completed_at = new Date();
-    if (notes) job.completion_notes = notes;
-    if (jobReference) job.job_reference = jobReference;
-    if (prevStatus === "on_hold" || job.hold_reason) {
-      job.status_before_hold = null;
-      job.hold_reason = "";
-      job.scheduled_return_at = null;
+    const set = {};
+    if (job.hold_request?.status) set.hold_request = job.hold_request;
+    if (notes) set.completion_notes = notes;
+    if (jobReference) set.job_reference = jobReference;
+    if (job.job_status === "on_hold" || job.hold_reason) {
+      set.status_before_hold = null;
+      set.hold_reason = "";
+      set.scheduled_return_at = null;
     }
 
-    await job.save();
-
+    // Same money path as the technician: credit, receipt, membership
+    // consumption, zero-due → paid by membership, partner accrual via outbox.
+    const { completeJob: completeJobService } = require("../../../clicks-shared/services/completeJob");
+    const { isCompletionCasMiss } = require("../../../clicks-shared/utils/mongoTransactions");
+    let completed;
     try {
-      const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
-      await creditTechnicianForJob(job);
-    } catch (creditErr) {
-      console.error("Admin complete: technician credit failed:", creditErr.message);
-    }
-
-    if (job.payment_status === "paid") {
-      try {
-        const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
-        const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
-        const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
-        if (!existing) {
-          const repairs = await RepairProcedure.find({ job_id: job._id });
-          const pricing = computeJobPricing(job, repairs);
-          await Receipt.create({
-            job_id: job._id,
-            customer_id: job.customer_id,
-            technician_id: job.assignedTechnician,
-            total_amount: pricing.total,
-            payment_status: "paid",
-            items: repairs.map((r) => ({
-              description: r.description,
-              quantity: r.quantity,
-              price: r.price,
-              receipt_image_url: r.receipt_image_url,
-            })),
-          });
-        }
-      } catch (receiptErr) {
-        console.error("Admin complete: receipt creation failed:", receiptErr.message);
+      completed = await completeJobService({
+        jobId: job._id,
+        fromStatuses: [job.job_status],
+        set,
+      });
+    } catch (completeErr) {
+      if (isCompletionCasMiss(completeErr)) {
+        const current = await Job.findById(job._id);
+        return res.status(409).json({
+          message: `Job changed while completing (now ${current?.job_status || "missing"})`,
+        });
       }
+      throw completeErr;
     }
 
-    try {
-      const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
-      const populatedForPartner = await Job.findById(job._id).populate("source", "mainSourceName");
-      await accruePartnerFromCompletedJob(populatedForPartner);
-    } catch (partnerErr) {
-      console.error("Partner accrual failed:", partnerErr.message);
-    }
-
-    try {
-      const {
-        consumeOnComplete,
-      } = require("../../../clicks-shared/services/membershipEntitlement");
-      await consumeOnComplete(job);
-    } catch (membershipErr) {
-      console.error("Admin complete: membership consume failed:", membershipErr.message);
-    }
-
-    await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+    await applyAdminTechnicianPresence(completed.job.assignedTechnician, completed.job._id);
 
     await recordAudit({
       req,
@@ -1175,7 +1186,9 @@ async function completeJob(req, res) {
       entityId: job._id,
       changes: {
         job_status: serializeAuditValue("completed"),
-        completed_at: serializeAuditValue(job.completed_at),
+        completed_at: serializeAuditValue(completed.job.completed_at),
+        payment_status: serializeAuditValue(completed.job.payment_status),
+        payment_method: serializeAuditValue(completed.job.payment_method),
       },
     });
 
@@ -1186,6 +1199,7 @@ async function completeJob(req, res) {
     res.json({
       message: "Job marked as completed",
       job: populated,
+      receipt: completed.receipt,
     });
   } catch (err) {
     const status = err.status || 500;

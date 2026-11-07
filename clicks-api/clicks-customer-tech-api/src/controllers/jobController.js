@@ -16,7 +16,6 @@ const { formatGeoPointAsLocationString } = require("../../../clicks-shared/utils
 const { distanceBetween } = require("../../../clicks-shared/utils/geoDistance");
 const { computeJobPricing } = require("../../../clicks-shared/utils/jobPricing");
 const { captureException } = require("../../../clicks-shared/middleware/sentry");
-const { creditTechnicianForJob } = require("../../../clicks-shared/services/technicianCredit");
 const { num } = require("../../../clicks-shared/utils/coerce");
 const {
   recordTechnicianActivity,
@@ -52,11 +51,7 @@ function invalidateTechSessionCache(technicianId) {
     () => {}
   );
 }
-const {
-  completionCasMissError,
-  isCompletionCasMiss,
-  isReplicaSetTransactionError,
-} = require("../../../clicks-shared/utils/mongoTransactions");
+const { isCompletionCasMiss } = require("../../../clicks-shared/utils/mongoTransactions");
 
 const jobPopulateForTech = [
   { path: "customer_id", select: "first_name last_name phone_number email" },
@@ -340,73 +335,27 @@ const getJobById = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    res.json({ job });
+    const priced = await withPricing(job);
+    res.json({ job: priced, pricing: priced.pricing });
   } catch (err) {
     res.status(500).json({ error: "Fetch job failed", details: err.message });
   }
 };
 
 const { RepairProcedure, Receipt } = require("../../../clicks-shared/models");
+const { completeJob: completeJobService } = require("../../../clicks-shared/services/completeJob");
+const {
+  isJobPaid,
+  isPriceLocked,
+  applyJobPayment,
+  liveCheckJobAttempts,
+  cancelPendingJobAttempts,
+  jobPricingPayload,
+} = require("../../../clicks-shared/services/jobPayment");
+const { pendingAttempts } = require("../../../clicks-shared/services/paymentAttempts");
 
-async function ensureCompletionReceipt(job, jobId, session = null) {
-  let query = Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
-  if (session) query = query.session(session);
-  const existing = await query;
-  if (existing) return existing;
-
-  let repairsQuery = RepairProcedure.find({ job_id: jobId });
-  if (session) repairsQuery = repairsQuery.session(session);
-  const repairs = await repairsQuery;
-  const pricing = computeJobPricing(job, repairs);
-  const receiptDoc = {
-    job_id: job._id,
-    customer_id: job.customer_id,
-    technician_id: job.assignedTechnician,
-    total_amount: pricing.total,
-    payment_status: "paid",
-    items: repairs.map((r) => ({
-      description: r.description,
-      quantity: r.quantity,
-      price: r.price,
-      receipt_image_url: r.receipt_image_url,
-    })),
-  };
-
-  if (session) {
-    const [created] = await Receipt.create([receiptDoc], { session });
-    return created;
-  }
-  return Receipt.create(receiptDoc);
-}
-
-async function runCompletionMoneyPath(id, completionSet, session = null) {
-  const updateOpts = session ? { new: true, session } : { new: true };
-  const updated = await Job.findOneAndUpdate(
-    { _id: id, job_status: "in_progress" },
-    { $set: completionSet },
-    updateOpts
-  );
-
-  if (!updated) {
-    throw completionCasMissError();
-  }
-
-  await creditTechnicianForJob(updated, session ? { session } : {});
-  const receipt = await ensureCompletionReceipt(updated, id, session);
-  return { updated, receipt };
-}
-
-async function runCompletionWithTransaction(id, completionSet) {
-  const session = await Job.db.startSession();
-  let result;
-  try {
-    await session.withTransaction(async () => {
-      result = await runCompletionMoneyPath(id, completionSet, session);
-    });
-    return result;
-  } finally {
-    await session.endSession();
-  }
+function skipcashFetchFor(req) {
+  return req.app.get("skipcashFetch") || undefined;
 }
 
 async function respondCompletionCasMiss(res, id) {
@@ -420,40 +369,13 @@ async function respondCompletionCasMiss(res, id) {
   });
 }
 
-/** Standalone Mongo: sequential writes + credit outbox on partial failure. */
-async function runCompletionWithoutTransaction(id, completionSet) {
-  const updated = await Job.findOneAndUpdate(
-    { _id: id, job_status: "in_progress" },
-    { $set: completionSet },
-    { new: true }
-  );
-
-  if (!updated) {
-    throw completionCasMissError();
-  }
-
-  try {
-    await creditTechnicianForJob(updated);
-  } catch (creditErr) {
-    console.error("Technician credit failed:", creditErr.message);
-    try {
-      const {
-        enqueueOutboxEvent,
-        OUTBOX_TYPES,
-      } = require("../../../clicks-shared/services/outboxWorker");
-      await enqueueOutboxEvent(OUTBOX_TYPES.TECHNICIAN_CREDIT, {
-        job_id: updated._id.toString(),
-      });
-    } catch (outboxErr) {
-      console.error("Failed to enqueue technician credit outbox:", outboxErr.message);
-    }
-  }
-
-  const receipt = await ensureCompletionReceipt(updated, id, null);
-  return { updated, receipt };
+/** Lean job + `pricing` {base, repairs[], discount, total} for customer payloads. */
+async function withPricing(job) {
+  if (!job) return job;
+  const plain = typeof job.toObject === "function" ? job.toObject() : { ...job };
+  plain.pricing = await jobPricingPayload(plain);
+  return plain;
 }
-
-let loggedTransactionFallback = false;
 
 const markCompleted = async (req, res) => {
   try {
@@ -479,11 +401,10 @@ const markCompleted = async (req, res) => {
         error: "Set the job price before completing the job",
       });
     }
-    const { RepairProcedure: RepairProcedureModel } = require("../../../clicks-shared/models");
-    const completeRepairs = await RepairProcedureModel.find({ job_id: job._id });
+    const completeRepairs = await RepairProcedure.find({ job_id: job._id });
     const completePricing = computeJobPricing(job, completeRepairs);
     const zeroDue = Number(completePricing.total || 0) <= 0;
-    if (job.payment_status !== "paid" && !zeroDue) {
+    if (!isJobPaid(job) && !zeroDue) {
       recordTechnicianActivity({
         req,
         technicianId: req.user.id,
@@ -537,15 +458,7 @@ const markCompleted = async (req, res) => {
         error: "Job ID must be 64 characters or fewer",
       });
     }
-    const completionSet = {
-      job_status: "completed",
-      completed_at: new Date(),
-      job_reference: jobReference,
-    };
-    if (zeroDue && job.payment_status !== "paid") {
-      completionSet.payment_status = "paid";
-      completionSet.paid_at = new Date();
-    }
+    const completionSet = { job_reference: jobReference };
     const notes = req.body?.completion_notes ?? req.body?.notes;
     if (typeof notes === "string" && notes.trim()) {
       completionSet.completion_notes = notes.trim().slice(0, 2000);
@@ -560,69 +473,20 @@ const markCompleted = async (req, res) => {
 
     let updated;
     let receipt;
-
     try {
-      ({ updated, receipt } = await runCompletionWithTransaction(id, completionSet));
-    } catch (txnErr) {
-      if (isCompletionCasMiss(txnErr)) {
+      ({ job: updated, receipt } = await completeJobService({
+        jobId: id,
+        fromStatuses: ["in_progress"],
+        set: completionSet,
+      }));
+    } catch (completeErr) {
+      if (isCompletionCasMiss(completeErr)) {
         return respondCompletionCasMiss(res, id);
       }
-      if (isReplicaSetTransactionError(txnErr)) {
-        if (!loggedTransactionFallback) {
-          loggedTransactionFallback = true;
-          console.warn(
-            JSON.stringify({
-              level: "warn",
-              msg: "completion_transaction_unavailable",
-              detail: txnErr.message,
-              fallback: "non_transactional",
-            })
-          );
-        }
-        try {
-          ({ updated, receipt } = await runCompletionWithoutTransaction(id, completionSet));
-        } catch (fallbackErr) {
-          if (isCompletionCasMiss(fallbackErr)) {
-            return respondCompletionCasMiss(res, id);
-          }
-          throw fallbackErr;
-        }
-      } else {
-        return res.status(500).json({
-          error: "Mark completed failed",
-          details: txnErr.message,
-        });
-      }
-    }
-
-    try {
-      const { accruePartnerFromCompletedJob } = require("../../../clicks-shared/services/partnerService");
-      const populated = await Job.findById(updated._id).populate("source", "mainSourceName");
-      await accruePartnerFromCompletedJob(populated);
-    } catch (partnerErr) {
-      console.error("Partner accrual failed:", partnerErr.message);
-      try {
-        const {
-          enqueueOutboxEvent,
-          OUTBOX_TYPES,
-        } = require("../../../clicks-shared/services/outboxWorker");
-        await enqueueOutboxEvent(OUTBOX_TYPES.PARTNER_ACCRUAL, {
-          job_id: updated._id.toString(),
-        });
-      } catch (outboxErr) {
-        console.error("Failed to enqueue partner accrual outbox:", outboxErr.message);
-      }
-    }
-
-    invalidateTechSessionCache(updated.assignedTechnician);
-
-    try {
-      const {
-        consumeOnComplete,
-      } = require("../../../clicks-shared/services/membershipEntitlement");
-      await consumeOnComplete(updated);
-    } catch (membershipErr) {
-      console.error("Membership consume failed:", membershipErr.message);
+      return res.status(500).json({
+        error: "Mark completed failed",
+        details: completeErr.message,
+      });
     }
 
     recordTechnicianActivity({
@@ -681,6 +545,7 @@ const markCompleted = async (req, res) => {
       message: "Job marked as completed",
       job_status: updated.job_status,
       payment_status: updated.payment_status,
+      payment_method: updated.payment_method,
       receipt,
     });
   } catch (err) {
@@ -843,6 +708,8 @@ const startJob = async (req, res) => {
   }
 };
 
+const REPAIR_LOCKED_PAYMENT = ["paid", "partially_refunded", "refunded"];
+
 const addRepairProcedure = async (req, res) => {
   try {
     const { id } = req.params;
@@ -850,6 +717,27 @@ const addRepairProcedure = async (req, res) => {
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
+    }
+    // Lines are frozen once money has been taken or the job is closed: the
+    // receipt was issued for the total at that moment.
+    if (REPAIR_LOCKED_PAYMENT.includes(job.payment_status) || job.job_status === "completed") {
+      return res.status(409).json({
+        error: "Repairs cannot be changed after the job is paid or completed",
+        code: "REPAIRS_LOCKED",
+      });
+    }
+    if (job.job_status === "cancelled") {
+      return res.status(409).json({
+        error: "Repairs cannot be added to a cancelled job",
+        code: "REPAIRS_LOCKED",
+      });
+    }
+    if (await isPriceLocked(job)) {
+      return res.status(409).json({
+        error:
+          "The customer has an open card payment. Cancel it (re-check first) before adding parts.",
+        code: "PRICE_LOCKED",
+      });
     }
     const {
       description,
@@ -860,18 +748,40 @@ const addRepairProcedure = async (req, res) => {
       notes,
       cost,
     } = req.body;
+    const parsedPrice = Number(price);
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      return res.status(400).json({ error: "Price must be greater than 0", code: "INVALID_REPAIR_PRICE" });
+    }
+    const parsedQty = quantity == null || quantity === "" ? 1 : Number(quantity);
+    if (!Number.isInteger(parsedQty) || parsedQty < 1) {
+      return res.status(400).json({
+        error: "Quantity must be a whole number of at least 1",
+        code: "INVALID_REPAIR_QUANTITY",
+      });
+    }
+    const parsedCost = cost != null && cost !== "" ? Number(cost) : 0;
+    if (!Number.isFinite(parsedCost) || parsedCost < 0) {
+      return res.status(400).json({ error: "Cost cannot be negative", code: "INVALID_REPAIR_COST" });
+    }
     const repair = new RepairProcedure({
       job_id: id,
       technician_id: req.user.id,
       description,
-      quantity,
-      price,
+      quantity: parsedQty,
+      price: parsedPrice,
       name: name != null ? String(name).trim() : "",
       notes: notes != null ? String(notes).trim() : "",
-      cost: cost != null && cost !== "" ? Number(cost) : 0,
+      cost: parsedCost,
       receipt_image_url,
     });
-    await repair.save();
+    try {
+      await repair.save();
+    } catch (validationErr) {
+      if (validationErr.name === "ValidationError") {
+        return res.status(400).json({ error: validationErr.message, code: "INVALID_REPAIR" });
+      }
+      throw validationErr;
+    }
     recordTechnicianActivity({
       req,
       technicianId: req.user.id,
@@ -903,7 +813,7 @@ const calculateTotal = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    res.json(computeJobPricing(job, repairs));
+    res.json({ ...computeJobPricing(job, repairs), price_locked: Boolean(job.price_locked) });
   } catch (err) {
     res.status(500).json({ error: "Calculate total failed", details: err.message });
   }
@@ -1074,14 +984,31 @@ const cancelJobByTechnician = async (req, res) => {
   }
 };
 
+/**
+ * Technician confirms CASH only. Card / wallet / Fawran are confirmed by
+ * SkipCash or by finance with a reference (POST /api/finance/jobs/:id/mark-paid),
+ * so a technician can never take cash and book it as card.
+ *
+ * While a card checkout is open SkipCash is asked first: a paid link settles
+ * the job by card (409 CARD_PAYMENT_RECEIVED — do not take cash); a link still
+ * in progress blocks until the technician cancels it (`cancel_card: true`).
+ */
 const confirmPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const { payment_method, notes } = req.body || {};
+    const cancelCard = req.body?.cancel_card === true || req.body?.cancel_card === "true";
     const job = await Job.findById(id);
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
+    }
+    if (payment_method != null && payment_method !== "" && payment_method !== "cash") {
+      return res.status(400).json({
+        error:
+          "Technicians can only confirm cash. Card, wallet and Fawran payments are confirmed by SkipCash or by finance.",
+        code: "CASH_ONLY",
+      });
     }
     // Payment is collected during in_progress (before complete). Legacy unpaid
     // completed jobs can still be paid to clear the queue.
@@ -1095,95 +1022,106 @@ const confirmPayment = async (req, res) => {
         error: "Set the job price before collecting payment",
       });
     }
-    // Idempotency — already paid (do not set Online; tech stays On Job until complete)
-    if (job.payment_status === "paid") {
-      const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
+    const alreadyPaidResponse = async (current, message = "Payment already confirmed") => {
+      const existing = await Receipt.findOne({ job_id: current._id }).sort({ issued_at: -1 });
       return res.json({
-        message: "Payment already confirmed",
-        job_status: job.job_status,
-        payment_status: job.payment_status,
-        payment_method: job.payment_method,
+        message,
+        job_status: current.job_status,
+        payment_status: current.payment_status,
+        payment_method: current.payment_method,
         receipt: existing,
       });
+    };
+    // Idempotency — already paid (do not set Online; tech stays On Job until complete)
+    if (isJobPaid(job)) return alreadyPaidResponse(job);
+
+    const notify = req.app.get("notifyCustomerJobEvent");
+    const open = await pendingAttempts({ jobId: job._id });
+    if (open.length) {
+      const check = await liveCheckJobAttempts(job._id, {
+        fetchImpl: skipcashFetchFor(req),
+        notify,
+        source: "poll",
+      });
+      if (check.paid) {
+        return res.status(409).json({
+          error: "The customer has already paid by card. Do not collect cash.",
+          code: "CARD_PAYMENT_RECEIVED",
+          payment_status: check.job?.payment_status,
+          payment_method: check.job?.payment_method,
+        });
+      }
+      if (check.unverified.length) {
+        return res.status(409).json({
+          error:
+            "Could not confirm the customer's card payment with SkipCash. Re-check before taking cash.",
+          code: "CARD_PAYMENT_UNVERIFIED",
+        });
+      }
+      if (check.stillPending.length) {
+        if (!cancelCard) {
+          return res.status(409).json({
+            error:
+              "The customer has a card payment in progress. Cancel it before taking cash.",
+            code: "CARD_PAYMENT_PENDING",
+          });
+        }
+        const cancelled = await cancelPendingJobAttempts(job._id, {
+          fetchImpl: skipcashFetchFor(req),
+          notify,
+          note: "cancelled by technician to take cash",
+        });
+        if (cancelled.paid) {
+          return res.status(409).json({
+            error: "The customer has already paid by card. Do not collect cash.",
+            code: "CARD_PAYMENT_RECEIVED",
+            payment_status: cancelled.job?.payment_status,
+            payment_method: cancelled.job?.payment_method,
+          });
+        }
+        if (cancelled.unverified.length) {
+          return res.status(409).json({
+            error: "Could not confirm the card payment with SkipCash. Re-check before taking cash.",
+            code: "CARD_PAYMENT_UNVERIFIED",
+          });
+        }
+      }
     }
-    job.payment_status = "paid";
-    job.paid_at = new Date();
-    if (payment_method && ["cash", "card", "wallet", "fawran"].includes(payment_method)) {
-      job.payment_method = payment_method;
-    } else if (!job.payment_method) {
-      job.payment_method = "cash";
-    }
-    await job.save();
-    invalidateTechSessionCache(job.assignedTechnician);
+
+    const fresh = await Job.findById(job._id);
+    const applied = await applyJobPayment(fresh, {
+      paymentMethod: "cash",
+      notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 500) : undefined,
+      paidBy: { type: "technician", id: req.user.id },
+      notify,
+    });
+    if (applied.alreadyPaid) return alreadyPaidResponse(applied.job || fresh);
+    const paidJob = applied.job;
 
     recordTechnicianActivity({
       req,
       technicianId: req.user.id,
       event: "job.payment_collected",
-      message: `Collected payment (${job.payment_method})`,
+      message: `Collected payment (${paidJob.payment_method})`,
       statusCode: 200,
-      jobId: job._id,
-      jobReference: job.job_reference,
+      jobId: paidJob._id,
+      jobReference: paidJob.job_reference,
       metadata: {
-        payment_method: job.payment_method,
-        paid_at: job.paid_at,
-        price: job.price,
+        payment_method: paidJob.payment_method,
+        paid_at: paidJob.paid_at,
+        price: paidJob.price,
         notes: typeof notes === "string" ? notes.slice(0, 200) : undefined,
       },
     });
 
-    // P1-04: use the same pricing formula as calculateTotal so receipt matches what tech saw
-    const repairs = await RepairProcedure.find({ job_id: id });
-    const pricing = computeJobPricing(job, repairs);
-
-    const receipt = new Receipt({
-      job_id: job._id,
-      customer_id: job.customer_id,
-      technician_id: job.assignedTechnician,
-      total_amount: pricing.total,
-      payment_status: "paid",
-      items: repairs.map((r) => ({
-        description: r.description,
-        quantity: r.quantity,
-        price: r.price,
-        receipt_image_url: r.receipt_image_url,
-      })),
-      notes: notes || undefined,
-    });
-    await receipt.save();
-
-    if (job.customer_id) {
-      const notify = req.app.get("notifyCustomerJobEvent");
-      if (typeof notify === "function") {
-        await notify(job.customer_id.toString(), "paymentConfirmed", {
-          job_id: job._id.toString(),
-          job_status: job.job_status,
-          payment_status: "paid",
-          total_amount: pricing.total,
-        });
-      }
-    }
-
     res.json({
       message: "Payment confirmed",
-      job_status: job.job_status,
-      payment_status: job.payment_status,
-      payment_method: job.payment_method,
-      receipt,
+      job_status: paidJob.job_status,
+      payment_status: paidJob.payment_status,
+      payment_method: paidJob.payment_method,
+      receipt: applied.receipt,
     });
   } catch (err) {
-    // Unique index violation (code 11000) means a concurrent call already created
-    // the receipt. Return the existing one rather than a 500.
-    if (err.code === 11000) {
-      const existing = await Receipt.findOne({ job_id: req.params.id }).sort({ issued_at: -1 });
-      const job = await Job.findById(req.params.id);
-      return res.json({
-        message: "Payment already confirmed",
-        job_status: job?.job_status || "in_progress",
-        payment_status: "paid",
-        receipt: existing,
-      });
-    }
     res.status(500).json({ error: "Confirm payment failed", details: err.message });
   }
 };
@@ -1203,7 +1141,7 @@ const payCash = async (req, res) => {
         code: "CASH_NOT_PAYABLE",
       });
     }
-    if (job.payment_status === "paid") {
+    if (isJobPaid(job)) {
       return res.json({
         message: "Payment already confirmed",
         job_status: job.job_status,
@@ -1219,14 +1157,20 @@ const payCash = async (req, res) => {
       });
     }
 
-    job.payment_method = "cash";
-    await job.save();
+    const updated = await Job.findOneAndUpdate(
+      { _id: job._id, payment_status: "unpaid" },
+      { $set: { payment_method: "cash" } },
+      { new: true }
+    );
+    const current = updated || (await Job.findById(job._id));
 
     res.json({
       message: "Cash payment selected. Pay the technician — they will confirm when they receive it.",
-      job_status: job.job_status,
-      payment_status: job.payment_status,
-      payment_method: job.payment_method,
+      job_status: current.job_status,
+      payment_status: current.payment_status,
+      payment_method: current.payment_method,
+      already_paid: isJobPaid(current) || undefined,
+      pricing: await jobPricingPayload(current),
     });
   } catch (err) {
     res.status(500).json({ error: "Cash payment failed", details: err.message });
@@ -1258,7 +1202,7 @@ const getCustomerActiveJob = async (req, res) => {
     .sort({ createdAt: -1 });
     
     res.json({ 
-      active_job: activeJob,
+      active_job: await withPricing(activeJob),
       has_active_job: !!activeJob
     });
   } catch (err) {
@@ -1298,6 +1242,10 @@ const getCustomerActiveSOS = async (req, res) => {
 const getCustomerSession = async (req, res) => {
   try {
     const session = await buildCustomerSession({ customerId: req.user.id });
+    // Server-priced totals so the app never shows its own (truncated) number.
+    for (const key of ["live_job", "unpaid_job", "active_job"]) {
+      if (session[key]) session[key] = await withPricing(session[key]);
+    }
     res.json(session);
   } catch (err) {
     res.status(500).json({ error: "Fetch session failed", details: err.message });
@@ -1453,9 +1401,16 @@ const updateJobDetails = async (req, res) => {
     } = req.body;
 
     if (price != null) {
-      if (job.payment_status === "paid") {
+      if (isJobPaid(job)) {
         return res.status(400).json({
           error: "Cannot change price after payment is collected",
+        });
+      }
+      if (await isPriceLocked(job)) {
+        return res.status(409).json({
+          error:
+            "The customer has an open card payment. Cancel it (re-check first) before changing the price.",
+          code: "PRICE_LOCKED",
         });
       }
       const parsed = Number(price);
