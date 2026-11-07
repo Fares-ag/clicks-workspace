@@ -27,6 +27,16 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
   bool _techAssigned = false;
   String _techName = '';
 
+  @override
+  void initState() {
+    super.initState();
+    // Outstanding balance (scenario 91) and the served support number, when
+    // the screen is reached from resume rather than straight from createSOS.
+    context.read<SosCubit>().refreshSessionExtras().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   double _parseDouble(dynamic v) {
     if (v == null) return 0;
     if (v is double) return v;
@@ -220,6 +230,10 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
                 child: ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
+                    if (context.read<SosCubit>().outstandingBalance > 0)
+                      OutstandingBalanceBanner(
+                        amount: context.read<SosCubit>().outstandingBalance,
+                      ),
                     // Red gradient banner — dynamic based on tech assignment
                     Container(
                       padding: const EdgeInsets.all(16),

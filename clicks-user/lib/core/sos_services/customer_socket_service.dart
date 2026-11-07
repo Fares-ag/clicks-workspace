@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
@@ -205,17 +207,28 @@ class CustomerSocketService {
     });
   }
 
-  void createSOS({
+  /// Emits `createSOS` and waits for the server's acknowledgement.
+  ///
+  /// Returns the ack map (`ok`, `sos_id`, `code`, ...) or null when no ack
+  /// arrived within [timeout] / the socket is down. A null result does NOT
+  /// mean the SOS failed — the server may have saved it just before the
+  /// connection dropped — so the caller must re-check the session.
+  /// [clientRequestId] makes a retry of the same tap idempotent server-side.
+  Future<Map<String, dynamic>?> createSOS({
     String? customerVehicleId,
     required double latitude,
     required double longitude,
     String? serviceType,
     bool skipVehicle = false,
-  }) {
+    required String clientRequestId,
+    double? accuracyM,
+    DateTime? fixTime,
+    String? locationSource,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     if (_socket == null || !isConnected) {
       _log('❌ Socket not connected — cannot send createSOS');
-      onError?.call({'message': 'Socket not connected'});
-      return;
+      return null;
     }
 
     final payload = <String, dynamic>{
@@ -223,6 +236,10 @@ class CustomerSocketService {
       'latitude': latitude,
       'longitude': longitude,
       'skip_vehicle': skipVehicle,
+      'client_request_id': clientRequestId,
+      if (accuracyM != null) 'accuracy_m': accuracyM,
+      if (fixTime != null) 'fix_time': fixTime.toUtc().toIso8601String(),
+      if (locationSource != null) 'location_source': locationSource,
     };
 
     if (!skipVehicle &&
@@ -235,8 +252,23 @@ class CustomerSocketService {
       payload['service_type'] = serviceType.trim();
     }
 
-    _socket!.emit('createSOS', payload);
-    _log('🚨 createSOS emitted with service type: $serviceType');
+    final completer = Completer<Map<String, dynamic>?>();
+    _socket!.emitWithAck('createSOS', payload, ack: (dynamic response) {
+      if (completer.isCompleted) return;
+      final data = response is List && response.isNotEmpty
+          ? response.first
+          : response;
+      completer.complete(
+        data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{},
+      );
+    });
+    _log('🚨 createSOS emitted (request $clientRequestId, service $serviceType)');
+    try {
+      return await completer.future.timeout(timeout);
+    } on TimeoutException {
+      _log('⏱️ createSOS ack timed out after ${timeout.inSeconds}s');
+      return null;
+    }
   }
 
   void reconnect() {

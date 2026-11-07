@@ -3,18 +3,18 @@ import 'package:clicks_user/core/components/app_button.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
+import 'package:clicks_user/core/sos_services/sos_support_contact.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/helper/app_snack_bars.dart';
 import '../../core/routing/routes.dart';
 
-class TimerSosScreen extends StatelessWidget {
+class TimerSosScreen extends StatefulWidget {
   final bool isEmergency;
   final String? serviceType;
   final String? serviceLabel;
@@ -27,7 +27,35 @@ class TimerSosScreen extends StatelessWidget {
   });
 
   @override
+  State<TimerSosScreen> createState() => _TimerSosScreenState();
+}
+
+class _TimerSosScreenState extends State<TimerSosScreen> {
+  /// Set when the 60 s contact promise runs out with nobody on the line yet:
+  /// the countdown is replaced by a "Still connecting you — call us" card
+  /// (scenario 40), backed server-side by the escalation ladder.
+  bool _showCallCard = false;
+
+  bool get isEmergency => widget.isEmergency;
+
+  @override
+  void initState() {
+    super.initState();
+    final cubit = context.read<SosCubit>();
+    // Picks up the served support number and any outstanding balance when
+    // the screen is opened from resume rather than straight after createSOS.
+    cubit.refreshSessionExtras().then((_) {
+      if (mounted) setState(() {});
+    });
+    final expiresAt = cubit.expiresAt;
+    if (expiresAt != null && expiresAt.isBefore(DateTime.now())) {
+      _showCallCard = true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final outstanding = context.read<SosCubit>().outstandingBalance;
     return Scaffold(
       body: BlocListener<SosCubit, SosState>(
         listener: (context, state) {
@@ -76,7 +104,7 @@ class TimerSosScreen extends StatelessWidget {
                 style: TextStyles.font28Bold.copyWith(fontSize: 30),
                 textAlign: TextAlign.center,
               ),
-              if (!isEmergency && serviceType != null) ...[
+              if (!isEmergency && widget.serviceType != null) ...[
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -89,7 +117,7 @@ class TimerSosScreen extends StatelessWidget {
                     border: Border.all(color: const Color(0xFFFFE0E0)),
                   ),
                   child: Text(
-                    serviceLabel ?? serviceType!,
+                    widget.serviceLabel ?? widget.serviceType!,
                     style: TextStyles.font12RegularBlack.copyWith(
                       color: ColorsManager.mainColor,
                       fontWeight: FontWeight.w600,
@@ -110,33 +138,39 @@ class TimerSosScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
               ),
+              if (outstanding > 0) OutstandingBalanceBanner(amount: outstanding),
               Spacer(),
-              Builder(
-                builder: (context) {
-                  final expiresAt = context.watch<SosCubit>().expiresAt;
-                  final remaining = expiresAt != null
-                      ? expiresAt.difference(DateTime.now())
-                      : const Duration(
-                          seconds: SosCubit.contactCountdownSeconds,
-                        );
-                  final duration = remaining.isNegative
-                      ? Duration.zero
-                      : remaining;
-                  return CircleCountdown(
-                    key: ValueKey(expiresAt?.toIso8601String() ?? 'fallback'),
-                    duration: duration.inSeconds < 1
-                        ? const Duration(seconds: 1)
-                        : duration,
-                    size: 200,
-                    strokeWidth: 14,
-                    ringColor: const Color(0xFF8B0000),
-                    progressColor: const Color(0xFF8B0000),
-                    onComplete: () {
-                      // 60s is a contact promise only — SOS stays active; keep waiting.
-                    },
-                  );
-                },
-              ),
+              if (_showCallCard)
+                const StillConnectingCallCard()
+              else
+                Builder(
+                  builder: (context) {
+                    final expiresAt = context.watch<SosCubit>().expiresAt;
+                    final remaining = expiresAt != null
+                        ? expiresAt.difference(DateTime.now())
+                        : const Duration(
+                            seconds: SosCubit.contactCountdownSeconds,
+                          );
+                    final duration = remaining.isNegative
+                        ? Duration.zero
+                        : remaining;
+                    return CircleCountdown(
+                      key: ValueKey(expiresAt?.toIso8601String() ?? 'fallback'),
+                      duration: duration.inSeconds < 1
+                          ? const Duration(seconds: 1)
+                          : duration,
+                      size: 200,
+                      strokeWidth: 14,
+                      ringColor: const Color(0xFF8B0000),
+                      progressColor: const Color(0xFF8B0000),
+                      onComplete: () {
+                        // The SOS stays open (dispatch is escalated server-side);
+                        // the customer gets a direct line instead of a frozen 0.
+                        if (mounted) setState(() => _showCallCard = true);
+                      },
+                    );
+                  },
+                ),
               Spacer(),
               Row(
                 children: [
@@ -148,10 +182,7 @@ class TimerSosScreen extends StatelessWidget {
                     ),
                     child: MaterialButton(
                       elevation: 2,
-                      onPressed: () async {
-                        final uri = Uri.parse('tel:70090220');
-                        await launchUrl(uri);
-                      },
+                      onPressed: SosSupportContact.call,
                       color: ColorsManager.mainColor,
                       height: 55,
                       shape: RoundedRectangleBorder(
@@ -196,6 +227,95 @@ class TimerSosScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// "You have QAR X outstanding; the technician can collect it." (scenario 91)
+class OutstandingBalanceBanner extends StatelessWidget {
+  final double amount;
+  const OutstandingBalanceBanner({super.key, required this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFE082)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.receipt_long_outlined, color: Color(0xFF8D6E00)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'dispatch.outstanding_banner'.tr(
+                namedArgs: {'amount': amount.toStringAsFixed(2)},
+              ),
+              style: TextStyles.font12RegularBlack,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when the contact countdown runs out: a direct line to dispatch.
+class StillConnectingCallCard extends StatelessWidget {
+  const StillConnectingCallCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3F3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFE0E0)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'dispatch.still_connecting_title'.tr(),
+            style: TextStyles.font28Bold.copyWith(fontSize: 22),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'dispatch.still_connecting_body'.tr(),
+            style: TextStyles.font14Regular,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: SosSupportContact.call,
+              icon: const Icon(Icons.phone, color: Colors.white),
+              style: FilledButton.styleFrom(
+                backgroundColor: ColorsManager.mainColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              label: Text(
+                '${'dispatch.call_us_now'.tr()}  ${SosSupportContact.phone}',
+                style: TextStyles.font14Regular.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

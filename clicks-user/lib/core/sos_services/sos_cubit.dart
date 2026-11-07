@@ -1,4 +1,7 @@
 // lib/cubits/sos_cubit.dart
+import 'dart:math' as math;
+
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
@@ -6,6 +9,7 @@ import '../../features/welcome/logic/services/welcome_service.dart';
 import '../helper/booking_errors.dart';
 import '../monitoring/sentry_config.dart';
 import 'customer_socket_service.dart';
+import 'sos_support_contact.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -122,6 +126,25 @@ class SosError extends SosState {
   SosError(this.message);
 }
 
+/// A fix was taken; the customer must confirm (and may drag) the pin before
+/// the SOS is sent. [reliable] is false when the fix was missing, older than
+/// [SosCubit.maxFixAge] or less accurate than [SosCubit.maxAccuracyMeters] —
+/// the pin must then be placed by hand (scenario 31).
+class SosConfirmLocation extends SosState {
+  final double latitude;
+  final double longitude;
+  final double? accuracyM;
+  final DateTime? fixTime;
+  final bool reliable;
+  SosConfirmLocation({
+    required this.latitude,
+    required this.longitude,
+    required this.reliable,
+    this.accuracyM,
+    this.fixTime,
+  });
+}
+
 class SosCubit extends Cubit<SosState> {
   final CustomerSocketService socketService;
 
@@ -132,15 +155,60 @@ class SosCubit extends Cubit<SosState> {
     _setupSocketListeners();
   }
 
+  /// Fixes older than this, or less accurate than [maxAccuracyMeters], are
+  /// not trusted for dispatch (scenario 31).
+  static const Duration maxFixAge = Duration(minutes: 2);
+  static const double maxAccuracyMeters = 200;
+
+  /// How long to wait for the server's createSOS acknowledgement.
+  static const Duration createAckTimeout = Duration(seconds: 10);
+
   String? sosId;
   DateTime? expiresAt;
   Position? lastKnownPosition;
+
+  /// What the customer still owes on earlier jobs (never blocks the SOS).
+  double outstandingBalance = 0;
+
+  /// Idempotency key for this SOS attempt — a retry after a timeout sends
+  /// the same key, so the server returns the SOS it already saved.
+  String? _clientRequestId;
+  bool _awaitingCreateAck = false;
+  String? _pendingVehicleId;
+  String? _pendingServiceType;
+  bool _pendingSkipVehicle = false;
 
   /// Reset cubit to initial state so a new SOS flow can start cleanly.
   void reset() {
     sosId = null;
     expiresAt = null;
+    outstandingBalance = 0;
+    _clientRequestId = null;
+    _awaitingCreateAck = false;
     emit(SosInitial());
+  }
+
+  static String _newClientRequestId() {
+    final rnd = math.Random.secure();
+    final bytes = List<int>.generate(12, (_) => rnd.nextInt(256));
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return 'sos-${DateTime.now().millisecondsSinceEpoch}-$hex';
+  }
+
+  static bool isReliableFix(Position p, {DateTime? now}) {
+    final age = (now ?? DateTime.now()).difference(p.timestamp.toLocal());
+    return !age.isNegative
+        ? age <= maxFixAge && p.accuracy <= maxAccuracyMeters
+        : p.accuracy <= maxAccuracyMeters;
+  }
+
+  void _applyCreated(Map<String, dynamic> data) {
+    sosId = data['sos_id']?.toString();
+    final balance = data['outstanding_balance'];
+    if (balance is num) outstandingBalance = balance.toDouble();
+    expiresAt = DateTime.now().add(
+      const Duration(seconds: contactCountdownSeconds),
+    );
   }
 
   DateTime? _parseExpiresAt(dynamic raw) {
@@ -155,10 +223,14 @@ class SosCubit extends Cubit<SosState> {
   void _setupSocketListeners() {
     socketService.onSosCreated = (data) {
       _log('📱 SOS Created: ${data['sos_id']}');
-      sosId = data['sos_id']?.toString();
-      expiresAt = DateTime.now().add(
-        const Duration(seconds: contactCountdownSeconds),
-      );
+      // The ack path below owns the transition while it is waiting; the room
+      // event matters when the ack was lost (reconnect) or for a second device.
+      if (_awaitingCreateAck) return;
+      final map = data is Map ? Map<String, dynamic>.from(data) : null;
+      final id = map?['sos_id']?.toString();
+      if (id == null || id.isEmpty) return;
+      if (sosId == id && state is SosCreated) return;
+      if (map != null) _applyCreated(map);
       if (isClosed) return;
       emit(SosCreated(sosId!, expiresAt: expiresAt));
     };
@@ -281,6 +353,9 @@ class SosCubit extends Cubit<SosState> {
 
     socketService.onError = (data) {
       _log('❌ Error: $data');
+      // createSOS failures arrive on the ack; the parallel `error` /
+      // `sosError` events would otherwise show the same message twice.
+      if (_awaitingCreateAck) return;
       final map = data is Map
           ? Map<String, dynamic>.from(data)
           : null;
@@ -320,62 +395,120 @@ class SosCubit extends Cubit<SosState> {
     };
   }
 
+  Future<bool> _ensureSocket() async {
+    if (socketService.isConnected) return true;
+    _log('⚠️ Socket disconnected, attempting reconnect...');
+    socketService.reconnect();
+    // Wait briefly for reconnection (up to 3 seconds)
+    int attempts = 0;
+    while (!socketService.isConnected && attempts < 6) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      attempts++;
+    }
+    return socketService.isConnected;
+  }
+
+  /// Step 1 of an SOS: take a location fix and ask the customer to confirm
+  /// the pin. The SOS itself is sent by [submitSOS].
   Future<void> createSOS({
     String? customerVehicleId,
     String? serviceType,
     bool skipVehicle = false,
   }) async {
     emit(SosLoading());
+    _pendingVehicleId = customerVehicleId;
+    _pendingServiceType = serviceType;
+    _pendingSkipVehicle = skipVehicle;
+    _clientRequestId ??= _newClientRequestId();
 
-    // Ensure socket is connected before attempting to create SOS
-    if (!socketService.isConnected) {
-      _log('⚠️ Socket disconnected, attempting reconnect...');
-      socketService.reconnect();
-
-      // Wait briefly for reconnection (up to 3 seconds)
-      int attempts = 0;
-      while (!socketService.isConnected && attempts < 6) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        attempts++;
-      }
-
-      if (!socketService.isConnected) {
-        _log('❌ Socket reconnect failed');
-        if (isClosed) return;
-        emit(SosError('Connection failed. Please check your internet and try again.'));
-        return;
-      }
+    Position? fix;
+    try {
+      fix = await WelcomeService.determinePosition().timeout(
+        const Duration(seconds: 12),
+      );
+    } catch (e, st) {
+      SentryConfig.captureException(
+        StateError('SOS GPS read failed'),
+        stackTrace: st,
+        tags: const {'component': 'sos_cubit'},
+      );
     }
 
-    try {
-      Position position;
+    if (fix != null && isReliableFix(fix)) {
+      lastKnownPosition = fix;
+      if (isClosed) return;
+      emit(SosConfirmLocation(
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        accuracyM: fix.accuracy,
+        fixTime: fix.timestamp,
+        reliable: true,
+      ));
+      return;
+    }
+
+    // No fix, a stale one, or a vague one: never send it silently. Start the
+    // pin from the best guess and make the customer place it.
+    Position? hint = fix;
+    if (hint == null) {
       try {
-        position = await WelcomeService.determinePosition().timeout(
-          const Duration(seconds: 12),
-        );
-      } catch (e, st) {
-        SentryConfig.captureException(
-          StateError('SOS GPS read failed'),
-          stackTrace: st,
-          tags: const {'component': 'sos_cubit'},
-        );
-        if (lastKnownPosition != null) {
-          position = lastKnownPosition!;
-        } else {
-          if (isClosed) return;
-          emit(SosError(
-            'Failed to get location. Allow location access and try again.',
-          ));
-          return;
-        }
-      }
-      lastKnownPosition = position;
-      socketService.createSOS(
-        customerVehicleId: customerVehicleId,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        serviceType: serviceType,
-        skipVehicle: skipVehicle,
+        hint = await Geolocator.getLastKnownPosition();
+      } catch (_) {}
+    }
+    hint ??= lastKnownPosition;
+    if (isClosed) return;
+    emit(SosConfirmLocation(
+      latitude: hint?.latitude ?? 25.2854,
+      longitude: hint?.longitude ?? 51.5310,
+      accuracyM: hint?.accuracy,
+      fixTime: hint?.timestamp,
+      reliable: false,
+    ));
+  }
+
+  /// The customer closed the confirm-location sheet without sending.
+  void cancelLocationConfirm() {
+    if (isClosed) return;
+    emit(SosInitial());
+  }
+
+  /// Step 2: send the SOS with the confirmed pin and wait for the server's
+  /// acknowledgement (10 s). On timeout or SOS_ALREADY_ACTIVE the session is
+  /// fetched and the customer is routed to the SOS the server already has —
+  /// never an endless spinner (scenario 30).
+  Future<void> submitSOS({
+    required double latitude,
+    required double longitude,
+    double? accuracyM,
+    DateTime? fixTime,
+    required bool pinMoved,
+  }) async {
+    emit(SosLoading());
+    _clientRequestId ??= _newClientRequestId();
+
+    if (!await _ensureSocket()) {
+      _log('❌ Socket reconnect failed');
+      // The SOS may still exist from an earlier attempt.
+      if (await _recoverFromSession()) return;
+      if (isClosed) return;
+      emit(SosError('dispatch.connection_failed'.tr()));
+      return;
+    }
+
+    Map<String, dynamic>? ack;
+    _awaitingCreateAck = true;
+    try {
+      ack = await socketService.createSOS(
+        customerVehicleId: _pendingVehicleId,
+        latitude: latitude,
+        longitude: longitude,
+        serviceType: _pendingServiceType,
+        skipVehicle: _pendingSkipVehicle,
+        clientRequestId: _clientRequestId!,
+        accuracyM: pinMoved ? null : accuracyM,
+        fixTime: pinMoved ? null : fixTime,
+        locationSource: pinMoved ? 'manual_pin' : 'gps',
+        timeout: createAckTimeout,
       );
     } catch (e, st) {
       _log('❌ createSOS error: $e');
@@ -384,9 +517,86 @@ class SosCubit extends Cubit<SosState> {
         stackTrace: st,
         tags: const {'component': 'sos_cubit'},
       );
-      if (isClosed) return;
-      emit(SosError('Failed to get location. Please enable GPS and try again.'));
+    } finally {
+      _awaitingCreateAck = false;
     }
+
+    if (isClosed) return;
+
+    if (ack != null && ack['ok'] == true && ack['sos_id'] != null) {
+      _applyCreated(ack);
+      emit(SosCreated(sosId!, expiresAt: expiresAt));
+      return;
+    }
+
+    final code = ack?['code']?.toString();
+    if (ack == null || code == 'SOS_ALREADY_ACTIVE') {
+      if (await _recoverFromSession(preferredSosId: ack?['sos_id']?.toString())) {
+        return;
+      }
+      if (isClosed) return;
+      emit(SosError(
+        ack == null
+            ? 'dispatch.sos_no_confirmation'.tr()
+            : bookingErrorMessage(code, ack['message']?.toString()),
+      ));
+      return;
+    }
+
+    if (code == 'SOS_THROTTLED') {
+      emit(SosError('dispatch.sos_throttled'.tr()));
+      return;
+    }
+    emit(SosError(bookingErrorMessage(code, ack['message']?.toString())));
+  }
+
+  /// Route to whatever SOS the server holds for this customer. True when one
+  /// was found and the matching state was emitted.
+  Future<bool> _recoverFromSession({String? preferredSosId}) async {
+    try {
+      final session = await SessionService.getCustomerSession();
+      SosSupportContact.updateFrom(session);
+      final balance = session['outstanding_balance'];
+      if (balance is num) outstandingBalance = balance.toDouble();
+      final sos = session['active_sos'];
+      if (sos is! Map) return false;
+      final id = sos['_id']?.toString() ?? sos['id']?.toString();
+      if (id == null || id.isEmpty) return false;
+      if (preferredSosId != null && preferredSosId.isNotEmpty && preferredSosId != id) {
+        _log('ℹ️ session SOS $id differs from ack $preferredSosId — using session');
+      }
+      sosId = id;
+      final sosBalance = sos['outstanding_balance'];
+      if (sosBalance is num && sosBalance > 0) {
+        outstandingBalance = sosBalance.toDouble();
+      }
+      expiresAt ??= DateTime.now().add(
+        const Duration(seconds: contactCountdownSeconds),
+      );
+      if (isClosed) return true;
+      if (sos['status']?.toString() == 'in_call') {
+        emit(SosInCall(id));
+      } else {
+        emit(SosCreated(id, expiresAt: expiresAt));
+      }
+      return true;
+    } catch (e) {
+      _log('❌ session recovery failed: $e');
+      return false;
+    }
+  }
+
+  /// Refresh the outstanding balance / support number for the SOS screens.
+  Future<void> refreshSessionExtras() async {
+    try {
+      final session = await SessionService.getCustomerSession();
+      SosSupportContact.updateFrom(session);
+      final sos = session['active_sos'];
+      final fromSos = sos is Map ? sos['outstanding_balance'] : null;
+      final fromSession = session['outstanding_balance'];
+      final value = fromSos is num && fromSos > 0 ? fromSos : fromSession;
+      if (value is num) outstandingBalance = value.toDouble();
+    } catch (_) {}
   }
 
   void connectSocket(String customerId) {

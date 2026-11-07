@@ -3,6 +3,7 @@ import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/activity/models/job_history_response.dart';
+import 'package:clicks_user/features/home/finding_technician_screen.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
 import 'package:clicks_user/features/home/payment_hold_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
@@ -61,6 +62,20 @@ class SessionResume {
       final tech = techInfoFromJob(liveJob);
       final loc = customerLatLng(liveJob, context) ?? (_dohaLat, _dohaLng);
       final garagePhase = resolveGaragePhase(liveJob, sessionKind: kind);
+
+      // A job with no technician yet (dispatch created it without one, or
+      // the technician handed it back): show "Finding a technician" instead
+      // of Home, so the customer doesn't raise a second SOS (scenario 45).
+      if (jobId.isNotEmpty && status == 'pending') {
+        open(
+          Routes.findingTechnician,
+          arguments: FindingTechnicianArgs(
+            jobId: jobId,
+            jobReference: liveJob['job_reference']?.toString() ?? '',
+          ),
+        );
+        return;
+      }
 
       if (jobId.isNotEmpty && shouldOpenTrackingForLiveJob(status, garagePhase)) {
         open(

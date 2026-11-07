@@ -65,7 +65,11 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
       context.read<SosCubit>().socketService.ensureConnected();
       _checkSession();
     });
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    // A scheduled booking days away doesn't need a 5-second poll.
+    final every = widget.args.timing == 'scheduled'
+        ? const Duration(seconds: 30)
+        : const Duration(seconds: 5);
+    _pollTimer = Timer.periodic(every, (_) {
       if (mounted) _checkSession();
     });
   }
@@ -76,13 +80,49 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
     super.dispose();
   }
 
+  /// True while the server still lists this request as open — either as the
+  /// active session or as an upcoming booking.
+  bool _requestStillOpen(Map<String, dynamic> session) {
+    final id = widget.args.requestId;
+    if (id.isEmpty) return true;
+    String? idOf(dynamic m) =>
+        m is Map ? (m['_id'] ?? m['id'])?.toString() : null;
+    if (idOf(session['active_service_request']) == id) return true;
+    final upcoming = session['upcoming_bookings'];
+    if (upcoming is List && upcoming.any((b) => idOf(b) == id)) return true;
+    return false;
+  }
+
   Future<void> _checkSession() async {
     if (_navigating) return;
     try {
       final session = await SessionService.getCustomerSession();
-      final job = session['active_job'];
-      if (job is Map && mounted) {
+      if (!mounted) return;
+      final job = session['live_job'] is Map
+          ? session['live_job']
+          : session['active_job'];
+      if (job is Map) {
+        if (job['job_status']?.toString() == 'pending' ||
+            job['job_status']?.toString() == 'on_hold') {
+          // Job exists but no technician yet: "Finding a technician".
+          _pollTimer?.cancel();
+          _navigating = true;
+          await SessionResume.go(context, session);
+          return;
+        }
         _goToJob(Map<String, dynamic>.from(job));
+        return;
+      }
+      // The request finished (job completed/cancelled, or cancelled by
+      // dispatch): stop polling and leave instead of waiting forever
+      // (scenario 54).
+      if (session['session_kind'] != null || session.containsKey('upcoming_bookings')) {
+        if (!_requestStillOpen(session)) {
+          _pollTimer?.cancel();
+          _navigating = true;
+          AppSnackBars.successSnackBar('dispatch.request_finished'.tr());
+          context.offAllNamed(Routes.home);
+        }
       }
     } catch (_) {}
   }
