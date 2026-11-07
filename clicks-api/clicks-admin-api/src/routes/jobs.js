@@ -49,6 +49,13 @@ router.post(
   jobController.markAdminGarageReady
 );
 router.post("/:id/complete", authenticateToken, requireOps, jobController.completeJob);
+// Audited "mark paid / waive" (scenario 90): full admins only, reference or reason required.
+router.post(
+  "/:id/mark-paid",
+  authenticateToken,
+  requireFullAdmin,
+  require("../controllers/paymentAdminController").markJobPaidByAdmin
+);
 router.post(
   "/:id/hold-request/approve",
   authenticateToken,

@@ -148,6 +148,7 @@ function createAdminApp() {
   app.use("/api/subscriptions", require("./routes/subscriptions"));
   app.use("/api/subscription-plans", require("./routes/subscriptionPlans"));
   app.use("/api/customer-subscriptions", require("./routes/customerSubscriptions"));
+  app.use("/api/payments", require("./routes/payments"));
 
   app.use(sentryErrorMiddleware());
   app.use(errorHandler);

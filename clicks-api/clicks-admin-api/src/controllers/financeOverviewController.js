@@ -4,6 +4,7 @@ const {
 const Job = require("../models/Job");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { str } = require("../../../clicks-shared/utils/coerce");
+const { computeFinancePreview } = require("../../../clicks-shared/utils/financeJobPreview");
 
 const COMPLETED_MATCH = { job_status: "completed" };
 
@@ -11,9 +12,9 @@ const COMPLETED_MATCH = { job_status: "completed" };
 const QATAR_OFFSET = "+03:00";
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Mirrors clicks-shared/utils/jobPricing.js — the pending totals below are the
-// aggregation-pipeline twin of computeFinancePreview(), so the two must agree.
-const nightFeeExpr = { $literal: 0 };
+// Pending totals: the pipeline below only pre-sums each job's repair lines;
+// the money itself is computed per job by computeFinancePreview(), so
+// membership cover/discounts are applied exactly as the finance portal does.
 
 const PENDING_AGG_MAX_MS = 15000;
 const SUMMARY_TTL_MS = 30000;
@@ -56,24 +57,24 @@ function numOr(path, fallback) {
   };
 }
 
-const distanceFeeExpr = {
-  $let: {
-    vars: {
-      km: { $convert: { input: "$distance_km", to: "double", onError: 0, onNull: 0 } },
-    },
-    in: { $cond: [{ $gt: ["$$km", 0] }, { $multiply: ["$$km", 2] }, 0] },
-  },
-};
-
 /**
- * Revenue/cost totals for jobs that have no finance snapshot yet, recomputed the
- * same way computeFinancePreview() would: base price + distance + night fee +
- * repair lines for revenue, repair costs + finance extra costs for cost.
+ * One row per pending job with its repair lines pre-summed. computeJobPricing
+ * only ever sums price*quantity and cost*quantity, so a single pre-summed row
+ * is equivalent to replaying every repair document (same trick as the finance
+ * portal's CSV export).
  */
-function pendingTotalsPipeline(match) {
+function pendingJobsPipeline(match) {
   return [
     { $match: match },
-    { $project: { price: 1, distance_km: 1, dateTime: 1, finance_extra_costs: 1 } },
+    {
+      $project: {
+        price: 1,
+        distance_km: 1,
+        dateTime: 1,
+        membership: 1,
+        finance_extra_costs: 1,
+      },
+    },
     {
       $lookup: {
         from: "repairprocedures",
@@ -91,35 +92,24 @@ function pendingTotalsPipeline(match) {
         as: "repairTotals",
       },
     },
-    {
-      $addFields: {
-        _basePrice: numOr("$price", 0),
-        _distanceFee: distanceFeeExpr,
-        _timeFee: nightFeeExpr,
-        _repairsTotal: { $ifNull: [{ $arrayElemAt: ["$repairTotals.price", 0] }, 0] },
-        _repairsCost: { $ifNull: [{ $arrayElemAt: ["$repairTotals.cost", 0] }, 0] },
-        _extraTotal: {
-          $sum: {
-            $map: {
-              input: { $ifNull: ["$finance_extra_costs", []] },
-              as: "row",
-              in: numOr("$$row.amount", 0),
-            },
-          },
-        },
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        count: { $sum: 1 },
-        revenue: {
-          $sum: { $add: ["$_basePrice", "$_distanceFee", "$_timeFee", "$_repairsTotal"] },
-        },
-        costTotal: { $sum: { $add: ["$_repairsCost", "$_extraTotal"] } },
-      },
-    },
   ];
+}
+
+function sumPendingPreviews(rows) {
+  let revenue = 0;
+  let costTotal = 0;
+  for (const job of rows) {
+    const repairs = job.repairTotals?.[0] || { price: 0, cost: 0 };
+    const preview = computeFinancePreview(
+      job,
+      [{ price: Number(repairs.price) || 0, cost: Number(repairs.cost) || 0, quantity: 1 }],
+      job.finance_extra_costs || [],
+      []
+    );
+    revenue += Number(preview.revenue) || 0;
+    costTotal += Number(preview.costTotal) || 0;
+  }
+  return { count: rows.length, revenue, costTotal };
 }
 
 /**
@@ -277,10 +267,10 @@ async function buildSummaryPayload(baseQuery = COMPLETED_MATCH) {
   let pending;
   let pendingComputed = true;
   try {
-    const pendingRows = await Job.aggregate(pendingTotalsPipeline(pendingMatch)).option({
+    const pendingJobs = await Job.aggregate(pendingJobsPipeline(pendingMatch)).option({
       maxTimeMS: PENDING_AGG_MAX_MS,
     });
-    const pendingRow = pendingRows[0] || {};
+    const pendingRow = sumPendingPreviews(pendingJobs);
     const revenue = round2(pendingRow.revenue);
     const costTotal = round2(pendingRow.costTotal);
     pending = {
