@@ -1,10 +1,7 @@
-import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
@@ -18,9 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/routing/routes.dart';
-import '../home/job_in_progress_screen.dart';
-import '../home/technician_tracking_screen.dart';
-import '../services/service_waiting_screen.dart';
+import '../../core/services/session_resume.dart';
 
 void _log(String msg) {
   if (kDebugMode) {
@@ -61,8 +56,6 @@ class _SplashScreenState extends State<SplashScreen> {
       if (!mounted) return;
 
       final activeSos = session['active_sos'];
-      final activeJob = session['active_job'];
-      final activeServiceRequest = session['active_service_request'];
       final sosCubit = context.read<SosCubit>();
 
       // Restore SOS cubit + last known location so tracking/in-call work.
@@ -90,126 +83,8 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       }
 
-      // Prefer active SOS (pending / in_call) over job.
-      if (activeSos is Map) {
-        final status = activeSos['status']?.toString();
-        if (status == 'pending') {
-          context.offNamed(Routes.timerSos);
-          return;
-        }
-        if (status == 'in_call') {
-          context.offNamed(Routes.inCall);
-          return;
-        }
-      }
-
-      if (activeJob is Map) {
-        final status = activeJob['job_status']?.toString();
-        final jobId =
-            activeJob['_id']?.toString() ?? activeJob['id']?.toString() ?? '';
-        final tech = _techInfoFromJob(activeJob);
-        final loc = _customerLatLng(activeJob, sosCubit);
-
-        if (jobId.isNotEmpty &&
-            loc != null &&
-            (status == 'assigned' ||
-                status == 'accepted' ||
-                status == 'en_route' ||
-                status == 'arrived')) {
-          context.offNamed(
-            Routes.technicianTracking,
-            arguments: TrackingArgs(
-              jobId: jobId,
-              techInfo: tech,
-              customerLat: loc.$1,
-              customerLng: loc.$2,
-              initialPhase: status == 'arrived' ? 'arrived' : 'en_route',
-              techLat: _techLat(activeJob),
-              techLng: _techLng(activeJob),
-            ),
-          );
-          return;
-        }
-
-        if (jobId.isNotEmpty && status == 'in_progress') {
-          context.offNamed(
-            Routes.jobInProgress,
-            arguments: JobProgressArgs(
-              userName: '',
-              bannerTitle: 'home.job_in_progress'.tr(),
-              bannerBody: 'job_progress.banner_body'.tr(),
-              jobId: jobId,
-              jobReference: activeJob['job_reference']?.toString() ?? '',
-              statusPillText: JobStatusLabels.labelFor('in_progress'),
-              technicianName: tech['name'] ?? '',
-              technicianPhone: tech['phone'] ?? '',
-              technicianAvatarUrl: tech['photo'] ?? '',
-              vehicleName: _vehicleName(activeJob),
-              vehicleCode: '',
-              onCallDispatch: () async {
-                const number = 'tel:+97444444444';
-                final uri = Uri.parse(number);
-                if (await canLaunchUrl(uri)) await launchUrl(uri);
-              },
-              onCallTechnician: () async {
-                final phone = tech['phone'] ?? '';
-                if (phone.isEmpty) return;
-                final uri = Uri.parse('tel:$phone');
-                if (await canLaunchUrl(uri)) await launchUrl(uri);
-              },
-            ),
-          );
-          return;
-        }
-      }
-
-      // Restore pending / assigned service request (non-SOS)
-      if (activeServiceRequest is Map && activeJob is! Map) {
-        final srId = activeServiceRequest['_id']?.toString() ??
-            activeServiceRequest['id']?.toString() ??
-            '';
-        final status = activeServiceRequest['status']?.toString() ?? '';
-        if (srId.isNotEmpty &&
-            (status == 'pending' || status == 'assigned')) {
-          final coords = activeServiceRequest['location']?['coordinates'];
-          if (coords is List && coords.length >= 2) {
-            final lng = (coords[0] as num).toDouble();
-            final lat = (coords[1] as num).toDouble();
-            sosCubit.lastKnownPosition = Position(
-              latitude: lat,
-              longitude: lng,
-              timestamp: DateTime.now(),
-              accuracy: 0,
-              altitude: 0,
-              altitudeAccuracy: 0,
-              heading: 0,
-              headingAccuracy: 0,
-              speed: 0,
-              speedAccuracy: 0,
-            );
-          }
-          DateTime? scheduledFor;
-          final rawSched = activeServiceRequest['scheduled_for'];
-          if (rawSched != null) {
-            scheduledFor = DateTime.tryParse(rawSched.toString());
-          }
-          if (!mounted) return;
-          context.offNamed(
-            Routes.serviceWaiting,
-            arguments: ServiceWaitingArgs(
-              requestId: srId,
-              serviceType:
-                  activeServiceRequest['service_type']?.toString() ?? '',
-              timing: activeServiceRequest['timing']?.toString() ?? 'immediate',
-              scheduledFor: scheduledFor,
-            ),
-          );
-          return;
-        }
-      }
-
       if (!mounted) return;
-      context.offNamed(Routes.home);
+      await SessionResume.go(context, session);
     } catch (e) {
       _log('❌ Splash _initData error: $e');
       // Only clear session on auth failure; keep token on transient network errors.
@@ -232,68 +107,6 @@ class _SplashScreenState extends State<SplashScreen> {
         context.offNamed(Routes.home);
       }
     }
-  }
-
-  Map<String, dynamic> _techInfoFromJob(Map job) {
-    final t = job['assignedTechnician'];
-    if (t is! Map) {
-      return {'name': '', 'phone': '', 'photo': ''};
-    }
-    final first = t['firstName']?.toString() ?? '';
-    final last = t['lastName']?.toString() ?? '';
-    return {
-      'name': '$first $last'.trim(),
-      'phone': t['phone']?.toString() ?? '',
-      'photo': t['profilePicture']?.toString() ?? '',
-    };
-  }
-
-  (double, double)? _customerLatLng(Map job, SosCubit sosCubit) {
-    final loc = job['location'];
-    if (loc is Map) {
-      if (loc['coordinates'] is List && (loc['coordinates'] as List).length >= 2) {
-        final coords = loc['coordinates'] as List;
-        final lng = (coords[0] as num).toDouble();
-        final lat = (coords[1] as num).toDouble();
-        return (lat, lng);
-      }
-      final lat = (loc['latitude'] as num?)?.toDouble();
-      final lng = (loc['longitude'] as num?)?.toDouble();
-      if (lat != null && lng != null) return (lat, lng);
-    }
-    final p = sosCubit.lastKnownPosition;
-    if (p != null) return (p.latitude, p.longitude);
-    return null;
-  }
-
-  double? _techLat(Map job) {
-    final t = job['assignedTechnician'];
-    if (t is! Map) return null;
-    final coords = t['currentLocation']?['coordinates'];
-    if (coords is List && coords.length >= 2) {
-      return (coords[1] as num?)?.toDouble();
-    }
-    return null;
-  }
-
-  double? _techLng(Map job) {
-    final t = job['assignedTechnician'];
-    if (t is! Map) return null;
-    final coords = t['currentLocation']?['coordinates'];
-    if (coords is List && coords.length >= 2) {
-      return (coords[0] as num?)?.toDouble();
-    }
-    return null;
-  }
-
-  String _vehicleName(Map job) {
-    final vehicle = job['customer_vehicle_id'];
-    if (vehicle is! Map) return '';
-    final make = vehicle['vehicle_make'];
-    final model = vehicle['vehicle_model'];
-    final makeName = make is Map ? make['makeName'] ?? '' : '';
-    final modelName = model is Map ? model['modelName'] ?? '' : '';
-    return '$makeName $modelName ${vehicle['year'] ?? ''}'.trim();
   }
 
   Future<void> _registerFcmToken() async {

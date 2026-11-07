@@ -45,6 +45,8 @@ module.exports = {
   VendorPurchase: require("./VendorPurchase"),
   TechnicianSettlement: require("./TechnicianSettlement"),
   Subscription: require("./Subscription"),
+  SubscriptionPlan: require("./SubscriptionPlan"),
+  CustomerSubscription: require("./CustomerSubscription"),
   Partner: require("./Partner"),
   PartnerEarning: require("./PartnerEarning"),
   PartnerWithdrawal: require("./PartnerWithdrawal"),

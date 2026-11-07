@@ -13,6 +13,7 @@ router.get("/issues", ctrl.issues);
 router.get("/services", ctrl.services);
 router.get("/sources", ctrl.sources);
 router.get("/time", ctrl.time);
+router.get("/trends", ctrl.trends);
 router.get("/locations", ctrl.locations);
 router.get("/crosstabs", ctrl.crosstabs);
 router.get("/jobs", ctrl.jobs);

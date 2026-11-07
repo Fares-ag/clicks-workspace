@@ -47,6 +47,7 @@ void main() {
         ActionErrors.completionReadiness({
           'job_status': 'in_progress',
           'payment_status': 'unpaid',
+          'price': 150,
           'customerSignatureUrl': 'https://x/sign.png',
           'customerSignedAt': '2026-01-01T00:00:00.000Z',
         }),
@@ -57,6 +58,7 @@ void main() {
         ActionErrors.completionReadiness({
           'job_status': 'in_progress',
           'payment_status': 'paid',
+          'price': 150,
           'customerSignatureUrl': '',
         }),
         contains('signature'),
@@ -66,10 +68,21 @@ void main() {
         ActionErrors.completionReadiness({
           'job_status': 'in_progress',
           'payment_status': 'paid',
+          'price': 150,
           'customerSignatureUrl': 'https://x/sign.png',
           'customerSignedAt': '2026-01-01T00:00:00.000Z',
         }),
         isNull,
+      );
+
+      expect(
+        ActionErrors.completionReadiness({
+          'job_status': 'in_progress',
+          'payment_status': 'unpaid',
+          'customerSignatureUrl': 'https://x/sign.png',
+          'customerSignedAt': '2026-01-01T00:00:00.000Z',
+        }),
+        contains('price'),
       );
     });
   });

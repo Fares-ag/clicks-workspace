@@ -7,5 +7,7 @@ const sosController = require("../controllers/sosController");
 router.get("/", authenticateToken, requireOps, sosController.getSOSRequests);
 router.get("/:id", authenticateToken, requireOps, sosController.getSOSById);
 router.post("/:id/claim", authenticateToken, requireOps, sosController.claimSOS);
+router.post("/:id/schedule", authenticateToken, requireOps, sosController.scheduleSOS);
+router.post("/:id/close", authenticateToken, requireOps, sosController.closeSOS);
 
 module.exports = router;

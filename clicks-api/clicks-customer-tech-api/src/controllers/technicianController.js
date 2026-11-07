@@ -753,18 +753,20 @@ const rejectJob = async (req, res) => {
         error: `Cannot reject job with status: ${job.job_status}`,
       });
     }
-    job.job_status = "cancelled";
+    const previousTechnician = job.assignedTechnician;
     job.rejection_reasons = Array.isArray(rejection_reasons)
       ? rejection_reasons
       : rejection_reasons
       ? [rejection_reasons]
       : [];
     job.rejection_description = rejection_description || "";
+    job.assignedTechnician = null;
+    job.job_status = "pending";
     await job.save();
 
     // P1-01: increment rejected-jobs counter in TechnicianEarnings (source of truth)
     await TechnicianEarnings.findOneAndUpdate(
-      { technician_id: job.assignedTechnician },
+      { technician_id: previousTechnician },
       {
         $inc: { "performance.total_rejected_jobs": 1 },
         $set: { updated_at: new Date() },
@@ -777,27 +779,26 @@ const rejectJob = async (req, res) => {
     // inside setTechnicianStatus — that helper returns without saving when the
     // technician is already Online, which is the normal state here, so the
     // in-memory increment used to be thrown away.
-    if (job.assignedTechnician) {
+    if (previousTechnician) {
       await Technician.updateOne(
-        { _id: job.assignedTechnician },
+        { _id: previousTechnician },
         { $inc: { "performance.rejectedJobs": 1 } }
       );
-      await setTechnicianStatus(job.assignedTechnician, "Online");
+      await setTechnicianStatus(previousTechnician, "Online");
     }
 
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
-    if (typeof notifyPresence === "function" && job.assignedTechnician) {
-      await notifyPresence(job.assignedTechnician, "Online");
+    if (typeof notifyPresence === "function" && previousTechnician) {
+      await notifyPresence(previousTechnician, "Online");
     }
 
-    // P2-04: notify customer that the technician rejected the job
     if (job.customer_id) {
       try {
         const notify = req.app.get("notifyCustomerJobEvent");
         if (typeof notify === "function") {
-          await notify(job.customer_id.toString(), "jobRejected", {
+          await notify(job.customer_id.toString(), "jobReassigning", {
             job_id: job._id,
-            status: "cancelled",
+            status: "pending",
             reason: rejection_description || "Technician unavailable",
           });
         }
@@ -820,7 +821,10 @@ const rejectJob = async (req, res) => {
       },
     });
 
-    res.json({ message: "Job rejected", job_status: job.job_status });
+    res.json({
+      message: "Job rejected and returned to dispatch",
+      job_status: job.job_status,
+    });
   } catch (err) {
     res.status(500).json({ error: "Reject job failed", details: err.message });
   }

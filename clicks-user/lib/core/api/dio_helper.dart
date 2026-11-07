@@ -107,12 +107,32 @@ class DioHelper {
     return null;
   }
 
+  static String? errorCode(Response response) {
+    final data = response.data;
+    if (data is Map) return data['code']?.toString();
+    return null;
+  }
+
   static Future<Response> getData({
     required String url,
     Map<String, dynamic>? query,
     bool auth = true,
   }) async {
     return dio.get(url, queryParameters: query, options: _authOptions(auth));
+  }
+
+  static Future<Response<List<int>>> getBytes({
+    required String url,
+    Map<String, dynamic>? query,
+    bool auth = true,
+  }) async {
+    final options = _authOptions(auth);
+    options.responseType = ResponseType.bytes;
+    return dio.get<List<int>>(
+      url,
+      queryParameters: query,
+      options: options,
+    );
   }
 
   static Future<Response> postData({

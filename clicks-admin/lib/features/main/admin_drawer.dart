@@ -33,8 +33,26 @@ class AdminDrawer extends StatelessWidget {
         _DrawerItem('Heat Map', Routes.heatMap, 'heat-map'),
         _DrawerItem('Sources', Routes.sources, 'sources'),
         _DrawerItem('Vehicle Makes', Routes.vehicleMakes, 'vehicle-makes'),
+        _DrawerItem('Vehicle Models', Routes.vehicleModels, 'vehicle-models'),
+        _DrawerItem('Technician Logs', Routes.technicianLogs, 'technician-logs'),
+        _DrawerItem('Calls', Routes.calls, 'calls'),
       ],
     ].where((i) => AdminRoles.canAccessModule(role, i.moduleId)).toList();
+
+    if (AdminRoles.isFullAdmin(role)) {
+      items.addAll([
+        _DrawerItem(
+          'Membership Plans',
+          Routes.membershipPlans,
+          'membership-plans',
+        ),
+        _DrawerItem(
+          'Customer Memberships',
+          Routes.customerMemberships,
+          'customer-memberships',
+        ),
+      ]);
+    }
 
     return Drawer(
       child: SafeArea(

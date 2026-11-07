@@ -33,7 +33,7 @@ class JobDto {
   final String jobType;
   final String issue;
   final String location;
-  final int price;
+  final int? price;
   final JobStatus status;
   final List<String> rejectionReasons;
 
@@ -162,7 +162,7 @@ class JobDto {
       jobType: json['jobType'] ?? '',
       issue: json['issue'] ?? '',
       location: json['location'] ?? '',
-      price: (json['price'] is num) ? (json['price'] as num).toInt() : 0,
+      price: (json['price'] is num) ? (json['price'] as num).toInt() : null,
       status: jobStatusFromApi(json['job_status'] ?? ''),
       customerVehicleId: vId,
       assignedTechnicianId: techId,

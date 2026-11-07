@@ -1,3 +1,5 @@
+import 'package:clicks_user/core/api/dio_helper.dart';
+import 'package:clicks_user/core/api/end_points.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
@@ -7,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'rating_bottom_sheet.dart';
+import 'skipcash_pay.dart';
 
 @immutable
 class JobProgressArgs {
@@ -36,6 +39,9 @@ class JobProgressArgs {
   // Actions
   final VoidCallback onCallTechnician;
   final VoidCallback onCallDispatch;
+  final int? price;
+  final String? paymentStatus;
+  final String? paymentMethod;
 
   const JobProgressArgs({
     required this.userName,
@@ -54,6 +60,9 @@ class JobProgressArgs {
     required this.vehicleCode,
     required this.onCallTechnician,
     required this.onCallDispatch,
+    this.price,
+    this.paymentStatus,
+    this.paymentMethod,
   });
 
   /// Technician-entered Job ID, falling back to the tail of the mongo id for
@@ -69,10 +78,72 @@ class JobProgressArgs {
   }
 }
 
-class JobInProgressScreen extends StatelessWidget {
+class JobInProgressScreen extends StatefulWidget {
   final JobProgressArgs args;
 
   const JobInProgressScreen({super.key, required this.args});
+
+  @override
+  State<JobInProgressScreen> createState() => _JobInProgressScreenState();
+}
+
+class _JobInProgressScreenState extends State<JobInProgressScreen> {
+  late bool _paid;
+  late bool _cashChosen;
+  var _paying = false;
+
+  JobProgressArgs get args => widget.args;
+
+  @override
+  void initState() {
+    super.initState();
+    _paid = args.paymentStatus?.toString() == 'paid';
+    _cashChosen = args.paymentMethod?.toString() == 'cash';
+  }
+
+  Future<void> _payNow() async {
+    if (_paying || _paid || args.jobId.isEmpty) return;
+    setState(() => _paying = true);
+    final result = await SkipcashPay.start(context, args.jobId);
+    if (!mounted) return;
+    setState(() => _paying = false);
+    switch (result) {
+      case SkipcashPayResult.paid:
+        setState(() => _paid = true);
+        AppSnackBars.successSnackBar('home.payment_received_in_job'.tr());
+      case SkipcashPayResult.unavailable:
+        AppSnackBars.errorSnackBar('home.payment_unavailable'.tr());
+      case SkipcashPayResult.failed:
+        AppSnackBars.errorSnackBar('home.payment_failed'.tr());
+      case SkipcashPayResult.cancelled:
+        break;
+    }
+  }
+
+  Future<void> _payCash() async {
+    if (_paying || _paid || args.jobId.isEmpty) return;
+    setState(() => _paying = true);
+    try {
+      final response = await DioHelper.postData(
+        url: EndPoints.payCash(args.jobId),
+        data: {},
+        auth: true,
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        setState(() => _cashChosen = true);
+        AppSnackBars.successSnackBar('home.pay_cash_success'.tr());
+      } else {
+        AppSnackBars.errorSnackBar(
+          DioHelper.errorMessage(response) ?? 'home.pay_cash_failed'.tr(),
+        );
+      }
+    } catch (_) {
+      if (mounted) AppSnackBars.errorSnackBar('home.pay_cash_failed'.tr());
+    } finally {
+      if (mounted) setState(() => _paying = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,11 +151,13 @@ class JobInProgressScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF6F7F9),
       body: BlocListener<SosCubit, SosState>(
         listener: (context, state) {
-          if (state is JobCancelled || state is SosCancelled) {
+          if (state is PaymentConfirmed &&
+              (state.jobId.isEmpty || state.jobId == args.jobId)) {
+            setState(() => _paid = true);
+          } else if (state is JobCancelled || state is SosCancelled) {
             AppSnackBars.errorSnackBar('job_progress.job_cancelled'.tr());
             context.offAllNamed(Routes.home);
           } else if (state is JobCompleted) {
-            // Show rating bottom sheet instead of just going home
             showModalBottomSheet(
               context: context,
               isScrollControlled: true,
@@ -113,8 +186,6 @@ class JobInProgressScreen extends StatelessWidget {
             children: [
               _TopBar(
                 userName: args.userName,
-                // notificationsCount: args.notificationsCount,
-                // onTapNotifications: () {},
               ),
               Expanded(
                 child: ListView(
@@ -152,13 +223,112 @@ class JobInProgressScreen extends StatelessWidget {
                       vehicleCode: args.vehicleCode,
                     ),
 
+                    if (!_paid) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'home.pay_job_title'.tr(),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'home.pay_job_body'.tr(),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
+                      if (args.price != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '${'common.qar'.tr()} ${args.price}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      if (_cashChosen)
+                        Text(
+                          'home.pay_cash_success'.tr(),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF111827),
+                          ),
+                        )
+                      else ...[
+                        SizedBox(
+                          height: 52,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF8B1A1B),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              elevation: 0,
+                            ),
+                            onPressed: _paying ? null : _payNow,
+                            child: _paying
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    args.price != null
+                                        ? '${'home.pay_now'.tr()} · ${'common.qar'.tr()} ${args.price}'
+                                        : 'home.pay_now'.tr(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 52,
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF8B1A1B),
+                              side: const BorderSide(color: Color(0xFF8B1A1B)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: _paying ? null : _payCash,
+                            child: Text(
+                              'home.pay_cash'.tr(),
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+
                     const SizedBox(height: 18),
 
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF8B1A1B),
+                          backgroundColor: _paid
+                              ? const Color(0xFF8B1A1B)
+                              : Colors.white,
+                          foregroundColor: _paid
+                              ? Colors.white
+                              : const Color(0xFF8B1A1B),
+                          side: const BorderSide(color: Color(0xFF8B1A1B)),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -167,9 +337,8 @@ class JobInProgressScreen extends StatelessWidget {
                         onPressed: args.onCallDispatch,
                         child: Text(
                           'home.call_dispatch'.tr(),
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontWeight: FontWeight.w800,
-                            color: Colors.white,
                           ),
                         ),
                       ),

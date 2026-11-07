@@ -1,8 +1,12 @@
+import 'package:clicks_user/core/components/clicks_app_header.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
+import 'package:clicks_user/features/membership/membership_cubit.dart';
+import 'package:clicks_user/features/membership/membership_models.dart';
 import 'package:clicks_user/features/services/service_request_sheet.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class ServicesScreen extends StatefulWidget {
@@ -75,22 +79,8 @@ class _ServicesScreenState extends State<ServicesScreen> {
     );
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: const Border(
-          bottom: BorderSide(color: Color(0xFFD0D5DD), width: 1),
-        ),
-        centerTitle: false,
-        title: Text(
-          'services.title'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
-      ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(title: 'services.title'.tr()),
       body: SafeArea(
         child: Column(
           children: [
@@ -110,9 +100,12 @@ class _ServicesScreenState extends State<ServicesScreen> {
                     SizedBox(height: 8.h),
                     Text(
                       'services.description'.tr(),
-                      style: TextStyles.font14RegularGrey,
+                      style: TextStyles.font14RegularGrey.copyWith(
+                        color: ColorsManager.greyColor,
+                        height: 1.45,
+                      ),
                     ),
-                    SizedBox(height: 18.h),
+                    SizedBox(height: 20.h),
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -120,7 +113,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
                         crossAxisCount: 2,
                         mainAxisSpacing: 12.h,
                         crossAxisSpacing: 12.w,
-                        childAspectRatio: 1.14,
+                        mainAxisExtent: 148.h,
                       ),
                       itemCount: _services.length,
                       itemBuilder: (context, index) {
@@ -128,13 +121,21 @@ class _ServicesScreenState extends State<ServicesScreen> {
                         final isSelected =
                             service.serviceType == _selectedServiceType;
 
-                        return _ServiceCard(
-                          service: service,
-                          isSelected: isSelected,
-                          onTap: () {
-                            setState(() {
-                              _selectedServiceType = service.serviceType;
-                            });
+                        return BlocBuilder<MembershipCubit, MembershipState>(
+                          builder: (context, membership) {
+                            final cover = membership.enabled
+                                ? membership.coverFor(service.serviceType)
+                                : MembershipCover.none;
+                            return _ServiceCard(
+                              service: service,
+                              isSelected: isSelected,
+                              cover: cover,
+                              onTap: () {
+                                setState(() {
+                                  _selectedServiceType = service.serviceType;
+                                });
+                              },
+                            );
                           },
                         );
                       },
@@ -173,7 +174,13 @@ class _ServicesScreenState extends State<ServicesScreen> {
                       borderRadius: BorderRadius.circular(10.r),
                     ),
                   ),
-                  child: Text('services.request_service'.tr()),
+                  child: Text(
+                    selectedService.isEmpty
+                        ? 'services.request_service'.tr()
+                        : 'services.request_service_named'.tr(namedArgs: {
+                            'service': selectedService.first.titleKey.tr(),
+                          }),
+                  ),
                 ),
               ),
             ),
@@ -187,71 +194,124 @@ class _ServicesScreenState extends State<ServicesScreen> {
 class _ServiceCard extends StatelessWidget {
   final _ServiceOption service;
   final bool isSelected;
+  final MembershipCover cover;
   final VoidCallback onTap;
 
   const _ServiceCard({
     required this.service,
     required this.isSelected,
+    required this.cover,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final foreground = isSelected ? ColorsManager.mainColor : Colors.black87;
+    final titleColor =
+        isSelected ? ColorsManager.mainColor : ColorsManager.blackColor;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12.r),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: EdgeInsets.all(14.w),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFEF2F2) : Colors.white,
-          borderRadius: BorderRadius.circular(12.r),
-          border: Border.all(
-            color: isSelected ? ColorsManager.mainColor : ColorsManager.border,
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 42.w,
-                  height: 42.w,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? ColorsManager.mainColor.withValues(alpha: 0.1)
-                        : const Color(0xFFF2F4F7),
-                    borderRadius: BorderRadius.circular(10.r),
-                  ),
-                  child: Icon(service.icon, color: foreground, size: 22.sp),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14.r),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 12.h),
+          decoration: BoxDecoration(
+            color: isSelected ? ColorsManager.wash : ColorsManager.card,
+            borderRadius: BorderRadius.circular(14.r),
+            border: Border.all(
+              color: isSelected
+                  ? ColorsManager.mainColor
+                  : ColorsManager.washBorder.withValues(alpha: 0.85),
+              width: isSelected ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(
+                  alpha: isSelected ? 0.08 : 0.04,
                 ),
-                const Spacer(),
-                Icon(
-                  isSelected
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
-                  color: isSelected
-                      ? ColorsManager.mainColor
-                      : ColorsManager.hintColor,
-                  size: 20.sp,
+                blurRadius: isSelected ? 12 : 8,
+                offset: Offset(0, isSelected ? 4 : 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 40.w,
+                    height: 40.w,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? ColorsManager.mainColor.withValues(alpha: 0.12)
+                          : const Color(0xFFF4F5F7),
+                      borderRadius: BorderRadius.circular(11.r),
+                    ),
+                    child: Icon(
+                      service.icon,
+                      color: isSelected
+                          ? ColorsManager.mainColor
+                          : ColorsManager.greyColor,
+                      size: 21.sp,
+                    ),
+                  ),
+                  if (isSelected) ...[
+                    const Spacer(),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      color: ColorsManager.mainColor,
+                      size: 22.sp,
+                    ),
+                  ],
+                ],
+              ),
+              SizedBox(height: 10.h),
+              Text(
+                service.titleKey.tr(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyles.font14Medium.copyWith(
+                  color: titleColor,
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
+                  fontSize: 13.5.sp,
+                ),
+              ),
+              if (cover.kind != MembershipCoverKind.none) ...[
+                SizedBox(height: 6.h),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+                  decoration: BoxDecoration(
+                    color: ColorsManager.mainColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6.r),
+                  ),
+                  child: Text(
+                    cover.kind == MembershipCoverKind.included
+                        ? 'membership.pill_included'.tr(namedArgs: {
+                            'plan': cover.planName,
+                          })
+                        : 'membership.pill_discount'.tr(namedArgs: {
+                            'percent': '${cover.discountPercent}',
+                            'plan': cover.planName,
+                          }),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyles.font14RegularGrey.copyWith(
+                      color: ColorsManager.mainColor,
+                      fontSize: 10.sp,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
-            ),
-            const Spacer(),
-            Text(
-              service.titleKey.tr(),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyles.font14RegularGrey.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

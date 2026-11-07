@@ -38,6 +38,7 @@ async function totalCompletedRevenue(Job) {
 
 module.exports = {
   COMPLETED,
+  sumCompletedRevenue,
   revenueForDayWindow,
   totalCompletedRevenue,
 };

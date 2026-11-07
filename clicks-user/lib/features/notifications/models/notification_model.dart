@@ -29,11 +29,13 @@ class NotificationModel {
       title: json['title'] ?? '',
       message: json['body'] ?? json['message'] ?? '',
       type: json['type'] ?? '',
-      isRead: json['read'] ?? false,
+      isRead: json['read'] == true,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'])
           : DateTime.now(),
-      data: json['data'] is Map<String, dynamic> ? json['data'] : null,
+      data: json['data'] is Map
+          ? Map<String, dynamic>.from(json['data'] as Map)
+          : null,
     );
   }
 

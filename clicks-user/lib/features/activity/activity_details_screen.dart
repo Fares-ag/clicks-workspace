@@ -1,4 +1,5 @@
 import 'package:clicks_user/core/helper/assets_manager.dart';
+import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -7,8 +8,10 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/dio_helper.dart';
+import '../../core/api/end_points.dart';
 import '../../core/components/success_screen.dart';
 import 'models/job_history_response.dart';
+import 'receipt_opener.dart';
 import 'widgets/contact_support_sheet.dart';
 
 class ActivityDetailsPage extends StatelessWidget {
@@ -65,6 +68,13 @@ class ActivityDetailsPage extends StatelessWidget {
     return parts.join(' ');
   }
 
+  String _receiptAmount(BuildContext context, dynamic data) {
+    final amount = data is Map ? data['total_amount'] : null;
+    final value = amount is num ? amount : job.price;
+    if (value == null) return 'activity.price_tbd'.tr();
+    return '${NumberFormat.decimalPattern(Localizations.localeOf(context).languageCode).format(value)} ${'common.qar'.tr()}';
+  }
+
   // ──────── Helpers ────────
 
   Future<void> _viewReceipt(BuildContext context) async {
@@ -84,31 +94,40 @@ class ActivityDetailsPage extends StatelessWidget {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
+    var loading = true;
+    void dismissLoading() {
+      if (!loading) return;
+      loading = false;
+      nav.pop();
+    }
+
     try {
+      final pdf = await DioHelper.getBytes(
+        url: EndPoints.jobReceiptDownload(job.id),
+      );
+      if (pdf.statusCode == 200 && pdf.data != null && pdf.data!.isNotEmpty) {
+        final header = String.fromCharCodes(pdf.data!.take(5));
+        if (header == '%PDF-') {
+          dismissLoading();
+          final opened = await openReceiptPdf(
+            pdf.data!,
+            'sanadcom-receipt-$_shortJobId.pdf',
+          );
+          if (opened) return;
+        }
+      }
+
       final response = await DioHelper.getData(
         url: '/api/receipts/job/${job.id}',
       );
-
-      nav.pop(); // dismiss loading
+      dismissLoading();
 
       if (response.statusCode == 200) {
         final body = response.data;
         final data = body is Map && body['receipt'] is Map
             ? Map<String, dynamic>.from(body['receipt'] as Map)
             : (body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{});
-        final pdfUrl = data['pdf_url'] ?? data['pdfUrl'];
-        if (pdfUrl != null && pdfUrl.toString().isNotEmpty) {
-          final uri = Uri.parse(pdfUrl.toString());
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else {
-            messenger.showSnackBar(
-              SnackBar(content: Text('activity_details.cannot_open_receipt'.tr())),
-            );
-          }
-        } else {
-          if (context.mounted) _showReceiptDialog(context, data);
-        }
+        if (context.mounted) _showReceiptDialog(context, data);
       } else {
         final msg = response.data is Map
             ? (response.data['error'] ?? 'activity_details.failed_get_receipt'.tr())
@@ -116,7 +135,7 @@ class ActivityDetailsPage extends StatelessWidget {
         messenger.showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
-      nav.pop();
+      dismissLoading();
       messenger.showSnackBar(
         SnackBar(content: Text('Error: ${e.toString()}')),
       );
@@ -133,7 +152,7 @@ class ActivityDetailsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('${'activity_details.job_id_label'.tr()}: $_shortJobId'),
-            Text('${'activity_details.amount_label'.tr()}: ${NumberFormat.decimalPattern(Localizations.localeOf(context).languageCode).format((data['total_amount'] as num?) ?? job.price)} ${'common.qar'.tr()}'),
+            Text('${'activity_details.amount_label'.tr()}: ${_receiptAmount(context, data)}'),
             if (data['issued_at'] != null) Text('${'activity_details.issued_label'.tr()}: ${data['issued_at']}'),
           ],
         ),
@@ -156,14 +175,11 @@ class ActivityDetailsPage extends StatelessWidget {
     );
 
     if (result == true && context.mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SuccessScreen(
-            message: 'activity_details.support_submitted'.tr(),
-            buttonLabel: 'common.ok'.tr(),
-            onButtonPressed: () => Navigator.pop(context),
-          ),
+      context.pushSmooth(
+        SuccessScreen(
+          message: 'activity_details.support_submitted'.tr(),
+          buttonLabel: 'common.ok'.tr(),
+          onButtonPressed: () => Navigator.pop(context),
         ),
       );
     }

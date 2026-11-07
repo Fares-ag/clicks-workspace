@@ -145,6 +145,9 @@ function createAdminApp() {
   app.use("/api/partners", require("./routes/partners"));
   app.use("/api/partner", require("./routes/partnerPortal"));
   app.use("/api/data-analysis", require("./routes/dataAnalysis"));
+  app.use("/api/subscriptions", require("./routes/subscriptions"));
+  app.use("/api/subscription-plans", require("./routes/subscriptionPlans"));
+  app.use("/api/customer-subscriptions", require("./routes/customerSubscriptions"));
 
   app.use(sentryErrorMiddleware());
   app.use(errorHandler);

@@ -55,35 +55,114 @@
   flex-wrap: wrap;
 }
 
-.jobs-stats-strip {
+.jobs-stats-panel {
+  border: 1px solid var(--color-border);
+  background: linear-gradient(180deg, #fafafa 0%, var(--color-bg-white) 100%);
+  border-radius: 14px;
+  padding: 16px 18px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.jobs-stats-panel-header {
   display: flex;
-  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.jobs-stats-panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+}
+
+.jobs-stats-panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+  max-width: 520px;
+}
+
+.jobs-stats-updated {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.jobs-stats-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.jobs-stats-action {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.jobs-stats-action:hover:not(:disabled) {
+  background: var(--color-bg-page);
+  border-color: #d0d5dd;
+}
+
+.jobs-stats-action:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.jobs-stats-action--ghost {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: transparent;
+}
+
+.jobs-stats-action--ghost:hover:not(:disabled) {
+  background: #fdf2f4;
+  border-color: #fecdd3;
+}
+
+.jobs-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
   width: 100%;
-  overflow-x: auto;
-  padding-bottom: 16px;
-  margin-bottom: 4px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
 }
 
 .jobs-stat-chip {
   appearance: none;
   border: 1px solid var(--color-border);
   background: var(--color-bg-white);
-  border-radius: var(--border-radius-lg);
+  border-radius: 12px;
   box-shadow: var(--shadow-sm);
-  padding: 12px 16px;
-  min-width: 132px;
-  flex: 0 0 auto;
+  padding: 14px 14px 12px;
+  min-height: 108px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  justify-content: flex-start;
+  gap: 2px;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.12s ease;
   font: inherit;
   text-align: left;
+}
+
+.jobs-stat-chip:hover {
+  transform: translateY(-1px);
 }
 
 .jobs-stat-chip:hover {
@@ -113,6 +192,17 @@
   box-shadow: 0 0 0 1px #027a48;
 }
 
+.jobs-stat-chip--accent {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+}
+
+.jobs-stat-chip--accent.jobs-stat-chip--active {
+  border-color: #6d28d9;
+  background: #ede9fe;
+  box-shadow: 0 0 0 1px #6d28d9;
+}
+
 .jobs-stat-chip--loading {
   pointer-events: none;
   opacity: 0.55;
@@ -126,13 +216,27 @@
 }
 
 .jobs-stat-chip-value {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
-  line-height: 28px;
+  line-height: 1.2;
   color: var(--color-text-primary);
+  margin: 2px 0;
+}
+
+.jobs-stat-chip-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+  margin-top: auto;
+  padding-top: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .jobs-stat-trend {
+  margin-top: 4px;
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: 500;
@@ -148,6 +252,19 @@
 }
 
 @media (max-width: 900px) {
+  .jobs-stats-panel {
+    padding: 12px 14px 14px;
+  }
+
+  .jobs-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jobs-stats-panel-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .jobs-stats-strip {
     padding-bottom: 12px;
     margin-left: -4px;

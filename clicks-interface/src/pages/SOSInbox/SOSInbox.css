@@ -63,6 +63,28 @@
   cursor: not-allowed;
 }
 
+.sos-inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sos-inbox-actions .sos-action-btn {
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.sos-inbox-actions .sos-action-btn--ghost {
+  background: #fff;
+  color: var(--color-primary);
+  border: 1px solid var(--color-input-border);
+}
+
 .sos-status-badge {
   display: inline-block;
   padding: 2px 10px;

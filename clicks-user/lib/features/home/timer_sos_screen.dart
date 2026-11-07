@@ -34,12 +34,17 @@ class TimerSosScreen extends StatelessWidget {
           if (state is SosInCall) {
             context.pop();
             context.toNamed(Routes.inCall);
-          } else if (state is JobCancelled || state is SosCancelled) {
+          } else if (state is JobCancelled ||
+              state is SosCancelled ||
+              state is SosClosed) {
             AppSnackBars.errorSnackBar(
               isEmergency
                   ? 'home.sos_cancelled'.tr()
                   : 'services.request_cancelled'.tr(),
             );
+            context.offAllNamed(Routes.home);
+          } else if (state is SosScheduled) {
+            AppSnackBars.successSnackBar('services.booking_confirmed'.tr());
             context.offAllNamed(Routes.home);
           } else if (state is SosExpired) {
             AppSnackBars.errorSnackBar(
@@ -111,7 +116,9 @@ class TimerSosScreen extends StatelessWidget {
                   final expiresAt = context.watch<SosCubit>().expiresAt;
                   final remaining = expiresAt != null
                       ? expiresAt.difference(DateTime.now())
-                      : const Duration(seconds: 60);
+                      : const Duration(
+                          seconds: SosCubit.contactCountdownSeconds,
+                        );
                   final duration = remaining.isNegative
                       ? Duration.zero
                       : remaining;

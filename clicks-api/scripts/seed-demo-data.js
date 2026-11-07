@@ -8,7 +8,7 @@ const path = require("path");
 require("../clicks-admin-api/node_modules/dotenv").config({
   path: path.join(__dirname, "../clicks-admin-api/.env"),
 });
-const mongoose = require("mongoose");
+const mongoose = require("../clicks-shared/mongoose");
 const bcrypt = require("../clicks-admin-api/node_modules/bcryptjs");
 
 const {
@@ -27,7 +27,9 @@ const {
   TechnicianEarnings,
   Business,
   BusinessUser,
+  SubscriptionPlan,
 } = require("../clicks-shared/models");
+const { seedMembershipPlans } = require("../clicks-shared/services/membershipPlans");
 
 async function upsert(Model, query, data) {
   const existing = await Model.findOne(query);
@@ -353,6 +355,9 @@ async function main() {
     });
   }
   console.log("✓ privacy / terms");
+
+  await seedMembershipPlans(SubscriptionPlan);
+  console.log("✓ membership plans (basic / plus)");
 
   console.log("\nDone. Refresh admin UI. Live Map should show Omar + Sara.");
   await mongoose.disconnect();

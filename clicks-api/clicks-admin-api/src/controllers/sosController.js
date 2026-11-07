@@ -7,6 +7,11 @@ const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { objectId } = require("../../../clicks-shared/utils/coerce");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
 const { computeChanges, recordAudit } = require("../utils/auditLog");
+const {
+  scheduleSosAsBooking,
+  closeSosAsNotAJob,
+} = require("../../../clicks-shared/services/sosOutcomes");
+const { upcomingBookingsForCustomer } = require("../../../clicks-shared/utils/customerBookingGuard");
 
 // Cap on how many customer/vehicle ids a single search may expand into, so a
 // very broad term cannot build an unbounded $in list.
@@ -119,9 +124,34 @@ function mapSos(doc) {
     claimed_at: o.claimed_at,
     cancel_reason: o.cancel_reason,
     job_id: jobId,
+    outcome: o.outcome || null,
+    outcome_reason: o.outcome_reason || "",
+    scheduled_request_id: o.scheduled_request_id?.toString() || null,
+    after_hours: !!o.after_hours,
+    upcoming_bookings: o.upcoming_bookings || [],
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };
+}
+
+async function attachUpcoming(mapped) {
+  if (!mapped?.customer_id) return mapped;
+  mapped.upcoming_bookings = await upcomingBookingsForCustomer(mapped.customer_id);
+  return mapped;
+}
+
+async function notifyCustomerOutcome({ sos_id, customer_id, event, payload }) {
+  try {
+    const customerTechApiUrl =
+      process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
+    await axios.post(
+      `${customerTechApiUrl}/api/sos/notify-outcome`,
+      { sos_id, customer_id, event, payload },
+      { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
+    );
+  } catch (notifyErr) {
+    console.error("Failed to notify SOS outcome:", notifyErr.message);
+  }
 }
 
 const getSOSRequests = async (req, res) => {
@@ -200,7 +230,7 @@ const getSOSById = async (req, res) => {
     if (!sos) {
       return res.status(404).json({ error: "SOS not found" });
     }
-    res.json({ request: mapSos(sos) });
+    res.json({ request: await attachUpcoming(mapSos(sos)) });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch SOS", details: err.message });
   }
@@ -329,8 +359,92 @@ const claimSOS = async (req, res) => {
   }
 };
 
+const scheduleSOS = async (req, res) => {
+  try {
+    const { service_type, scheduled_for, customer_vehicle_id } = req.body || {};
+    const { sos, serviceRequest } = await scheduleSosAsBooking({
+      sosId: req.params.id,
+      serviceType: service_type,
+      scheduledFor: scheduled_for,
+      vehicleId: customer_vehicle_id,
+    });
+
+    await recordAudit({
+      req,
+      action: "sos.schedule",
+      entityType: "sos",
+      entityId: sos._id,
+      changes: [{ field: "status", from: "in_call", to: "scheduled" }],
+    });
+
+    await notifyCustomerOutcome({
+      sos_id: sos._id.toString(),
+      customer_id: String(sos.customer_id),
+      event: "sosScheduled",
+      payload: {
+        sos_id: sos._id.toString(),
+        service_request_id: serviceRequest._id.toString(),
+        service_type: serviceRequest.service_type,
+        scheduled_for: serviceRequest.scheduled_for,
+      },
+    });
+
+    res.json({
+      message: "SOS converted to scheduled booking",
+      request: mapSos(sos),
+      service_request_id: serviceRequest._id.toString(),
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({
+      error: err.message || "Failed to schedule SOS",
+      code: err.code,
+    });
+  }
+};
+
+const closeSOS = async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const { sos } = await closeSosAsNotAJob({
+      sosId: req.params.id,
+      reason,
+    });
+
+    await recordAudit({
+      req,
+      action: "sos.not_a_job",
+      entityType: "sos",
+      entityId: sos._id,
+      changes: [{ field: "status", from: "in_call", to: "not_a_job" }],
+    });
+
+    await notifyCustomerOutcome({
+      sos_id: sos._id.toString(),
+      customer_id: String(sos.customer_id),
+      event: "sosClosed",
+      payload: {
+        sos_id: sos._id.toString(),
+        reason: sos.outcome_reason,
+        outcome: "not_a_job",
+      },
+    });
+
+    res.json({
+      message: "SOS closed as not a job",
+      request: mapSos(sos),
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({
+      error: err.message || "Failed to close SOS",
+      code: err.code,
+    });
+  }
+};
+
 module.exports = {
   getSOSRequests,
   getSOSById,
   claimSOS,
+  scheduleSOS,
+  closeSOS,
 };

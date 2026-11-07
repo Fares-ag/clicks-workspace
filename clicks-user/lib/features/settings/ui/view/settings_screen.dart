@@ -4,12 +4,14 @@ import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/cache_helper.dart';
 import 'package:clicks_user/core/services/fcm_notification_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
+import 'package:clicks_user/features/membership/membership_cubit.dart';
 import 'package:clicks_user/features/my_cars/my_cars_screen.dart';
 import 'package:clicks_user/features/settings/ui/cubit/settings_cubit.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/components/app_button.dart';
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/assets_manager.dart';
 import '../../../../core/helper/extensions.dart';
 import '../../../../core/routing/routes.dart';
@@ -32,22 +34,8 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: const Border(
-          bottom: BorderSide(color: Color(0xFFD0D5DD), width: 1.0),
-        ),
-        centerTitle: false,
-        title: Text(
-          'settings.settings'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
-      ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(title: 'settings.settings'.tr()),
       body: BlocConsumer<SettingsCubit, SettingsState>(
         listener: (context, state) {
           if (state is SuccessDeleteAccountSettingsState) {
@@ -84,12 +72,10 @@ class SettingsScreen extends StatelessWidget {
                     icon: AssetsManager.vehicleInfoSvg,
                     title: 'settings.my_cars'.tr(),
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => MyCarsScreen()),
-                      );
+                      context.pushSmooth(MyCarsScreen());
                     },
                   ),
+                  const _MembershipSettingsTile(),
                   const SizedBox(height: 16),
 
                   /// General
@@ -109,20 +95,14 @@ class SettingsScreen extends StatelessWidget {
                     icon: AssetsManager.contactUsSvg,
                     title: 'settings.contact_us'.tr(),
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => ContactUsScreen()),
-                      );
+                      context.pushSmooth(ContactUsScreen());
                     },
                   ),
                   SettingsTile(
                     icon: AssetsManager.faqsSvg,
                     title: 'settings.faqs'.tr(),
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => FaqScreen()),
-                      );
+                      context.pushSmooth(FaqScreen());
                     },
                   ),
                   const SizedBox(height: 16),
@@ -133,24 +113,14 @@ class SettingsScreen extends StatelessWidget {
                     icon: AssetsManager.privacyPolicySvg,
                     title: 'settings.privacy_policy'.tr(),
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PrivacyPolicyScreen(),
-                        ),
-                      );
+                      context.pushSmooth(PrivacyPolicyScreen());
                     },
                   ),
                   SettingsTile(
                     icon: AssetsManager.termsConditionsSvg,
                     title: 'settings.terms_conditions'.tr(),
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TermsAndConditionsScreen(),
-                        ),
-                      );
+                      context.pushSmooth(TermsAndConditionsScreen());
                     },
                   ),
 
@@ -239,7 +209,7 @@ class ProfileCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: ColorsManager.border),
+        border: Border.all(color: ColorsManager.washBorder),
       ),
       child: Row(
         children: [
@@ -296,39 +266,94 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
+class _MembershipSettingsTile extends StatefulWidget {
+  const _MembershipSettingsTile();
+
+  @override
+  State<_MembershipSettingsTile> createState() => _MembershipSettingsTileState();
+}
+
+class _MembershipSettingsTileState extends State<_MembershipSettingsTile> {
+  @override
+  void initState() {
+    super.initState();
+    context.read<MembershipCubit>().load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<MembershipCubit, MembershipState>(
+      builder: (context, membership) {
+        if (!membership.enabled) {
+          return const SizedBox.shrink();
+        }
+        final active = membership.active;
+        return SettingsTile(
+          icon: AssetsManager.earningsSvg,
+          title: 'settings.membership'.tr(),
+          subtitle: active == null
+              ? 'membership.status_none'.tr()
+              : 'membership.status_active'.tr(namedArgs: {
+                  'plan': active.planName,
+                }),
+          onTap: () => context.toNamed(Routes.membershipHub),
+        );
+      },
+    );
+  }
+}
+
 class SettingsTile extends StatelessWidget {
   final String icon;
   final String title;
+  final String? subtitle;
 
   final void Function()? onTap;
   const SettingsTile({
     super.key,
     required this.icon,
     required this.title,
+    this.subtitle,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16.w),
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: SvgPicture.asset(icon),
-        title: Text(
-          title,
-          style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
+      padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 8.h),
+      child: Material(
+        color: ColorsManager.card,
+        borderRadius: BorderRadius.circular(12.r),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12.r),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 2.h),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12.r),
+              border: Border.all(color: ColorsManager.washBorder),
+            ),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: SvgPicture.asset(icon),
+              title: Text(
+                title,
+                style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
+              ),
+              subtitle: subtitle == null
+                  ? null
+                  : Text(
+                      subtitle!,
+                      style: TextStyles.font14RegularGrey.copyWith(fontSize: 12.sp),
+                    ),
+              trailing: Icon(
+                Icons.chevron_right,
+                size: 22.sp,
+                color: ColorsManager.listTileArrowForward,
+              ),
+            ),
+          ),
         ),
-        trailing: Icon(
-          Icons.chevron_right,
-          size: 22.sp,
-          color: ColorsManager.listTileArrowForward,
-        ),
-        tileColor: Colors.white,
-        shape: Border(
-          bottom: BorderSide(color: ColorsManager.border),
-        ),
-        onTap: onTap,
       ),
     );
   }
@@ -371,10 +396,7 @@ void showProfileDialog(BuildContext context) {
                 title: Text('settings.edit_profile'.tr()),
                 onTap: () {
                   Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => EditProfileScreen()),
-                  );
+                  context.pushSmooth(EditProfileScreen());
                 },
               ),
 
@@ -385,10 +407,7 @@ void showProfileDialog(BuildContext context) {
                 title: Text('settings.change_password'.tr()),
                 onTap: () {
                   Navigator.pop(ctx);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => ChangePasswordScreen()),
-                  );
+                  context.pushSmooth(ChangePasswordScreen());
                 },
               ),
 

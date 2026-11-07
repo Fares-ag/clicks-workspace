@@ -215,12 +215,19 @@ class _NewJobScreenState extends State<NewJobScreen> {
     if (_location.text.trim().isEmpty ||
         _dateTime == null ||
         (_jobType == null || _jobType!.isEmpty) ||
-        _price.text.trim().isEmpty ||
         (_sourceId == null || _sourceId!.isEmpty) ||
         (_make == null || _make!.isEmpty) ||
         (_model == null || _model!.isEmpty)) {
       _showError('Please complete all required fields');
       return;
+    }
+    final priceText = _price.text.trim();
+    if (priceText.isNotEmpty) {
+      final parsed = double.tryParse(priceText);
+      if (parsed == null || parsed < 0) {
+        _showError('Enter a valid price or leave it blank for the technician');
+        return;
+      }
     }
 
     setState(() => _saving = true);
@@ -242,7 +249,7 @@ class _NewJobScreenState extends State<NewJobScreen> {
         'jobType': _jobType,
         if (_technicianId != null && _technicianId!.isNotEmpty)
           'assignedTechnician': _technicianId,
-        'price': _price.text.trim(),
+        if (priceText.isNotEmpty) 'price': double.tryParse(priceText),
         'source': _sourceId,
         'subSource': _subSource.text.trim(),
       };
@@ -417,9 +424,14 @@ class _NewJobScreenState extends State<NewJobScreen> {
                     }),
                   ),
                   AdminLabeledField(
-                    label: 'Price',
-                    required: true,
-                    child: TextField(controller: _price, keyboardType: TextInputType.number),
+                    label: 'Price (optional)',
+                    child: TextField(
+                      controller: _price,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        hintText: 'Leave blank — technician can set before complete',
+                      ),
+                    ),
                   ),
                   AdminLabeledField(
                     label: 'Issue',

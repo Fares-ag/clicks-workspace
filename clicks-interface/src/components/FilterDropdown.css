@@ -58,6 +58,23 @@
   gap: 8px;
 }
 
+.filter-time-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-time-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-time-colon {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  user-select: none;
+}
+
 .filter-native-input {
   width: 100%;
   height: 40px;

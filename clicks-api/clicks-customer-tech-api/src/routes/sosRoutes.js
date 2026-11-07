@@ -10,6 +10,30 @@ router.get("/", authenticate(["customer"]), sosController.getSOSRequests);
 // Technician routes - get history (static path before /:id)
 router.get("/technician/history", authenticate(["technician"]), sosController.getTechnicianSOSRequests);
 
+// Notify schedule / close outcomes (admin-api after SOS schedule or not-a-job)
+router.post("/notify-outcome", authenticateInternal, async (req, res) => {
+  try {
+    const { sos_id, customer_id, event, payload } = req.body || {};
+    if (!sos_id || !customer_id || !event) {
+      return res.status(400).json({
+        message: "sos_id, customer_id and event are required",
+      });
+    }
+    const notifySosOutcome = req.app.get("notifySosOutcome");
+    if (!notifySosOutcome) {
+      return res.status(500).json({ message: "Socket service not initialized" });
+    }
+    await notifySosOutcome({ sos_id, customer_id, event, payload });
+    res.json({ message: "Outcome notified" });
+  } catch (error) {
+    console.error("Error notifying SOS outcome:", error);
+    res.status(500).json({
+      message: "Failed to notify outcome",
+      error: error.message,
+    });
+  }
+});
+
 // Notify claim / in_call (called from admin-api after REST claim)
 router.post("/notify-claim", authenticateInternal, async (req, res) => {
   try {

@@ -1,5 +1,7 @@
 # QA checklist — Admin mobile app (`clicks-admin`)
 
+**Superseded** by [`qa-admin-mobile-full.md`](./qa-admin-mobile-full.md) (two-role matrix, dispatch loop, CRUD, edges, sign-off). Keep this file only as the pre-parity snapshot.
+
 Scope: Flutter admin app + admin-api auth/FCM endpoints + tech-api socket/FCM dispatch push.
 
 **PASS:** Ops dispatcher logs in on mobile, receives SOS via socket (foreground) and FCM (background/killed), claims/creates job; full admin reaches drawer modules.

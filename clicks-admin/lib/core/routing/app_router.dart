@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/auth/admin_roles.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/heat_map/heat_map_screen.dart';
+import '../../features/jobs/edit_job_screen.dart';
 import '../../features/jobs/job_detail_screen.dart';
 import '../../features/jobs/jobs_screen.dart';
 import '../../features/jobs/new_job_screen.dart';
@@ -12,23 +14,36 @@ import '../../features/leads/lead_detail_screen.dart';
 import '../../features/leads/leads_screen.dart';
 import '../../features/live_map/live_map_screen.dart';
 import '../../features/main/admin_shell.dart';
+import '../../features/phase2/admin_detail_screen.dart';
+import '../../features/phase2/admin_form_screen.dart';
 import '../../features/phase2/admin_management_screen.dart';
+import '../../features/phase2/business_detail_screen.dart';
+import '../../features/phase2/business_form_screen.dart';
 import '../../features/phase2/businesses_screen.dart';
+import '../../features/phase2/calls_screen.dart';
+import '../../features/phase2/client_detail_screen.dart';
 import '../../features/phase2/clients_screen.dart';
 import '../../features/phase2/finance_screen.dart';
 import '../../features/phase2/finance_users_screen.dart';
-import '../../features/phase2/generic_list_screen.dart';
+import '../../features/phase2/partner_detail_screen.dart';
+import '../../features/phase2/partner_form_screen.dart';
 import '../../features/phase2/partners_screen.dart';
 import '../../features/phase2/performance_screen.dart';
 import '../../features/phase2/sources_screen.dart';
+import '../../features/phase2/vehicle_config_screens.dart';
+import '../../features/phase2/support_ticket_detail_screen.dart';
 import '../../features/phase2/support_tickets_screen.dart';
+import '../../features/phase2/technician_logs_screen.dart';
+import '../../features/phase2/vehicle_detail_screen.dart';
 import '../../features/phase2/vehicles_screen.dart';
 import '../../features/service_requests/service_requests_screen.dart';
 import '../../features/sos/sos_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/technicians/technician_detail_screen.dart';
 import '../../features/technicians/technicians_screen.dart';
-import '../api/end_points.dart';
+import '../../features/membership/customer_memberships_screen.dart';
+import '../../features/membership/membership_plan_form_screen.dart';
+import '../../features/membership/membership_plans_screen.dart';
 import '../helper/cache_helper.dart';
 import 'routes.dart';
 
@@ -79,23 +94,27 @@ class AppRouter {
       case Routes.sources:
         return _shell(const SourcesScreen(), name);
       case Routes.heatMap:
-        return _shell(
-          const GenericListScreen(
-            title: 'Heat Map',
-            endpoint: '${EndPoints.jobs}/heatmap',
-            moduleId: 'heat-map',
-          ),
-          name,
-        );
+        return _shell(const HeatMapScreen(), name, showTopBar: false);
+      case Routes.technicianLogs:
+        return _shell(const TechnicianLogsScreen(), name);
+      case Routes.calls:
+        return _shell(const CallsScreen(), name);
       case Routes.vehicleMakes:
-        return _shell(
-          const GenericListScreen(
-            title: 'Vehicle Makes',
-            endpoint: EndPoints.vehicleMakes,
-            moduleId: 'vehicle-makes',
-          ),
-          name,
-        );
+        return _shell(const VehicleMakesScreen(), name);
+      case Routes.vehicleModels:
+        return _shell(const VehicleModelsScreen(), name);
+      case Routes.membershipPlans:
+        return _shell(const MembershipPlansScreen(), name);
+      case Routes.membershipPlanNew:
+        return _shell(const MembershipPlanFormScreen(), name, showTopBar: false);
+      case Routes.customerMemberships:
+        return _shell(const CustomerMembershipsScreen(), name);
+      case Routes.adminNew:
+        return _shell(const AdminFormScreen(), name, showTopBar: false);
+      case Routes.businessNew:
+        return _shell(const BusinessFormScreen(), name, showTopBar: false);
+      case Routes.partnerNew:
+        return _shell(const PartnerFormScreen(), name, showTopBar: false);
 
       case Routes.jobNew:
         final sosData = args is Map<String, dynamic> ? args : null;
@@ -151,10 +170,54 @@ class AppRouter {
     if (path.startsWith('/leads/new')) {
       return onGenerateRoute(RouteSettings(name: Routes.leadNew, arguments: args));
     }
+    final jobEditMatch = RegExp(r'^/jobs/([^/]+)/edit$').firstMatch(path);
+    if (jobEditMatch != null) {
+      final id = jobEditMatch.group(1)!;
+      return _shell(EditJobScreen(jobId: id), path, showTopBar: false);
+    }
     final jobMatch = RegExp(r'^/jobs/([^/]+)$').firstMatch(path);
     if (jobMatch != null) {
       final id = jobMatch.group(1)!;
       return _shell(JobDetailScreen(jobId: id), path);
+    }
+    final clientMatch = RegExp(r'^/clients/([^/]+)$').firstMatch(path);
+    if (clientMatch != null) {
+      return _shell(ClientDetailScreen(clientId: clientMatch.group(1)!), path);
+    }
+    final vehicleMatch = RegExp(r'^/vehicles/([^/]+)$').firstMatch(path);
+    if (vehicleMatch != null) {
+      return _shell(VehicleDetailScreen(vehicleId: vehicleMatch.group(1)!), path);
+    }
+    final adminEdit = RegExp(r'^/admin-management/([^/]+)/edit$').firstMatch(path);
+    if (adminEdit != null) {
+      return _shell(AdminFormScreen(adminId: adminEdit.group(1)!), path, showTopBar: false);
+    }
+    final adminMatch = RegExp(r'^/admin-management/([^/]+)$').firstMatch(path);
+    if (adminMatch != null && adminMatch.group(1) != 'new') {
+      return _shell(AdminDetailScreen(adminId: adminMatch.group(1)!), path);
+    }
+    final bizEdit = RegExp(r'^/businesses/([^/]+)/edit$').firstMatch(path);
+    if (bizEdit != null) {
+      return _shell(BusinessFormScreen(businessId: bizEdit.group(1)!), path, showTopBar: false);
+    }
+    final bizMatch = RegExp(r'^/businesses/([^/]+)$').firstMatch(path);
+    if (bizMatch != null && bizMatch.group(1) != 'new') {
+      return _shell(BusinessDetailScreen(businessId: bizMatch.group(1)!), path);
+    }
+    final partnerEdit = RegExp(r'^/partners/([^/]+)/edit$').firstMatch(path);
+    if (partnerEdit != null) {
+      return _shell(PartnerFormScreen(partnerId: partnerEdit.group(1)!), path, showTopBar: false);
+    }
+    final partnerMatch = RegExp(r'^/partners/([^/]+)$').firstMatch(path);
+    if (partnerMatch != null && partnerMatch.group(1) != 'new') {
+      return _shell(PartnerDetailScreen(partnerId: partnerMatch.group(1)!), path);
+    }
+    final ticketMatch = RegExp(r'^/support-tickets/([^/]+)$').firstMatch(path);
+    if (ticketMatch != null) {
+      return _shell(
+        SupportTicketDetailScreen(ticketId: ticketMatch.group(1)!),
+        path,
+      );
     }
     final leadConvertMatch = RegExp(r'^/leads/([^/]+)/convert$').firstMatch(path);
     if (leadConvertMatch != null) {
@@ -170,6 +233,14 @@ class AppRouter {
     if (techMatch != null) {
       final id = techMatch.group(1)!;
       return _shell(TechnicianDetailScreen(technicianId: id), path);
+    }
+    final planEdit = RegExp(r'^/subscription-plans/([^/]+)/edit$').firstMatch(path);
+    if (planEdit != null) {
+      return _shell(
+        MembershipPlanFormScreen(planId: planEdit.group(1)!),
+        path,
+        showTopBar: false,
+      );
     }
 
     // RBAC guard for unknown paths
@@ -230,6 +301,12 @@ class AppRouter {
     if (path.startsWith('/jobs')) return '/jobs';
     if (path.startsWith('/leads')) return '/leads';
     if (path.startsWith('/technicians')) return '/technicians';
+    if (path.startsWith('/clients')) return '/clients';
+    if (path.startsWith('/vehicles')) return '/vehicles';
+    if (path.startsWith('/support-tickets')) return '/support-tickets';
+    if (path.startsWith('/admin-management')) return '/admin-management';
+    if (path.startsWith('/businesses')) return '/businesses';
+    if (path.startsWith('/partners')) return '/partners';
     return path;
   }
 }

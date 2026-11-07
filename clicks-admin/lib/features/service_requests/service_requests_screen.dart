@@ -5,6 +5,7 @@ import '../../core/components/admin_data_table.dart';
 import '../../core/components/admin_list_screen.dart';
 import '../../core/components/filter_chip_bar.dart';
 import '../../core/components/status_pill.dart';
+import '../../core/helper/list_row_helpers.dart';
 import '../../core/routing/routes.dart';
 import '../../core/theme/admin_typography.dart';
 import '../main/admin_shell.dart';
@@ -32,31 +33,69 @@ class ServiceRequestsScreen extends StatelessWidget {
       ],
       columns: const [
         AdminTableColumn(label: 'Service', flex: 3),
-        AdminTableColumn(label: 'Timing', flex: 2),
-        AdminTableColumn(label: 'Status', flex: 2),
         AdminTableColumn(label: 'Customer', flex: 3),
+        AdminTableColumn(label: 'When', flex: 2),
+        AdminTableColumn(label: 'Location', flex: 2),
+        AdminTableColumn(label: 'Status', flex: 2, badge: true),
       ],
       onRowTap: (item) {
+        final leadId = entityId(item['lead_id']) ?? entityId(item['lead']);
+        if (leadId != null) {
+          Navigator.of(context).pushNamed(Routes.leadDetailPath(leadId));
+          return;
+        }
+        final jobId = entityId(item['job_id']) ?? entityId(item['job']);
+        if (jobId != null) {
+          Navigator.of(context).pushNamed(Routes.jobDetailPath(jobId));
+          return;
+        }
         final status = item['status']?.toString() ?? '';
         if (status == 'pending') {
           Navigator.of(context).pushNamed(Routes.leadNew, arguments: item);
         }
       },
       rowBuilder: (item) {
-        final serviceType = item['service_type']?.toString() ?? 'Service';
+        final serviceType = item['service_type']?.toString() ?? item['jobType']?.toString() ?? 'Service';
         final status = item['status']?.toString() ?? '';
-        final timing = item['timing']?.toString() ?? '';
+        final timing = item['timing']?.toString() ?? item['preferredTime']?.toString() ?? '';
         final customer = item['customer'];
-        var name = '—';
-        if (customer is Map) {
-          name = customer['name']?.toString() ??
-              '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
-        }
+        final customerId = entityId(item['customer_id']) ?? entityId(customer);
+        final name = personName(
+          customer,
+          fallback: item['customerName']?.toString() ?? item['name']?.toString() ?? '—',
+        );
+        final phone = customer is Map
+            ? (customer['phone'] ?? customer['phone_number'] ?? '').toString()
+            : item['phone']?.toString() ?? '';
+        final location = item['location']?.toString() ?? item['address']?.toString() ?? '';
+        final leadId = entityId(item['lead_id']) ?? entityId(item['lead']);
         return [
-          Text(serviceType, style: AdminTypography.body.copyWith(fontWeight: FontWeight.w600)),
-          Text(timing, style: AdminTypography.body),
-          StatusPill(label: status, status: status),
-          Text(name, style: AdminTypography.body),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(serviceType, style: AdminTypography.body.copyWith(fontWeight: FontWeight.w600)),
+              if (timing.isNotEmpty) SecondaryLine(timing),
+              if (status == 'pending')
+                TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(Routes.leadNew, arguments: item),
+                  child: const Text('Convert to lead'),
+                ),
+              if (leadId != null) EntityLink(label: 'Open lead', route: Routes.leadDetailPath(leadId)),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              EntityLink(
+                label: name,
+                route: customerId == null ? null : Routes.clientDetailPath(customerId),
+              ),
+              if (phone.isNotEmpty) SecondaryLine(phone),
+            ],
+          ),
+          Text(formatWhen(item['scheduledAt'] ?? item['createdAt'] ?? item['created_at']), style: AdminTypography.body),
+          Text(location.isEmpty ? '—' : location, style: AdminTypography.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+          StatusPill(label: status.isEmpty ? '—' : status.replaceAll('_', ' '), status: status),
         ];
       },
     );

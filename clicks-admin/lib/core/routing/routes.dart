@@ -26,6 +26,24 @@ class Routes {
   static const sources = '/sources';
   static const heatMap = '/heat-map';
   static const vehicleMakes = '/vehicle-makes';
+  static const vehicleModels = '/vehicle-models';
+  static const technicianLogs = '/technician-logs';
+  static const calls = '/calls';
+  static const adminNew = '/admin-management/new';
+  static const businessNew = '/businesses/new';
+  static const partnerNew = '/partners/new';
+  static const membershipPlans = '/subscription-plans';
+  static const membershipPlanNew = '/subscription-plans/new';
+  static const customerMemberships = '/customer-memberships';
+
+  static String membershipPlanEditPath(String id) =>
+      '/subscription-plans/$id/edit';
+  static String jobEditPath(String id) => '/jobs/$id/edit';
+  static String clientDetailPath(String id) => '/clients/$id';
+  static String adminEditPath(String id) => '/admin-management/$id/edit';
+  static String businessEditPath(String id) => '/businesses/$id/edit';
+  static String businessDetailPath(String id) => '/businesses/$id';
+  static String partnerEditPath(String id) => '/partners/$id/edit';
 
   /// Legacy alias — redirects to dashboard.
   static const home = dashboard;

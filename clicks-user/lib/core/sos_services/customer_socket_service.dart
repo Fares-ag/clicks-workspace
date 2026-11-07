@@ -31,8 +31,13 @@ class CustomerSocketService {
   void Function(dynamic)? onTechnicianArrived;
   void Function(dynamic)? onJobStarted;
   void Function(dynamic)? onJobCompleted;
+  void Function(dynamic)? onPaymentConfirmed;
+  void Function(dynamic)? onJobAtGarage;
+  void Function(dynamic)? onJobGarageReady;
   void Function(dynamic)? onSosExpired;
   void Function(dynamic)? onSosCancelled;
+  void Function(dynamic)? onSosScheduled;
+  void Function(dynamic)? onSosClosed;
   void Function(dynamic)? onJobCancelled;
   void Function(dynamic)? onError;
 
@@ -137,9 +142,24 @@ class CustomerSocketService {
       onJobStarted?.call(data);
     });
 
+    _socket!.on('jobAtGarage', (data) {
+      _log('Garage Car at garage: $data');
+      onJobAtGarage?.call(data);
+    });
+
+    _socket!.on('jobGarageReady', (data) {
+      _log('Garage Ready for drop-off: $data');
+      onJobGarageReady?.call(data);
+    });
+
     _socket!.on('jobCompleted', (data) {
       _log('💰 Job Completed & Paid: $data');
       onJobCompleted?.call(data);
+    });
+
+    _socket!.on('paymentConfirmed', (data) {
+      _log('💳 Payment Confirmed: $data');
+      onPaymentConfirmed?.call(data);
     });
 
     _socket!.on('sosExpired', (data) {
@@ -150,6 +170,16 @@ class CustomerSocketService {
     _socket!.on('sosCancelled', (data) {
       _log('❌ SOS Cancelled: $data');
       onSosCancelled?.call(data);
+    });
+
+    _socket!.on('sosScheduled', (data) {
+      _log('📅 SOS Scheduled: $data');
+      onSosScheduled?.call(data);
+    });
+
+    _socket!.on('sosClosed', (data) {
+      _log('🗂️ SOS Closed: $data');
+      onSosClosed?.call(data);
     });
 
     _socket!.on('jobCancelled', (data) {

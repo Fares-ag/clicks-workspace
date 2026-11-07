@@ -38,7 +38,7 @@ function computeJobPricing(job, repairs) {
   );
   const total = basePrice + distanceFee + timeFee + repairsTotal;
   const profit = total - costTotal;
-  return {
+  const priced = {
     total,
     basePrice,
     distanceFee,
@@ -48,6 +48,8 @@ function computeJobPricing(job, repairs) {
     profit,
     serviceCharge: distanceFee + timeFee,
   };
+  const { adjustPricing } = require("../services/membershipEntitlement");
+  return adjustPricing(priced, job?.membership);
 }
 
 module.exports = { computeJobPricing, qatarLocalHour };

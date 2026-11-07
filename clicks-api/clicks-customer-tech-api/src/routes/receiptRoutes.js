@@ -18,6 +18,11 @@ const customerOrApprovedTechnician = [
 // ensureCompletionReceipt, from computeJobPricing.
 // Static path before /:id
 router.get(
+  "/job/:jobId/download",
+  customerOrApprovedTechnician,
+  receiptController.downloadReceiptByJob
+);
+router.get(
   "/job/:jobId",
   customerOrApprovedTechnician,
   receiptController.getReceiptByJob

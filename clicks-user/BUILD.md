@@ -34,3 +34,19 @@ Run against production from a debug build:
 ```powershell
 flutter run --dart-define=ENV=production
 ```
+
+Or use `scripts/run-web-dev.ps1` (Chrome on port 8080, production API).
+
+### Local membership checkout (real plan IDs)
+
+1. Copy `clicks-api/clicks-customer-tech-api/.env.example` → `.env` and set `MONGODB_URI`, `JWT_SECRET`, `LAUNCH_CUSTOMER_MEMBERSHIP=true`.
+2. Optional: set `SKIPCASH_*` sandbox keys in the same `.env` to complete payment (see `clicks-api/scripts/qa-skipcash-membership-sandbox.md`).
+3. From `clicks-user`:
+
+```powershell
+.\scripts\run-web-local-membership.ps1 -SeedDemo
+```
+
+This starts the customer-tech API if needed, seeds Basic/Plus plans, opens Chrome on **8081** pointing at `http://127.0.0.1:5001`. Log in with **33333333** / **Customer123!** after `-SeedDemo`.
+
+Without `-SeedDemo`, run `node clicks-api/scripts/seed-demo-data.js` yourself if the DB has no test customer.

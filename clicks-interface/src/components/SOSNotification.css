@@ -185,9 +185,16 @@
 /* Actions */
 .sos-actions {
   display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   padding-top: 24px;
+}
+
+.sos-actions .sos-btn-create-job {
+  margin-top: 0 !important;
 }
 
 .sos-btn-create-job {
@@ -208,6 +215,26 @@
 .sos-btn-create-job:hover {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
+}
+
+.sos-btn-secondary {
+  background: #344054;
+  border-color: #344054;
+}
+
+.sos-btn-secondary:hover {
+  background: #1d2939;
+  border-color: #1d2939;
+}
+
+.sos-btn-muted {
+  background: #667085;
+  border-color: #667085;
+}
+
+.sos-btn-muted:hover {
+  background: #475467;
+  border-color: #475467;
 }
 
 @keyframes fadeIn {

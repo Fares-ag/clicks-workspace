@@ -39,6 +39,8 @@ const SOSRequestSchema = new mongoose.Schema(
         "cancelled",
         "expired",
         "completed",
+        "scheduled",
+        "not_a_job",
       ],
       default: "pending",
     },
@@ -61,6 +63,19 @@ const SOSRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Job",
     },
+    outcome: {
+      type: String,
+      enum: ["job_created", "scheduled", "not_a_job", "cancelled", "expired"],
+      default: null,
+    },
+    outcome_reason: { type: String, default: "" },
+    scheduled_request_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ServiceRequest",
+      default: null,
+    },
+    after_hours: { type: Boolean, default: false },
+    next_open_at: { type: Date, default: null },
   },
   { timestamps: true }
 );

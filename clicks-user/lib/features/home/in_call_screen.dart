@@ -53,8 +53,13 @@ class _InCallWithDispatcherScreenState extends State<InCallWithDispatcherScreen>
       backgroundColor: bg,
       body: BlocListener<SosCubit, SosState>(
         listener: (context, state) {
-          if (state is JobCancelled || state is SosCancelled) {
+          if (state is JobCancelled ||
+              state is SosCancelled ||
+              state is SosClosed) {
             AppSnackBars.errorSnackBar('home.sos_cancelled'.tr());
+            context.offAllNamed(Routes.home);
+          } else if (state is SosScheduled) {
+            AppSnackBars.successSnackBar('services.booking_confirmed'.tr());
             context.offAllNamed(Routes.home);
           } else if (state is TechnicianAssigned) {
             setState(() {

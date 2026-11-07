@@ -24,6 +24,11 @@ const {
   rejectHoldRequest,
   clearPendingHoldRequest,
 } = require("../../../clicks-shared/services/jobHold");
+const {
+  sendJobToGarage,
+  markGarageReady,
+  assertCanResume,
+} = require("../../../clicks-shared/services/jobGarage");
 const { TECH_BUSY_JOB_STATUSES, ADMIN_COMPLETABLE_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const { isSourceLockedJob, formatJobSourceLabel } = require("../../../clicks-shared/utils/jobOrigin");
 const { buildPrefixSearchFilter, computeJobSearchFields } = require("../../../clicks-shared/utils/searchFields");
@@ -38,7 +43,16 @@ const {
   toId,
 } = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
-const { buildAdminJobListFilters } = require("../../../clicks-shared/utils/adminJobListFilters");
+const {
+  buildAdminJobListFilters,
+  buildAdminJobStatsBaseFilters,
+} = require("../../../clicks-shared/utils/adminJobListFilters");
+const { ONGOING_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
+const {
+  COMPLETED,
+  sumCompletedRevenue,
+} = require("../../../clicks-shared/utils/dashboardRevenue");
+const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
 const { reassignJob: reassignJobRecord } = require("../../../clicks-shared/services/jobReassign");
 const { pick, str } = require("../../../clicks-shared/utils/coerce");
 const {
@@ -78,6 +92,116 @@ const ADMIN_EDITABLE_JOB_FIELDS = [
   "technician_estimate",
 ];
 
+function mergeJobQueries(base, extra) {
+  if (!base || Object.keys(base).length === 0) return { ...extra };
+  return { $and: [base, extra] };
+}
+
+function applyJobSearchToQuery(query, search) {
+  if (!str(search).trim()) return query;
+  const searchFilter = buildPrefixSearchFilter(search, {
+    phoneField: "search_phone",
+    nameField: "search_name",
+    businessNameField: "businessName",
+  });
+  if (!searchFilter) return query;
+  const term = str(search, { maxLength: 64 }).trim();
+  const clauses = searchFilter.$or ? [...searchFilter.$or] : [searchFilter];
+  if (term) {
+    clauses.push({ job_reference: new RegExp(`^${escapeRegex(term)}`, "i") });
+  }
+  const searchClause = { $or: clauses };
+  if (Object.keys(query).length) {
+    return { $and: [query, searchClause] };
+  }
+  return searchClause;
+}
+
+// GET /api/jobs/stats — KPI counts for the job list (respects date/search filters)
+async function getJobListStats(req, res) {
+  try {
+    const { search = "" } = req.query;
+    const needsTechRoster = Boolean(
+      str(req.query.technician).trim() || str(req.query.technicianId).trim()
+    );
+    const techRosterForFilter = needsTechRoster ? await getSlimTechnicianRoster() : [];
+
+    const { query: baseQuery, filterKeyParts } = buildAdminJobStatsBaseFilters(
+      req.query,
+      { techRoster: techRosterForFilter }
+    );
+    const query = applyJobSearchToQuery({ ...baseQuery }, search);
+    const hasDateFilter = Boolean(
+      str(req.query.dateFrom).trim() || str(req.query.dateTo).trim()
+    );
+    const cacheKey = `clicks:admin:payload:job-stats:${str(search)}|${filterKeyParts.join(",")}`;
+
+    const payload = await getCachedPayload(cacheKey, 15000, async () => {
+      const count = (extra) =>
+        cachedCount(Job, mergeJobQueries(query, extra), {
+          ttlMs: 15000,
+          key: `${cacheKey}:${JSON.stringify(extra)}`,
+        });
+
+      const [
+        pending,
+        ongoing,
+        onHold,
+        cancelled,
+        atGarage,
+        returning,
+      ] = await Promise.all([
+        count({ job_status: "pending" }),
+        count({ job_status: { $in: ONGOING_JOB_STATUSES } }),
+        count({ job_status: "on_hold" }),
+        count({ job_status: "cancelled" }),
+        count({ "garage.phase": "at_garage" }),
+        count({ "garage.phase": "returning" }),
+      ]);
+
+      let completedToday;
+      let revenueToday;
+      if (hasDateFilter) {
+        completedToday = await count({ job_status: { $in: COMPLETED } });
+        revenueToday = await sumCompletedRevenue(Job, query);
+      } else {
+        const todayStart = startOfQatarDay();
+        const todayEnd = endOfQatarDay();
+        completedToday = await count({
+          job_status: { $in: COMPLETED },
+          completed_at: { $gte: todayStart, $lte: todayEnd },
+        });
+        revenueToday = await sumCompletedRevenue(Job, {
+          ...query,
+          completed_at: { $gte: todayStart, $lte: todayEnd },
+        });
+      }
+
+      return {
+        scopedByFilters: hasDateFilter || filterKeyParts.length > 0,
+        scopedByDate: hasDateFilter,
+        jobs: {
+          pending,
+          ongoing,
+          onHold,
+          cancelled,
+          atGarage,
+          returning,
+          completedToday,
+        },
+        earnings: {
+          today: revenueToday,
+          currency: "QAR",
+        },
+      };
+    });
+
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch job stats", error: err.message });
+  }
+}
+
 // GET /api/jobs
 async function getJobs(req, res) {
   try {
@@ -98,25 +222,7 @@ async function getJobs(req, res) {
     let query = { ...filterQuery };
 
     if (search) {
-      // TODO: full free-text search on issue/location → Atlas Search
-      const searchFilter = buildPrefixSearchFilter(search, {
-        phoneField: "search_phone",
-        nameField: "search_name",
-        businessNameField: "businessName",
-      });
-      if (searchFilter) {
-        const term = str(search, { maxLength: 64 }).trim();
-        const clauses = searchFilter.$or ? [...searchFilter.$or] : [searchFilter];
-        if (term) {
-          clauses.push({ job_reference: new RegExp(`^${escapeRegex(term)}`, "i") });
-        }
-        const searchClause = { $or: clauses };
-        if (Object.keys(query).length) {
-          query = { $and: [query, searchClause] };
-        } else {
-          query = searchClause;
-        }
-      }
+      query = applyJobSearchToQuery(query, search);
     }
 
     const hasFilter = Boolean(str(search).trim() || hasListFilters);
@@ -855,6 +961,7 @@ async function resumeJob(req, res) {
     const job = await Job.findById(req.params.id);
     if (!job) return res.status(404).json({ message: "Job not found" });
 
+    assertCanResume(job);
     await resumeJobFromHold(job);
 
     const restoredBusy = TECH_BUSY_JOB_STATUSES.includes(job.job_status);
@@ -1050,6 +1157,15 @@ async function completeJob(req, res) {
       console.error("Partner accrual failed:", partnerErr.message);
     }
 
+    try {
+      const {
+        consumeOnComplete,
+      } = require("../../../clicks-shared/services/membershipEntitlement");
+      await consumeOnComplete(job);
+    } catch (membershipErr) {
+      console.error("Admin complete: membership consume failed:", membershipErr.message);
+    }
+
     await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
 
     await recordAudit({
@@ -1080,8 +1196,129 @@ async function completeJob(req, res) {
   }
 }
 
+async function sendAdminJobToGarage(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    clearPendingHoldRequest(job, { adminId: req.user?.id });
+    await sendJobToGarage(job, {
+      reason: req.body?.reason,
+      garageName: req.body?.garage_name,
+      expectedReadyAt: req.body?.expected_ready_at,
+      heldBy: "admin",
+    });
+
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id);
+
+    await recordAudit({
+      req,
+      action: "job.garage",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue("on_hold"),
+        "garage.phase": serializeAuditValue("at_garage"),
+        hold_reason: serializeAuditValue(job.hold_reason),
+      },
+    });
+
+    try {
+      const customerTechApiUrl =
+        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
+      if (job.customer_id) {
+        await axios.post(
+          `${customerTechApiUrl}/api/sos/notify-outcome`,
+          {
+            sos_id: job.sos_request_id || job._id.toString(),
+            customer_id: String(job.customer_id),
+            event: "jobAtGarage",
+            payload: {
+              job_id: job._id.toString(),
+              garage: job.garage,
+              job_status: job.job_status,
+            },
+          },
+          { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
+        );
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify garage send:", notifyErr.message);
+    }
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({ message: "Job sent to garage", job: populated });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to send job to garage",
+      error: err.message,
+    });
+  }
+}
+
+async function markAdminGarageReady(req, res) {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Job not found" });
+
+    await markGarageReady(job);
+    await applyAdminTechnicianPresence(job.assignedTechnician, job._id, true);
+
+    await recordAudit({
+      req,
+      action: "job.garage_ready",
+      entityType: "job",
+      entityId: job._id,
+      changes: {
+        job_status: serializeAuditValue("accepted"),
+        "garage.phase": serializeAuditValue("returning"),
+      },
+    });
+
+    try {
+      const customerTechApiUrl =
+        process.env.CUSTOMER_TECH_API_URL || "http://localhost:5001";
+      if (job.customer_id) {
+        await axios.post(
+          `${customerTechApiUrl}/api/sos/notify-outcome`,
+          {
+            sos_id: job.sos_request_id || job._id.toString(),
+            customer_id: String(job.customer_id),
+            event: "jobGarageReady",
+            payload: {
+              job_id: job._id.toString(),
+              garage: job.garage,
+              job_status: job.job_status,
+            },
+          },
+          { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } }
+        );
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify garage ready:", notifyErr.message);
+    }
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({ message: "Garage marked ready", job: populated });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      message: err.message || "Failed to mark garage ready",
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   getJobs,
+  getJobListStats,
   createJob,
   getJobById,
   updateJob,
@@ -1094,4 +1331,6 @@ module.exports = {
   approveHoldRequestJob,
   rejectHoldRequestJob,
   completeJob,
+  sendAdminJobToGarage,
+  markAdminGarageReady,
 };

@@ -124,7 +124,10 @@ class ActivityJobCard extends StatelessWidget {
       return 'Active';
     }
     if (status == 'on_hold') {
-      return 'On hold — contact dispatch';
+      final phase = job['garage'] is Map ? job['garage']['phase']?.toString() : null;
+      return phase == 'at_garage'
+          ? 'At garage'
+          : 'On hold — contact dispatch';
     }
     if (status == 'completed' &&
         (job['payment_status']?.toString() ?? '') != 'paid') {

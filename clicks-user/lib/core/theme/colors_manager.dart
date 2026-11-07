@@ -5,6 +5,14 @@ class ColorsManager {
   /// The main color used in the application.
   static const Color mainColor = Color(0xff981F1F);
 
+  /// Soft brand wash behind headers and selected cards.
+  static const Color wash = Color(0xFFFEF2F2);
+  static const Color washBorder = Color(0xFFFECDCA);
+
+  /// App canvas behind tab screens (not stark white).
+  static const Color canvas = Color(0xFFF8F5F5);
+  static const Color card = Color(0xFFFFFFFF);
+
   /// The secondary color used in the application.
   static const Color secondColor = Color(0xff00d8b4);
 

@@ -2,11 +2,22 @@ import React, { useState, useEffect } from 'react';
 import './SOSNotification.css';
 import NotificationQueueNote from './NotificationQueueNote.jsx';
 
-function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
+function SOSNotification({
+  sosData,
+  onCreateJob,
+  onSchedule,
+  onCloseNotAJob,
+  onDismiss,
+  queueCount = 0,
+}) {
   const [timeLeft, setTimeLeft] = useState(60);
+  const [mode, setMode] = useState('actions');
+  const [serviceType, setServiceType] = useState(sosData.service_type || '');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [closeReason, setCloseReason] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // 60s contact promise — countdown for urgency only; do NOT auto-dismiss.
     const expiresAt = sosData.expires_at
       ? new Date(sosData.expires_at)
       : new Date(Date.now() + 60000);
@@ -20,15 +31,37 @@ function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
     return () => clearInterval(interval);
   }, [sosData.expires_at]);
 
-  // Safe access to nested properties
   const customer = sosData.customer || {};
   const vehicle = sosData.vehicle || {};
   const location = sosData.location || {};
+  const upcoming = sosData.upcoming_bookings || [];
+
+  const submitSchedule = async () => {
+    if (!scheduledFor || !onSchedule) return;
+    setBusy(true);
+    try {
+      await onSchedule(sosData, {
+        service_type: serviceType || 'Roadside service',
+        scheduled_for: new Date(scheduledFor).toISOString(),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitClose = async () => {
+    if (!closeReason.trim() || !onCloseNotAJob) return;
+    setBusy(true);
+    try {
+      await onCloseNotAJob(sosData, closeReason.trim());
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="sos-notification-overlay">
       <div className="sos-notification-modal">
-        {/* Header */}
         <div className="sos-header">
           <h2 className="sos-header-title">Emergency SOS Request</h2>
           <button className="sos-close-btn" onClick={onDismiss}>
@@ -38,21 +71,35 @@ function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="sos-content">
           <NotificationQueueNote queueCount={queueCount} />
 
-          {/* Timer — promise window, not an expiry */}
           <div className="sos-timer">
             <span className="sos-timer-label">
-              {timeLeft > 0 ? "Contact promise:" : "Overdue — still open:"}
+              {sosData.after_hours
+                ? "After hours — still open:"
+                : timeLeft > 0
+                  ? "Contact promise:"
+                  : "Overdue — still open:"}
             </span>
             <span className="sos-timer-value">
               {timeLeft > 0 ? `${timeLeft}S` : "OPEN"}
             </span>
           </div>
 
-          {/* Customer Information */}
+          {upcoming.length > 0 && (
+            <div className="sos-section">
+              <h3 className="sos-section-title">Existing booking</h3>
+              {upcoming.map((b) => (
+                <p key={b.id} className="sos-info-value">
+                  {b.service_type} · {b.scheduled_for
+                    ? new Date(b.scheduled_for).toLocaleString()
+                    : "scheduled"}
+                </p>
+              ))}
+            </div>
+          )}
+
           <div className="sos-section">
             <h3 className="sos-section-title">Customer Information</h3>
             <div className="sos-info-row">
@@ -67,7 +114,6 @@ function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
             </div>
           </div>
 
-          {/* Vehicle Details */}
           <div className="sos-section">
             <h3 className="sos-section-title">Vehicle Details</h3>
             <div className="sos-info-row">
@@ -98,7 +144,6 @@ function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
             </div>
           </div>
 
-          {/* Location */}
           <div className="sos-section">
             <h3 className="sos-section-title">Location</h3>
             <div className="sos-location-row">
@@ -113,11 +158,83 @@ function SOSNotification({ sosData, onCreateJob, onDismiss, queueCount = 0 }) {
             </div>
           </div>
 
-          {/* Actions */}
+          {mode === 'schedule' && (
+            <div className="sos-section">
+              <h3 className="sos-section-title">Schedule for later</h3>
+              <input
+                className="sos-inbox-select"
+                placeholder="Service type"
+                value={serviceType}
+                onChange={(e) => setServiceType(e.target.value)}
+              />
+              <input
+                className="sos-inbox-select"
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => setScheduledFor(e.target.value)}
+                style={{ marginTop: 8 }}
+              />
+            </div>
+          )}
+
+          {mode === 'close' && (
+            <div className="sos-section">
+              <h3 className="sos-section-title">Not a job</h3>
+              <input
+                className="sos-inbox-select"
+                placeholder="Reason the customer will see"
+                value={closeReason}
+                onChange={(e) => setCloseReason(e.target.value)}
+              />
+            </div>
+          )}
+
           <div className="sos-actions">
-            <button className="sos-btn-create-job" onClick={() => onCreateJob(sosData)}>
-              Create job
-            </button>
+            {mode === 'actions' && (
+              <>
+                <button className="sos-btn-create-job" onClick={() => onCreateJob(sosData)}>
+                  Create job
+                </button>
+                {onSchedule && (
+                  <button
+                    type="button"
+                    className="sos-btn-create-job sos-btn-secondary"
+                    onClick={() => setMode('schedule')}
+                  >
+                    Schedule
+                  </button>
+                )}
+                {onCloseNotAJob && (
+                  <button
+                    type="button"
+                    className="sos-btn-create-job sos-btn-muted"
+                    onClick={() => setMode('close')}
+                  >
+                    Not a job
+                  </button>
+                )}
+              </>
+            )}
+            {mode === 'schedule' && (
+              <>
+                <button className="sos-btn-create-job" disabled={busy || !scheduledFor} onClick={submitSchedule}>
+                  Confirm booking
+                </button>
+                <button className="sos-close-btn" style={{ marginTop: 8 }} onClick={() => setMode('actions')}>
+                  Back
+                </button>
+              </>
+            )}
+            {mode === 'close' && (
+              <>
+                <button className="sos-btn-create-job" disabled={busy || !closeReason.trim()} onClick={submitClose}>
+                  Close request
+                </button>
+                <button className="sos-close-btn" style={{ marginTop: 8 }} onClick={() => setMode('actions')}>
+                  Back
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

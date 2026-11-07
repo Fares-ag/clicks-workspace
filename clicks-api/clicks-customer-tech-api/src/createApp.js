@@ -52,6 +52,8 @@ function attachStubNotifyHandlers(app) {
   app.set("notifyAdminTechnicianPresence", noopAsync);
   app.set("notifyAdminTechnicianLocation", noopAsync);
   app.set("notifySosClaimed", noopAsync);
+  app.set("notifySosOutcome", noopAsync);
+  app.set("notifyTechnicianJobEvent", noopAsync);
   app.set("notifyAdminBusinessJob", noopAsync);
   app.set("notifyAdminBusinessLead", noopAsync);
   app.set("notifyAdminTechnicianJob", noopAsync);
@@ -119,10 +121,15 @@ function createTechApp(opts = {}) {
   app.use("/api/content", contentRoutes);
   app.use("/api/analytics", require("./routes/analyticsRoutes"));
   app.use("/api/receipts", require("./routes/receiptRoutes"));
+  app.use("/api/membership", require("./routes/membershipRoutes"));
   // /api/repairs removed: unauthenticated-by-job CRUD on billable line items.
   // Repairs are managed through POST /api/jobs/:id/repairs, which enforces assertJobAccess.
   app.use("/api/notifications", require("./routes/notificationRoutes"));
   app.use("/api/maps", require("./routes/mapsRoutes"));
+  app.post(
+    "/api/webhooks/skipcash",
+    require("./controllers/skipcashController").handleWebhook
+  );
 
   app.get("/api/launch-flags", (_req, res) => {
     const { getLaunchFlags } = require("./utils/featureFlags");
@@ -148,6 +155,8 @@ function wireSosNotifyHandlers(app, sosHandlers) {
   app.set("notifyAdminTechnicianPresence", sosHandlers.notifyAdminTechnicianPresence);
   app.set("notifyAdminTechnicianLocation", sosHandlers.notifyAdminTechnicianLocation);
   app.set("notifySosClaimed", sosHandlers.notifySosClaimed);
+  app.set("notifySosOutcome", sosHandlers.notifySosOutcome);
+  app.set("notifyTechnicianJobEvent", sosHandlers.notifyTechnicianJobEvent);
   app.set("notifyAdminBusinessJob", sosHandlers.notifyAdminBusinessJob);
   app.set("notifyAdminBusinessLead", sosHandlers.notifyAdminBusinessLead);
   app.set("notifyAdminTechnicianJob", sosHandlers.notifyAdminTechnicianJob);

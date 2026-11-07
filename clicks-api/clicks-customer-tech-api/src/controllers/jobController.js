@@ -31,6 +31,9 @@ const {
   requestJobHold,
   cancelHoldRequest,
 } = require("../../../clicks-shared/services/jobHold");
+const { buildCustomerSession } = require("../../../clicks-shared/utils/customerBookingGuard");
+const { customerCancelDecision } = require("../../../clicks-shared/utils/customerCancelPolicy");
+const { sendJobToGarage } = require("../../../clicks-shared/services/jobGarage");
 const {
   MOBILE_JOB_LIST_SELECT,
   MOBILE_JOB_LIST_POPULATE,
@@ -76,7 +79,7 @@ const sessionJobPopulate = [
 ];
 
 const SESSION_JOB_SELECT =
-  "job_reference clientName clientMobileNumber clientEmail customer_id customer_vehicle_id vehicleMake vehicleModel vehicleYear licensePlate issue location locationCoordinates dateTime jobType assignedTechnician price source subSource job_status payment_status payment_method assigned_at accepted_at en_route_at arrived_at started_at completed_at hold_request hold_reason hold_status previous_status started_latitude started_longitude rating businessName customerSignatureUrl customerSignedAt customerSignatureInvalidatedAt completion_notes createdAt updatedAt";
+  "job_reference clientName clientMobileNumber clientEmail customer_id customer_vehicle_id vehicleMake vehicleModel vehicleYear licensePlate issue location locationCoordinates dateTime jobType assignedTechnician price source subSource job_status payment_status payment_method assigned_at accepted_at en_route_at arrived_at started_at completed_at hold_request hold_reason hold_status previous_status started_latitude started_longitude rating businessName customerSignatureUrl customerSignedAt customerSignatureInvalidatedAt completion_notes membership createdAt updatedAt";
 
 function resolveJobLatLng(job) {
   const coords = job?.locationCoordinates?.coordinates;
@@ -460,7 +463,27 @@ const markCompleted = async (req, res) => {
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    if (job.payment_status !== "paid") {
+    if (job.price == null) {
+      recordTechnicianActivity({
+        req,
+        technicianId: req.user.id,
+        event: "job.complete_blocked",
+        outcome: "blocked",
+        message: "Complete blocked — job price not set",
+        statusCode: 400,
+        jobId: job._id,
+        jobReference: job.job_reference,
+        metadata: { reason: "price_missing" },
+      });
+      return res.status(400).json({
+        error: "Set the job price before completing the job",
+      });
+    }
+    const { RepairProcedure: RepairProcedureModel } = require("../../../clicks-shared/models");
+    const completeRepairs = await RepairProcedureModel.find({ job_id: job._id });
+    const completePricing = computeJobPricing(job, completeRepairs);
+    const zeroDue = Number(completePricing.total || 0) <= 0;
+    if (job.payment_status !== "paid" && !zeroDue) {
       recordTechnicianActivity({
         req,
         technicianId: req.user.id,
@@ -519,6 +542,10 @@ const markCompleted = async (req, res) => {
       completed_at: new Date(),
       job_reference: jobReference,
     };
+    if (zeroDue && job.payment_status !== "paid") {
+      completionSet.payment_status = "paid";
+      completionSet.paid_at = new Date();
+    }
     const notes = req.body?.completion_notes ?? req.body?.notes;
     if (typeof notes === "string" && notes.trim()) {
       completionSet.completion_notes = notes.trim().slice(0, 2000);
@@ -588,6 +615,15 @@ const markCompleted = async (req, res) => {
     }
 
     invalidateTechSessionCache(updated.assignedTechnician);
+
+    try {
+      const {
+        consumeOnComplete,
+      } = require("../../../clicks-shared/services/membershipEntitlement");
+      await consumeOnComplete(updated);
+    } catch (membershipErr) {
+      console.error("Membership consume failed:", membershipErr.message);
+    }
 
     recordTechnicianActivity({
       req,
@@ -1054,6 +1090,11 @@ const confirmPayment = async (req, res) => {
         error: `Cannot collect payment for job with status: ${job.job_status}. Job must be in progress (or completed unpaid).`,
       });
     }
+    if (job.price == null) {
+      return res.status(400).json({
+        error: "Set the job price before collecting payment",
+      });
+    }
     // Idempotency — already paid (do not set Online; tech stays On Job until complete)
     if (job.payment_status === "paid") {
       const existing = await Receipt.findOne({ job_id: job._id }).sort({ issued_at: -1 });
@@ -1147,6 +1188,51 @@ const confirmPayment = async (req, res) => {
   }
 };
 
+/** Customer chooses cash. Does not mark the job paid — technician still confirms collection. */
+const payCash = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (!["in_progress", "completed"].includes(job.job_status)) {
+      return res.status(400).json({
+        error: `Cannot choose cash for a job in status ${job.job_status}`,
+        code: "CASH_NOT_PAYABLE",
+      });
+    }
+    if (job.payment_status === "paid") {
+      return res.json({
+        message: "Payment already confirmed",
+        job_status: job.job_status,
+        payment_status: job.payment_status,
+        payment_method: job.payment_method,
+        already_paid: true,
+      });
+    }
+    if (job.price == null) {
+      return res.status(400).json({
+        error: "Price has not been set yet",
+        code: "PRICE_NOT_SET",
+      });
+    }
+
+    job.payment_method = "cash";
+    await job.save();
+
+    res.json({
+      message: "Cash payment selected. Pay the technician — they will confirm when they receive it.",
+      job_status: job.job_status,
+      payment_status: job.payment_status,
+      payment_method: job.payment_method,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Cash payment failed", details: err.message });
+  }
+};
+
 // ==================== SESSION RESUME ENDPOINTS ====================
 
 // Get customer's current active job (for app resume)
@@ -1211,61 +1297,8 @@ const getCustomerActiveSOS = async (req, res) => {
 // Get customer's full session state (combines active SOS + active job)
 const getCustomerSession = async (req, res) => {
   try {
-    const customer_id = req.user.id;
-    
-    // Check for active SOS first
-    const activeSOS = await SOSRequest.findOne({
-      customer_id,
-      status: { $in: ['pending', 'in_call'] }
-    })
-    .populate({
-      path: 'customer_vehicle_id',
-      populate: [
-        { path: 'vehicle_make' },
-        { path: 'vehicle_model' }
-      ]
-    })
-    .sort({ createdAt: -1 });
-    
-    // Check for active job
-    // Include: active jobs OR completed jobs where payment is not yet received
-    const activeJob = await Job.findOne({
-      customer_id,
-      $or: [
-        { job_status: { $in: TECH_SESSION_ACTIVE_STATUSES } },
-        { job_status: 'completed', payment_status: { $ne: 'paid' } }
-      ]
-    })
-    .populate('assignedTechnician', 'firstName lastName phone profilePicture currentLocation currentStatus')
-    .populate({
-      path: 'customer_vehicle_id',
-      populate: [
-        { path: 'vehicle_make' },
-        { path: 'vehicle_model' }
-      ]
-    })
-    .populate('source')
-    .sort({ createdAt: -1 });
-
-    const activeServiceRequest = await ServiceRequest.findOne({
-      customer_id,
-      status: { $in: ["pending", "assigned"] },
-    })
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make" },
-          { path: "vehicle_model" },
-        ],
-      })
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      active_sos: activeSOS,
-      active_job: activeJob,
-      active_service_request: activeServiceRequest,
-      has_active_session: !!(activeSOS || activeJob || activeServiceRequest),
-    });
+    const session = await buildCustomerSession({ customerId: req.user.id });
+    res.json(session);
   } catch (err) {
     res.status(500).json({ error: "Fetch session failed", details: err.message });
   }
@@ -1646,6 +1679,180 @@ const cancelHoldRequestHandler = async (req, res) => {
   }
 };
 
+const cancelJobByCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason =
+      (typeof req.body?.reason === "string" && req.body.reason.trim()) ||
+      (typeof req.body?.cancellation_reason === "string" &&
+        req.body.cancellation_reason.trim()) ||
+      "cancelled_by_customer";
+
+    const job = await Job.findById(id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (job.job_status === "cancelled" && job.cancelled_by === "customer") {
+      return res.json({
+        message: "Job cancelled",
+        job,
+        cancel_fee_due: !!job.cancel_fee_due,
+      });
+    }
+
+    const decision = customerCancelDecision(job.job_status);
+    if (!decision.allowed) {
+      return res.status(400).json({
+        error: "Work has already started — please contact support",
+        code: decision.code,
+      });
+    }
+
+    const allowed = ["assigned", "accepted", "en_route", "arrived"];
+    const cancelled = await Job.findOneAndUpdate(
+      {
+        _id: id,
+        job_status: { $in: allowed },
+        payment_status: { $ne: "paid" },
+      },
+      {
+        $set: {
+          job_status: "cancelled",
+          cancelled_at: new Date(),
+          cancelled_by: "customer",
+          cancellation_reason: reason.slice(0, 500),
+          cancel_fee_due: decision.fee,
+        },
+      },
+      { new: true }
+    );
+    if (!cancelled) {
+      return res.status(400).json({
+        error: "Job is no longer cancellable",
+        code: "JOB_NOT_CANCELLABLE",
+      });
+    }
+
+    if (cancelled.assignedTechnician) {
+      const TechnicianEarnings = require("../../../clicks-shared/models/TechnicianEarnings");
+      await TechnicianEarnings.findOneAndUpdate(
+        { technician_id: cancelled.assignedTechnician },
+        {
+          $inc: { "performance.total_cancelled_jobs": 1 },
+          $set: { updated_at: new Date() },
+        },
+        { upsert: true }
+      );
+      const nextStatus = await resolveTechnicianStatusAfterJob(
+        cancelled.assignedTechnician,
+        cancelled._id
+      );
+      await setTechnicianStatus(cancelled.assignedTechnician, nextStatus);
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(cancelled.assignedTechnician, nextStatus);
+      }
+    }
+
+    if (cancelled.sos_request_id) {
+      await SOSRequest.findByIdAndUpdate(cancelled.sos_request_id, {
+        status: "cancelled",
+        outcome: "cancelled",
+        cancel_reason: reason.slice(0, 500),
+      });
+    }
+
+    const payload = {
+      job_id: cancelled._id,
+      status: "cancelled",
+      reason,
+      cancelled_by: "customer",
+      cancel_fee_due: !!cancelled.cancel_fee_due,
+    };
+    try {
+      const notifyCustomer = req.app.get("notifyCustomerJobEvent");
+      if (typeof notifyCustomer === "function" && cancelled.customer_id) {
+        await notifyCustomer(cancelled.customer_id.toString(), "jobCancelled", payload);
+      }
+      const notifyTech = req.app.get("notifyTechnicianJobEvent");
+      if (typeof notifyTech === "function" && cancelled.assignedTechnician) {
+        await notifyTech(
+          cancelled.assignedTechnician.toString(),
+          "jobCancelled",
+          payload
+        );
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify cancel-customer:", notifyErr.message);
+    }
+
+    res.json({
+      message: "Job cancelled",
+      job: cancelled,
+      cancel_fee_due: !!cancelled.cancel_fee_due,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: "Failed to cancel job",
+      details: err.message,
+    });
+  }
+};
+
+const sendCustomerJobToGarage = async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.id);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    if (!assertJobAccess(job, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (!sameId(job.assignedTechnician, req.user.id)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    await sendJobToGarage(job, {
+      reason: req.body?.reason,
+      garageName: req.body?.garage_name,
+      expectedReadyAt: req.body?.expected_ready_at,
+      heldBy: "technician",
+    });
+
+    const nextStatus = await resolveTechnicianStatusAfterJob(
+      job.assignedTechnician,
+      job._id
+    );
+    if (job.assignedTechnician) {
+      await setTechnicianStatus(job.assignedTechnician, nextStatus);
+      const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
+      if (typeof notifyPresence === "function") {
+        await notifyPresence(job.assignedTechnician, nextStatus);
+      }
+    }
+
+    const notify = req.app.get("notifyCustomerJobEvent");
+    if (typeof notify === "function" && job.customer_id) {
+      await notify(job.customer_id.toString(), "jobAtGarage", {
+        job_id: job._id,
+        garage: job.garage,
+        job_status: job.job_status,
+      });
+    }
+    notifyAdminJobStatusFromReq(req, job);
+
+    const populated = await Job.findById(job._id)
+      .populate("assignedTechnician", "firstName lastName phone profilePicture")
+      .populate("source", "mainSourceName");
+
+    res.json({ message: "Job sent to garage", job: populated });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Failed to send job to garage",
+    });
+  }
+};
+
 module.exports = {
   getJobs,
   getCustomerJobs,
@@ -1661,7 +1868,10 @@ module.exports = {
   findNearbyTechnicians,
   markCompleted,
   cancelJobByTechnician,
+  cancelJobByCustomer,
+  sendCustomerJobToGarage,
   confirmPayment,
+  payCash,
   getCustomerActiveJob,
   getCustomerActiveSOS,
   getCustomerSession,

@@ -249,3 +249,37 @@
   background: #fef3f2;
   color: #b42318;
 }
+
+.data-analysis-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.data-analysis-date-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.data-analysis-date-field input[type="date"] {
+  height: 36px;
+}
+
+.data-analysis-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.data-analysis-chart {
+  width: 100%;
+  min-height: 240px;
+}
+
+.data-analysis-chart-subtitle {
+  margin: -4px 0 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}

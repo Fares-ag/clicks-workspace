@@ -1,7 +1,10 @@
+import 'package:clicks_user/core/components/clicks_app_header.dart';
+import 'package:clicks_user/core/components/header_icon_button.dart';
 import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/routing/routes.dart';
+import 'package:clicks_user/core/services/session_resume.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
 import 'package:clicks_user/features/home/job_in_progress_screen.dart';
@@ -9,7 +12,6 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/text_styles.dart';
@@ -67,46 +69,26 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: "activity.activity".tr(),
         actions: [
-          Padding(
-            padding: EdgeInsetsDirectional.only(end: 8.w),
-            child: InkWell(
-              onTap: () => _pickDateRange(context),
-              borderRadius: BorderRadius.circular(10.r),
-              child: Container(
-                width: 40.w,
-                height: 40.w,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10.r),
-                  border: Border.all(color: const Color(0xFFD0D5DD)),
-                ),
-                child: SvgPicture.asset(AssetsManager.calendarSvg),
-              ),
-            ),
+          HeaderIconButton(
+            icon: Icons.calendar_month_outlined,
+            selected: selectedDateRange != null,
+            semanticsLabel: 'SELECT DATE RANGE',
+            onTap: () => _pickDateRange(context),
           ),
           if (selectedDateRange != null)
-            IconButton(
-              onPressed: () => setState(() => selectedDateRange = null),
-              icon: Icon(Icons.clear, color: ColorsManager.greyColor, size: 20.sp),
+            Padding(
+              padding: EdgeInsetsDirectional.only(start: 8.w),
+              child: HeaderIconButton(
+                icon: Icons.close,
+                semanticsLabel: 'Clear date filter',
+                onTap: () => setState(() => selectedDateRange = null),
+              ),
             ),
         ],
-        shape: const Border(
-          bottom: BorderSide(color: Color(0xFFD0D5DD), width: 1),
-        ),
-        centerTitle: false,
-        title: Text(
-          "activity.activity".tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.w700,
-            fontSize: 20.sp,
-          ),
-        ),
       ),
       body: BlocBuilder<ActivityCubit, ActivityState>(
         builder: (context, state) {
@@ -289,7 +271,40 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
         lng = double.tryParse(parts[1].trim());
       }
 
+      final garagePhase = SessionResume.resolveGaragePhase(jobData);
+
       switch (status) {
+        case 'on_hold':
+          if (garagePhase == 'returning') {
+            if (lat != null && lng != null) {
+              Navigator.pushNamed(
+                ctx,
+                Routes.technicianTracking,
+                arguments: TrackingArgs(
+                  jobId: jobId,
+                  techInfo: techInfo,
+                  customerLat: lat,
+                  customerLng: lng,
+                  initialPhase: 'on_hold',
+                  techLat: SessionResume.techLat(jobData),
+                  techLng: SessionResume.techLng(jobData),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                  content: Text('activity.location_unavailable'.tr()),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          } else {
+            ctx.toNamed(
+              Routes.activityDetails,
+              arguments: JobDto.fromJson(jobData),
+            );
+          }
+          break;
         case 'accepted':
         case 'en_route':
           if (lat != null && lng != null) {
@@ -393,7 +408,7 @@ class JobCardData {
   final DateTime dateTime;
   final String title;
   final String jobId;
-  final int priceQar;
+  final int? priceQar;
   final JobStatus status;
   final String technician;
   final String location;
@@ -506,8 +521,8 @@ class _ExactJobCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: ColorsManager.border),
+        borderRadius: BorderRadius.circular(14.r),
+        border: Border.all(color: ColorsManager.washBorder),
       ),
       padding: EdgeInsets.all(16.w),
       child: Column(
@@ -639,9 +654,11 @@ class _ExactJobCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  data.status == JobStatus.cancelled
-                      ? '${'activity.cost'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}'
-                      : '${'activity.price'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}',
+                  data.priceQar == null
+                      ? 'activity.price_tbd'.tr()
+                      : data.status == JobStatus.cancelled
+                          ? '${'activity.cost'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}'
+                          : '${'activity.price'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}',
                   style: TextStyle(
                     fontFamily: 'HelveticaNeue',
                     fontSize: 16.sp,

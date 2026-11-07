@@ -462,7 +462,7 @@ function JobDetails() {
       const link = document.createElement('a');
       const ref = String(job.job_reference || job._id || 'receipt').replace(/[^\w.-]+/g, '-');
       link.href = url;
-      link.download = `clicks-receipt-${ref}.pdf`;
+      link.download = `sanadcom-receipt-${ref}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

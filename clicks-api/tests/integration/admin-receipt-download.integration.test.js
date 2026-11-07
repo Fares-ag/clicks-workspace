@@ -39,9 +39,9 @@ describe("Admin receipt download", () => {
       .set(bearer(adminToken("Super Admin")));
     expect(pdf.status).toBe(200);
     expect(pdf.headers["content-type"]).toMatch(/pdf/);
-    expect(pdf.headers["content-disposition"]).toMatch(/clicks-receipt-CLK-26-0147\.pdf/);
+    expect(pdf.headers["content-disposition"]).toMatch(/sanadcom-receipt-CLK-26-0147\.pdf/);
     expect(pdf.body.toString("utf8", 0, 5)).toBe("%PDF-");
-    expect(pdf.body.toString("latin1")).toMatch(/CLICKS/);
+    expect(pdf.body.toString("latin1")).toMatch(/Sanadcom/);
     expect(pdf.body.toString("latin1")).toMatch(/1150\.00/);
     expect(pdf.body.toString("latin1")).toMatch(/Unpaid/);
   });

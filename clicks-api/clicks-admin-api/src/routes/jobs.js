@@ -6,6 +6,7 @@ const uploadXlsx = require("../middleware/uploadXlsx");
 const jobController = require("../controllers/jobController");
 const jobHeatmapController = require("../controllers/jobHeatmapController");
 
+router.get("/stats", authenticateToken, requireOps, jobController.getJobListStats);
 router.get("/", authenticateToken, requireOps, jobController.getJobs);
 router.post("/", authenticateToken, requireOps, jobController.createJob);
 // Must be registered before /:id so named paths are not captured as an id
@@ -40,6 +41,13 @@ router.put("/:id", authenticateToken, requireOps, jobController.updateJob);
 router.post("/:id/reassign", authenticateToken, requireOps, jobController.reassignJob);
 router.post("/:id/hold", authenticateToken, requireOps, jobController.holdJob);
 router.post("/:id/resume", authenticateToken, requireOps, jobController.resumeJob);
+router.post("/:id/garage", authenticateToken, requireOps, jobController.sendAdminJobToGarage);
+router.post(
+  "/:id/garage/ready",
+  authenticateToken,
+  requireOps,
+  jobController.markAdminGarageReady
+);
 router.post("/:id/complete", authenticateToken, requireOps, jobController.completeJob);
 router.post(
   "/:id/hold-request/approve",

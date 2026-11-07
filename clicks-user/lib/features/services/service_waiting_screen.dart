@@ -8,8 +8,11 @@ import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
+import 'package:clicks_user/features/home/job_in_progress_screen.dart';
 import 'package:clicks_user/features/home/technician_tracking_screen.dart';
 import 'package:clicks_user/features/services/service_request_api.dart';
+import 'package:clicks_user/core/constants/job_status_labels.dart';
+import 'package:clicks_user/core/services/session_resume.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -29,6 +32,16 @@ class ServiceWaitingArgs {
     required this.timing,
     this.scheduledFor,
   });
+
+  factory ServiceWaitingArgs.fromBooking(Map<String, dynamic> data) {
+    return ServiceWaitingArgs(
+      requestId: data['_id']?.toString() ?? data['id']?.toString() ?? '',
+      serviceType: data['service_type']?.toString() ?? '',
+      serviceLabel: data['service_label']?.toString(),
+      timing: data['timing']?.toString() ?? 'immediate',
+      scheduledFor: DateTime.tryParse(data['scheduled_for']?.toString() ?? ''),
+    );
+  }
 }
 
 class ServiceWaitingScreen extends StatefulWidget {
@@ -103,7 +116,25 @@ class _ServiceWaitingScreenState extends State<ServiceWaitingScreen> {
 
     _navigating = true;
     if (status == 'in_progress') {
-      context.offNamed(Routes.home);
+      final tech = SessionResume.techInfoFromJob(job);
+      context.offNamed(
+        Routes.jobInProgress,
+        arguments: JobProgressArgs(
+          userName: '',
+          bannerTitle: 'home.job_in_progress'.tr(),
+          bannerBody: 'job_progress.banner_body'.tr(),
+          jobId: jobId,
+          jobReference: job['job_reference']?.toString() ?? '',
+          statusPillText: JobStatusLabels.labelFor('in_progress'),
+          technicianName: tech['name'] ?? '',
+          technicianPhone: tech['phone'] ?? '',
+          technicianAvatarUrl: tech['photo'] ?? '',
+          vehicleName: SessionResume.vehicleName(job),
+          vehicleCode: '',
+          onCallDispatch: () async {},
+          onCallTechnician: () async {},
+        ),
+      );
       return;
     }
 

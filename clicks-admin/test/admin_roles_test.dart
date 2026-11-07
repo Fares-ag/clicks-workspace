@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:clicks_admin/core/auth/admin_roles.dart';
+import 'package:clicks_admin/core/navigation/admin_nav_config.dart';
 
 void main() {
   group('AdminRoles', () {
@@ -24,6 +25,26 @@ void main() {
 
     test('unknown role denied', () {
       expect(AdminRoles.canAccessModule('Unknown', 'sos'), isFalse);
+    });
+
+    test('vehicle config is full-admin only and reachable', () {
+      expect(AdminRoles.canAccessPath('Super Admin', '/vehicle-makes'), isTrue);
+      expect(AdminRoles.canAccessPath('Super Admin', '/vehicle-models'), isTrue);
+      expect(AdminRoles.canAccessModule('Super Admin', 'vehicle-makes'), isTrue);
+      expect(AdminRoles.canAccessModule('Job Dispatcher', 'vehicle-makes'), isFalse);
+      expect(AdminRoles.canAccessPath('Job Dispatcher', '/finance'), isFalse);
+    });
+
+    test('membership modules are full-admin only', () {
+      expect(AdminRoles.canAccessPath('Super Admin', '/subscription-plans'), isTrue);
+      expect(AdminRoles.canAccessPath('Admin', '/customer-memberships'), isTrue);
+      expect(AdminRoles.canAccessPath('Job Dispatcher', '/subscription-plans'), isFalse);
+      expect(AdminRoles.canAccessPath('Coordinator', '/customer-memberships'), isFalse);
+    });
+
+    test('every sidebar item has a unique icon', () {
+      final codes = kAdminNavItems.map((e) => e.icon.codePoint).toList();
+      expect(codes.toSet().length, codes.length);
     });
   });
 }

@@ -55,6 +55,10 @@ function mapServiceRequest(doc) {
     },
     job_id: o.job_id?.toString() || null,
     cancel_reason: o.cancel_reason || null,
+    membership_cover: o.membership_cover || "none",
+    membership_subscription_id:
+      o.membership_subscription_id?.toString() || null,
+    membership_discount_percent: Number(o.membership_discount_percent || 0),
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
   };
@@ -112,6 +116,19 @@ async function createServiceRequest(req, res) {
         error: "Location is required",
         code: "SERVICE_LOCATION_REQUIRED",
       });
+    }
+
+    const { assertInQatar } = require("../../../clicks-shared/utils/qatarCoverage");
+    assertInQatar(latitude, longitude);
+
+    const {
+      assertCustomerCanBook,
+    } = require("../../../clicks-shared/utils/customerBookingGuard");
+    await assertCustomerCanBook({ customerId: customer_id });
+
+    if (timingValue === "scheduled") {
+      const { assertDispatchWindow } = require("../../../clicks-shared/utils/dispatchWindow");
+      scheduledFor = assertDispatchWindow(scheduledFor);
     }
 
     const skipVehicle =
@@ -175,7 +192,16 @@ async function createServiceRequest(req, res) {
       }
     }
 
-    const doc = await ServiceRequest.create({
+    const {
+      resolveCover,
+      stampRequestMembership,
+    } = require("../../../clicks-shared/services/membershipEntitlement");
+    const cover = await resolveCover({
+      customerId: customer_id,
+      vehicleId: vehicle?._id,
+      serviceType,
+    });
+    const requestFields = {
       customer_id,
       ...(vehicle ? { customer_vehicle_id: vehicle._id } : {}),
       service_type: serviceType,
@@ -186,7 +212,10 @@ async function createServiceRequest(req, res) {
         coordinates: [Number(longitude), Number(latitude)],
       },
       status: "pending",
-    });
+    };
+    stampRequestMembership(requestFields, cover);
+
+    const doc = await ServiceRequest.create(requestFields);
 
     const populated = await ServiceRequest.findById(doc._id)
       .populate("customer_id", "first_name last_name phone_number email")
@@ -213,8 +242,10 @@ async function createServiceRequest(req, res) {
     });
   } catch (err) {
     console.error("createServiceRequest error:", err);
-    res.status(500).json({
-      error: "Failed to create service request",
+    const status = err.status || 500;
+    res.status(status).json({
+      error: err.message || "Failed to create service request",
+      code: err.code,
       details: err.message,
     });
   }

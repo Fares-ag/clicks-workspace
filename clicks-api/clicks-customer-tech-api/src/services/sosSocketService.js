@@ -926,6 +926,34 @@ function initializeSOSSocket(io) {
           return;
         }
 
+        try {
+          const { assertInQatar } = require("../../../clicks-shared/utils/qatarCoverage");
+          assertInQatar(latitude, longitude);
+        } catch (coverageErr) {
+          emitSosError({
+            message: coverageErr.message,
+            code: coverageErr.code || "OUTSIDE_COVERAGE",
+          });
+          return;
+        }
+
+        try {
+          const {
+            assertCustomerCanCreateSos,
+          } = require("../../../clicks-shared/utils/customerBookingGuard");
+          await assertCustomerCanCreateSos({
+            customerId: customer_id,
+            customerVehicleId: customer_vehicle_id,
+            skipVehicle,
+          });
+        } catch (bookErr) {
+          emitSosError({
+            message: bookErr.message,
+            code: bookErr.code || "LIVE_JOB_ACTIVE",
+          });
+          return;
+        }
+
         const activeSos = await SOSRequest.findOne({
           customer_id,
           status: { $in: ["pending", "in_call"] },
@@ -985,6 +1013,10 @@ function initializeSOSSocket(io) {
         }
 
         const expiresAt = new Date(Date.now() + broadcastMs());
+        const {
+          stampBusinessHours,
+        } = require("../../../clicks-shared/utils/qatarBusinessHours");
+        const hours = stampBusinessHours();
 
         const sos = new SOSRequest({
           customer_id,
@@ -997,6 +1029,8 @@ function initializeSOSSocket(io) {
           ...(service_type ? { service_type } : {}),
           broadcast_started_at: new Date(),
           broadcast_expires_at: expiresAt,
+          after_hours: hours.after_hours,
+          next_open_at: hours.next_open_at,
         });
 
         await sos.save();
@@ -1901,12 +1935,34 @@ function initializeSOSSocket(io) {
 
   async function pushCustomerEvent(customerId, event, data = {}) {
     try {
-      const { sendCustomerPush } = require("./fcmService");
+      const {
+        sendCustomerPush,
+        customerPushCopyForEvent,
+        CUSTOMER_PUSH_EVENTS,
+      } = require("./fcmService");
+      const {
+        customerTypeForEvent,
+        recordCustomerNotificationFireAndForget,
+      } = require("./notificationRecordService");
       const jobId =
         data.job_id?.toString?.() ||
         data.job_id ||
         data.jobId?.toString?.() ||
         "";
+      if (CUSTOMER_PUSH_EVENTS.has(event)) {
+        const copy = customerPushCopyForEvent(event, data);
+        recordCustomerNotificationFireAndForget({
+          customerId,
+          type: customerTypeForEvent(event),
+          title: copy.title,
+          body: copy.body,
+          data: {
+            event,
+            job_id: jobId,
+            sos_id: data.sos_id?.toString?.() || data.sos_id || "",
+          },
+        });
+      }
       await sendCustomerPush(customerId, {
         event,
         type: event,
@@ -2001,6 +2057,27 @@ function initializeSOSSocket(io) {
     emitToUser(customerNamespace, targetCustomerId, "sosInCall", sosPayload);
     await pushCustomerEvent(targetCustomerId, "sosInCall", sosPayload);
     return true;
+  }
+
+  async function notifySosOutcome({ sos_id, customer_id, event, payload } = {}) {
+    const target = String(customer_id || "");
+    const name = String(event || "").trim();
+    if (!target || !name) return false;
+    const data = { sos_id, ...(payload || {}) };
+    emitToUser(customerNamespace, target, name, data);
+    return true;
+  }
+
+  async function notifyTechnicianJobEvent(technicianId, event, data) {
+    try {
+      if (!technicianId || !event) return false;
+      emitToUser(technicianNamespace, String(technicianId), event, data);
+      return true;
+    } catch (error) {
+      console.error(`Error emitting ${event} to technician:`, error);
+      captureException(error);
+      return false;
+    }
   }
 
   /** Notify customer of fulfill-path status from REST controllers */
@@ -2225,6 +2302,8 @@ function initializeSOSSocket(io) {
     notifyAdminTechnicianPresence: emitAdminTechnicianPresence,
     notifyAdminTechnicianLocation: emitAdminTechnicianLocation,
     notifySosClaimed,
+    notifySosOutcome,
+    notifyTechnicianJobEvent,
     notifyAdminBusinessLead,
     notifyAdminBusinessJob,
     notifyAdminTechnicianJob,

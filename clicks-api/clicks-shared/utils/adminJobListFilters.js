@@ -113,6 +113,7 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
     jobType,
     source,
     jobOrigin,
+    garage,
   } = rawQuery;
 
   const query = {};
@@ -140,6 +141,12 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
   if (businessPortal === "1" || businessPortal === "true") {
     query.business_id = { $exists: true, $ne: null };
     filterKeyParts.push("businessPortal");
+  }
+
+  const garagePhase = str(garage, { maxLength: 24 }).trim().toLowerCase();
+  if (garagePhase === "at_garage" || garagePhase === "returning") {
+    query["garage.phase"] = garagePhase;
+    filterKeyParts.push(`garage:${garagePhase}`);
   }
 
   const origin = str(jobOrigin, { maxLength: 24 }).trim().toLowerCase();
@@ -233,8 +240,20 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
   };
 }
 
+/** Same as list filters but without status / garage / completedToday (for KPI breakdown). */
+function buildAdminJobStatsBaseFilters(rawQuery, options) {
+  const stripped = { ...(rawQuery || {}) };
+  delete stripped.status;
+  delete stripped.garage;
+  delete stripped.completedToday;
+  delete stripped.page;
+  delete stripped.limit;
+  return buildAdminJobListFilters(stripped, options);
+}
+
 module.exports = {
   buildAdminJobListFilters,
+  buildAdminJobStatsBaseFilters,
   calendarDateAnchor,
   qatarBoundsForCalendarDate,
   parseTimeMinutes,

@@ -38,7 +38,7 @@ const JobSchema = new mongoose.Schema(
       required: true
     },
     assignedTechnician: { type: mongoose.Schema.Types.ObjectId, ref: "Technician" },
-    price: { type: Number, required: true },
+    price: { type: Number, min: 0 },
     source: { type: mongoose.Schema.Types.ObjectId, ref: "Source", required: true },
     subSource: { type: String, default: "" },
     // Partner acquisition attribution (set when job credits a Partner)
@@ -77,6 +77,19 @@ const JobSchema = new mongoose.Schema(
       type: String,
       enum: ["admin", "technician", "customer"],
       default: undefined,
+    },
+    cancel_fee_due: { type: Boolean, default: false },
+    garage: {
+      phase: {
+        type: String,
+        enum: ["at_garage", "returning"],
+        default: undefined,
+      },
+      name: { type: String, default: "", maxlength: 200 },
+      reason: { type: String, default: "", maxlength: 2000 },
+      expected_ready_at: { type: Date, default: null },
+      sent_at: { type: Date, default: null },
+      ready_at: { type: Date, default: null },
     },
     // On-hold audit — resume restores status_before_hold; hold_reason is kept after resume.
     status_before_hold: { type: String, default: null },
@@ -117,6 +130,30 @@ const JobSchema = new mongoose.Schema(
     payment_method: {
       type: String,
       enum: ["card", "wallet", "cash", "fawran"],
+    },
+    skipcash: {
+      payment_id: { type: String, default: "" },
+      pay_url: { type: String, default: "" },
+      transaction_id: { type: String, default: "" },
+      status_id: { type: Number, default: null },
+      visa_id: { type: String, default: "" },
+      amount: { type: String, default: "" },
+      created_at: { type: Date, default: null },
+    },
+    membership: {
+      cover: {
+        type: String,
+        enum: ["none", "included", "discounted"],
+        default: "none",
+      },
+      discountPercent: { type: Number, default: 0, min: 0, max: 100 },
+      included: { type: Boolean, default: false },
+      subscription_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CustomerSubscription",
+        default: null,
+      },
+      consumedAt: { type: Date, default: null },
     },
     rating: { type: Number, min: 1, max: 5 },
     rating_description: { type: String, maxlength: 500, default: "" },
@@ -267,8 +304,10 @@ JobSchema.index({ dateTime: -1, job_status: 1 });
 JobSchema.index({ job_status: 1, finance_status: 1, completed_at: -1 });
 // finance jobs list/export payment_method filter (+ completed_at range & sort)
 JobSchema.index({ job_status: 1, payment_method: 1, completed_at: -1 });
+JobSchema.index({ "skipcash.payment_id": 1 }, { sparse: true });
 // finance jobs list/export vendor_id filter — multikey over the cost rows
 JobSchema.index({ "finance_extra_costs.vendor_id": 1 });
+JobSchema.index({ "garage.phase": 1, job_status: 1 });
 // job_reference is indexed at the path level (index: true) — no schema-level
 // declaration here, otherwise mongoose builds two identical job_reference_1.
 

@@ -31,17 +31,33 @@ class EndPoints {
 
   // Jobs
   static const String jobs = "/api/jobs";
+  static String skipcashSession(String id) => "/api/jobs/$id/skipcash/session";
+  static String skipcashStatus(String id) => "/api/jobs/$id/skipcash/status";
+
+  static const String launchFlags = "/api/launch-flags";
+  static const String membershipPlans = "/api/membership/plans";
+  static const String membershipMe = "/api/membership/me";
+  static const String membershipCheckout = "/api/membership/checkout";
+  static String membershipStatus(String id) => "/api/membership/$id/status";
+  static String membershipCancel(String id) => "/api/membership/$id/cancel";
 
   // Service requests (non-SOS)
   static const String serviceRequests = "/api/service-requests";
   static const String serviceRequestsActive = "/api/service-requests/active";
   static String cancelServiceRequest(String id) =>
       "/api/service-requests/$id/cancel";
+  static String cancelJobByCustomer(String id) =>
+      "/api/jobs/$id/cancel-customer";
 
-  // Notifications — MVP stub list endpoint (empty OK)
   static const String notifications = "/api/notifications/customer";
   static const String notificationsUnreadCount =
       "/api/notifications/customer/unread-count";
   static const String notificationsMarkAllRead =
       "/api/notifications/customer/mark-all-read";
+
+  static String payCash(String jobId) => "/api/jobs/$jobId/pay-cash";
+  static String receiptDownload(String receiptId) =>
+      "/api/receipts/$receiptId/download";
+  static String jobReceiptDownload(String jobId) =>
+      "/api/receipts/job/$jobId/download";
 }

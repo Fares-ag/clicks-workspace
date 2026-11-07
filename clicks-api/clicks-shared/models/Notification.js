@@ -4,14 +4,26 @@ const NotificationSchema = new mongoose.Schema(
   {
     audience: {
       type: String,
-      enum: ["admin"],
+      enum: ["admin", "customer", "technician"],
       required: true,
       index: true,
+    },
+    customer_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      default: null,
+      index: true,
+    },
+    technician_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Technician",
+      default: null,
     },
     type: { type: String, required: true, index: true },
     title: { type: String, required: true, trim: true },
     body: { type: String, default: "", trim: true },
     data: { type: mongoose.Schema.Types.Mixed, default: {} },
+    read: { type: Boolean, default: false, index: true },
     read_by: [{ type: mongoose.Schema.Types.ObjectId, ref: "Admin" }],
   },
   { timestamps: true }
@@ -19,6 +31,8 @@ const NotificationSchema = new mongoose.Schema(
 
 NotificationSchema.index({ audience: 1, createdAt: -1 });
 NotificationSchema.index({ audience: 1, read_by: 1, createdAt: -1 });
+NotificationSchema.index({ audience: 1, customer_id: 1, createdAt: -1 });
+NotificationSchema.index({ audience: 1, customer_id: 1, read: 1 });
 NotificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
 
 module.exports = mongoose.model("Notification", NotificationSchema);

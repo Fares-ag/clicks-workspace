@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useGetTechniciansQuery } from "../store/technicianApi";
 import { useGetSourcesQuery } from "../store/sourceApi";
 import CustomSelect from "./CustomSelect";
+import TimeFilterField from "./TimeFilterField.jsx";
 import { getJobStatusFilterOptions } from "../utils/jobStatusLabels";
 import { JOB_TYPE_OPTIONS } from "../constants/jobTypes";
 import "./FilterDropdown.css";
@@ -148,24 +149,18 @@ function JobFilterDropdown({ open, onClose, onApply, onClear, initialFilters, an
             </div>
           </div>
           <div className="filter-row filter-row--two">
-            <div className="filter-field">
-              <label className="filter-label">Time from</label>
-              <input
-                type="time"
-                className="filter-native-input"
-                value={timeFrom}
-                onChange={(e) => setTimeFrom(e.target.value)}
-              />
-            </div>
-            <div className="filter-field">
-              <label className="filter-label">Time to</label>
-              <input
-                type="time"
-                className="filter-native-input"
-                value={timeTo}
-                onChange={(e) => setTimeTo(e.target.value)}
-              />
-            </div>
+            <TimeFilterField
+              id="job-filter-time-from"
+              label="Time from"
+              value={timeFrom}
+              onChange={setTimeFrom}
+            />
+            <TimeFilterField
+              id="job-filter-time-to"
+              label="Time to"
+              value={timeTo}
+              onChange={setTimeTo}
+            />
           </div>
 
           <div className="filter-section-label">Job details</div>

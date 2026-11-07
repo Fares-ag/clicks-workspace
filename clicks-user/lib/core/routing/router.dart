@@ -19,6 +19,11 @@ import '../../features/auth/register/ui/cubit/register_cubit.dart';
 import '../../features/auth/register/ui/view/register_screen.dart';
 import '../../features/auth/register/ui/view/register_submitted_screen.dart';
 import '../../features/home/job_in_progress_screen.dart';
+import '../../features/home/payment_hold_screen.dart';
+import '../../features/home/skipcash_checkout_screen.dart';
+import '../../features/membership/membership_hub_screen.dart';
+import '../../features/membership/membership_plans_screen.dart';
+import '../../features/membership/membership_review_screen.dart';
 import '../../features/language/change_language_screen.dart';
 import '../../features/main/ui/cubit/home_cubit.dart';
 import '../../features/main/ui/view/main_screen.dart';
@@ -28,6 +33,7 @@ import '../../features/settings/ui/view/settings_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/welcome/ui/welcome_screen.dart';
 import '../theme/text_styles.dart';
+import 'app_page_route.dart';
 import 'routes.dart';
 
 /// A class that handles the routing for the application.
@@ -43,72 +49,62 @@ class AppRouter {
       );
     }
 
+    Route<dynamic> page(Widget screen) {
+      return AppPageRoute(settings: settings, page: getScreen(screen));
+    }
+
     switch (settings.name) {
       case Routes.splash:
-        return MaterialPageRoute(builder: (_) => getScreen(SplashScreen()));
+        return page(SplashScreen());
       case Routes.welcome:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(WelcomeScreen()),
-        );
+        return page(WelcomeScreen());
       case Routes.login:
-        return MaterialPageRoute(
-          builder:
-              (_) => BlocProvider(
-                create: (context) => LoginCubit(),
-                child: getScreen(LoginScreen()),
-              ),
+        return page(
+          BlocProvider(
+            create: (context) => LoginCubit(),
+            child: LoginScreen(),
+          ),
         );
       case Routes.register:
-        return MaterialPageRoute(
-          builder:
-              (_) => BlocProvider(
-                create: (context) => RegisterCubit(),
-                child: getScreen(RegisterScreen()),
-              ),
+        return page(
+          BlocProvider(
+            create: (context) => RegisterCubit(),
+            child: RegisterScreen(),
+          ),
         );
       case Routes.forgetPassword:
-        return MaterialPageRoute(
-          builder:
-              (_) => BlocProvider(
-                create: (context) => ForgetPasswordCubit(),
-                child: getScreen(ForgetPasswordScreen()),
-              ),
+        return page(
+          BlocProvider(
+            create: (context) => ForgetPasswordCubit(),
+            child: ForgetPasswordScreen(),
+          ),
         );
 
       case Routes.home:
-        return MaterialPageRoute(
-          builder:
-              (_) => BlocProvider(
-                create: (context) => HomeCubit(),
-                child: getScreen(const MainScreen()),
-              ),
+        return page(
+          BlocProvider(
+            create: (context) => HomeCubit(),
+            child: const MainScreen(),
+          ),
         );
       case Routes.changeLanguage:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(ChangeLanguageScreen()),
-        );
+        return page(ChangeLanguageScreen());
       case Routes.settings:
-        return MaterialPageRoute(builder: (_) => getScreen(SettingsScreen()));
+        return page(SettingsScreen());
       case Routes.myCars:
-        return MaterialPageRoute(builder: (_) => getScreen(MyCarsScreen()));
+        return page(MyCarsScreen());
       case Routes.activity:
-        return MaterialPageRoute(
-          builder:
-              (_) => BlocProvider(
-                create:
-                    (_) => ActivityCubit(ActivityRepository())..loadHistory(),
-                child: getScreen(const ActivityScreen()),
-              ),
+        return page(
+          BlocProvider(
+            create: (_) => ActivityCubit(ActivityRepository())..loadHistory(),
+            child: const ActivityScreen(),
+          ),
         );
 
       case Routes.registerSuccess:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(RegisterSubmittedScreen()),
-        );
+        return page(RegisterSubmittedScreen());
       case Routes.notifications:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(NotificationsScreen()),
-        );
+        return page(NotificationsScreen());
       case Routes.timerSos:
         final args = settings.arguments;
         final isEmergency =
@@ -117,43 +113,49 @@ class AppRouter {
             args is Map ? args['serviceType'] as String? : null;
         final serviceLabel =
             args is Map ? args['serviceLabel'] as String? : null;
-        return MaterialPageRoute(
-          builder:
-              (_) => getScreen(
-                TimerSosScreen(
-                  isEmergency: isEmergency,
-                  serviceType: serviceType,
-                  serviceLabel: serviceLabel,
-                ),
-              ),
+        return page(
+          TimerSosScreen(
+            isEmergency: isEmergency,
+            serviceType: serviceType,
+            serviceLabel: serviceLabel,
+          ),
         );
       case Routes.serviceWaiting:
         final args = settings.arguments as ServiceWaitingArgs;
-        return MaterialPageRoute(
-          builder: (_) => getScreen(ServiceWaitingScreen(args: args)),
-        );
+        return page(ServiceWaitingScreen(args: args));
       case Routes.activityDetails:
         final job = settings.arguments as JobDto;
-        return MaterialPageRoute(
-          builder: (_) => getScreen(ActivityDetailsPage(job: job)),
-        );
+        return page(ActivityDetailsPage(job: job));
       case Routes.contactUsSuccess:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(ContactUsSuccessScreen()),
-        );
+        return page(ContactUsSuccessScreen());
       case Routes.inCall:
-        return MaterialPageRoute(
-          builder: (_) => getScreen(InCallWithDispatcherScreen()),
-        );
+        return page(InCallWithDispatcherScreen());
       case Routes.jobInProgress:
         final args = settings.arguments as JobProgressArgs;
-        return MaterialPageRoute(
-          builder: (_) => getScreen(JobInProgressScreen(args: args)),
-        );
+        return page(JobInProgressScreen(args: args));
       case Routes.technicianTracking:
         final args = settings.arguments as TrackingArgs;
-        return MaterialPageRoute(
-          builder: (_) => getScreen(TechnicianTrackingScreen(args: args)),
+        return page(TechnicianTrackingScreen(args: args));
+      case Routes.paymentHold:
+        final args = settings.arguments as PaymentHoldArgs;
+        return page(PaymentHoldScreen(args: args));
+      case Routes.skipcashCheckout:
+        final args = settings.arguments as SkipcashCheckoutArgs;
+        return page(SkipcashCheckoutScreen(args: args));
+      case Routes.membershipHub:
+        return page(const MembershipHubScreen());
+      case Routes.membershipPlans:
+        return page(const MembershipPlansScreen());
+      case Routes.membershipReview:
+        final raw = settings.arguments;
+        final map = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+        return page(
+          MembershipReviewScreen(
+            args: MembershipReviewArgs(
+              planId: map['planId']?.toString() ?? '',
+              interval: map['interval']?.toString() ?? 'month',
+            ),
+          ),
         );
 
       // case Routes.forgetPassword:
@@ -173,11 +175,12 @@ class AppRouter {
       //   );
       case '/':
         // Flutter pushes '/' implicitly when initialRoute != '/'. Route to splash.
-        return MaterialPageRoute(builder: (_) => getScreen(SplashScreen()));
+        return page(SplashScreen());
       default:
         // Unknown route — pop back silently instead of showing an error screen.
-        return MaterialPageRoute(
-          builder: (_) => const _PopImmediately(),
+        return AppPageRoute(
+          settings: settings,
+          page: getScreen(const _PopImmediately()),
         );
     }
   }

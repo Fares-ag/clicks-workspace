@@ -7,6 +7,12 @@ const {
   findAndVerifyOtp,
   generateOtp,
 } = require("../../../clicks-shared/utils/otpVerify");
+const {
+  normalizePhoneE164,
+  findCustomerByPhone,
+  phoneLookupValues,
+} = require("../../../clicks-shared/utils/phone");
+const { findUnpaidJob } = require("../../../clicks-shared/utils/customerBookingGuard");
 
 // NOTE ON PHONE NUMBERS (audit stage 1):
 // We coerce to a string but deliberately do NOT normalise the format here.
@@ -17,7 +23,7 @@ const {
 
 const register = async (req, res) => {
   try {
-    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+    const phone_number = normalizePhoneE164(str(req.body.phone_number, { maxLength: 24 }));
     const first_name = str(req.body.first_name, { maxLength: 80 });
     const last_name = str(req.body.last_name, { maxLength: 80 });
     const email = str(req.body.email, { maxLength: 254 });
@@ -25,8 +31,45 @@ const register = async (req, res) => {
     if (!phone_number || !first_name || !last_name || !email || !password) {
       return res.status(400).json({ error: "All fields are required" });
     }
-    const existing = await Customer.findOne({ $or: [{ phone_number }, { email }] });
-    if (existing) {
+
+    const otpResult = await findAndVerifyOtp(OTPVerification, {
+      phones: phoneLookupValues(phone_number),
+      otp: req.body.otp,
+      purpose: "registration",
+      requireVerified: true,
+    });
+    if (!otpResult.ok) {
+      return res.status(otpResult.status).json({
+        error: otpResult.error,
+        code: "REGISTRATION_OTP_REQUIRED",
+      });
+    }
+
+    const existing = await findCustomerByPhone(Customer, phone_number);
+    const existingEmail = await Customer.findOne({ email });
+    if (existing?.deleted_at) {
+      const unpaid = await findUnpaidJob(existing._id);
+      if (unpaid) {
+        return res.status(409).json({
+          error: "This number has unpaid jobs and cannot re-register",
+          code: "UNPAID_JOB_HOLD",
+        });
+      }
+      existing.status = "Active";
+      existing.deleted_at = null;
+      existing.deleted_reason = "";
+      existing.first_name = first_name;
+      existing.last_name = last_name;
+      existing.email = email;
+      existing.password = await bcrypt.hash(password, 10);
+      await existing.save();
+      await OTPVerification.deleteMany({
+        phone: { $in: phoneLookupValues(phone_number) },
+        purpose: "registration",
+      });
+      return res.status(201).json({ message: "Registration successful" });
+    }
+    if (existing || existingEmail) {
       return res.status(409).json({ error: "Phone number or email already registered" });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -38,6 +81,10 @@ const register = async (req, res) => {
       password: hashedPassword
     });
     await customer.save();
+    await OTPVerification.deleteMany({
+      phone: { $in: phoneLookupValues(phone_number) },
+      purpose: "registration",
+    });
     res.status(201).json({ message: "Registration successful" });
   } catch (err) {
     res.status(500).json({ error: "Registration failed", details: err.message });
@@ -50,13 +97,24 @@ const login = async (req, res) => {
     // filter and match an arbitrary customer record.
     const phone_number = str(req.body.phone_number, { maxLength: 24 });
     const password = str(req.body.password, { maxLength: 200 });
-    const customer = await Customer.findOne({ phone_number }).select("+password");
+    const customer = await findCustomerByPhone(
+      Customer,
+      phone_number,
+      {},
+      "+password +deleted_at +status"
+    );
     if (!customer) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     const valid = await bcrypt.compare(password, customer.password);
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
+    if (customer.deleted_at || customer.status !== "Active") {
+      return res.status(403).json({
+        error: "Account is not active",
+        code: "ACCOUNT_INACTIVE",
+      });
     }
     if (!process.env.JWT_SECRET) {
       return res.status(503).json({ error: "Auth not configured" });
@@ -127,7 +185,23 @@ const updatePassword = async (req, res) => {
 const deleteAccount = async (req, res) => {
   try {
     const { id } = req.user;
-    await Customer.findByIdAndDelete(id);
+    const unpaid = await findUnpaidJob(id);
+    if (unpaid) {
+      return res.status(409).json({
+        error: "Settle unpaid jobs before deleting this account",
+        code: "UNPAID_JOB_HOLD",
+        job_id: unpaid._id.toString(),
+      });
+    }
+    const customer = await Customer.findById(id);
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+    customer.status = "Inactive";
+    customer.deleted_at = new Date();
+    customer.deleted_reason = str(req.body?.reason, { maxLength: 200 }) || "customer_request";
+    customer.fcm_token = undefined;
+    await customer.save();
     res.json({ message: "Account deleted" });
   } catch (err) {
     res.status(500).json({ error: "Account deletion failed", details: err.message });
@@ -168,7 +242,11 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ error: "Phone number is required" });
     }
 
-    const customer = await Customer.findOne({ phone_number }).select("+password");
+    const customer = await findCustomerByPhone(
+      Customer,
+      phone_number,
+      { deleted_at: null, status: "Active" }
+    );
 
     // Only send when the account exists — but respond identically either way.
     // The old code returned 404 for unknown numbers, which made the entire
@@ -257,7 +335,12 @@ const resetPassword = async (req, res) => {
       return res.status(result.status).json({ error: result.error });
     }
 
-    const customer = await Customer.findOne({ phone_number }).select("+password");
+    const customer = await findCustomerByPhone(
+      Customer,
+      phone_number,
+      {},
+      "+password"
+    );
     if (!customer) {
       // Should be unreachable — a verified OTP implies the account existed.
       return res.status(400).json({ error: "Invalid or expired code" });
@@ -283,12 +366,19 @@ const resetPassword = async (req, res) => {
 // Register OTP (purpose: registration)
 const sendRegisterOTP = async (req, res) => {
   try {
-    const phone_number = str(req.body.phone_number, { maxLength: 24 });
+    const phone_number = normalizePhoneE164(str(req.body.phone_number, { maxLength: 24 }));
     if (!phone_number) {
       return res.status(400).json({ error: "phone_number is required" });
     }
+    const existing = await findCustomerByPhone(Customer, phone_number);
+    if (existing && !existing.deleted_at) {
+      return res.json({ message: "OTP sent" });
+    }
     const otp = generateOtp();
-    await OTPVerification.deleteMany({ phone: phone_number, purpose: "registration" });
+    await OTPVerification.deleteMany({
+      phone: { $in: phoneLookupValues(phone_number) },
+      purpose: "registration",
+    });
     await OTPVerification.create({
       phone: phone_number,
       otp,
@@ -308,7 +398,7 @@ const sendRegisterOTP = async (req, res) => {
 const verifyRegisterOTP = async (req, res) => {
   try {
     const result = await findAndVerifyOtp(OTPVerification, {
-      phone: req.body.phone_number,
+      phones: phoneLookupValues(req.body.phone_number),
       otp: req.body.otp,
       purpose: "registration",
     });

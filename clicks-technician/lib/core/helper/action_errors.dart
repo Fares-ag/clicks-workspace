@@ -136,6 +136,11 @@ class ActionErrors {
           'Go back and tap Start Job.';
     }
 
+    final price = job['price'];
+    if (price == null || price.toString().trim().isEmpty) {
+      return 'Set the job price before completing.';
+    }
+
     if (job['payment_status']?.toString() != 'paid') {
       return 'Collect payment before completing the job.';
     }

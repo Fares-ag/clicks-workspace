@@ -174,6 +174,8 @@ class AdminSocketService {
       onJobInvalidated?.call();
     });
 
+    _socket!.on('jobStatusUpdated', (_) => onJobInvalidated?.call());
+
     _socket!.on('sosExpired', (_) => onSosInvalidated?.call());
 
     _socket!.on('sosClaimed', (raw) {

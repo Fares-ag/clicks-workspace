@@ -1,6 +1,7 @@
 import 'package:clicks_user/core/sos_services/customer_socket_service.dart';
 import 'package:clicks_user/core/sos_services/sos_cubit.dart';
 import 'package:clicks_user/features/my_cars/cubit/my_cars_cubit.dart';
+import 'package:clicks_user/features/membership/membership_cubit.dart';
 import 'package:clicks_user/features/settings/ui/cubit/settings_cubit.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
@@ -28,6 +29,7 @@ class AppRoot extends StatelessWidget {
             providers: [
               BlocProvider(create: (context) => SettingsCubit()),
               BlocProvider(create: (context) => MyCarsCubit()),
+              BlocProvider(create: (context) => MembershipCubit()..load()),
               BlocProvider(
                 create: (context) => SosCubit(CustomerSocketService()),
               ),

@@ -61,6 +61,11 @@ class PaginatedListRepository {
       'partners',
       'admins',
       'sources',
+      'sos',
+      'tickets',
+      'contacts',
+      'plans',
+      'subscriptions',
     ]) {
       final v = data[key];
       if (v is List) {

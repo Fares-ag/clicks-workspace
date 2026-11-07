@@ -6,6 +6,7 @@ const {
   getServices,
   getSources,
   getTime,
+  getTrends,
   getLocations,
   getCrosstabs,
   getJobs,
@@ -25,8 +26,15 @@ function handle(fn) {
       const data = await fn(req);
       res.json(data);
     } catch (err) {
-      const status = err.status || 500;
-      res.status(status).json({ message: err.message || "Data analysis failed" });
+      const timedOut = /MaxTimeMSExpired|timed out|exceeded time limit/i.test(
+        String(err.message || err.code || "")
+      );
+      const status = err.status || (timedOut ? 504 : 500);
+      res.status(status).json({
+        message: timedOut
+          ? "This range is too large. Narrow the dates or hide historical import."
+          : err.message || "Data analysis failed",
+      });
     }
   };
 }
@@ -38,6 +46,7 @@ const customers = handle((req) => getCustomers(req.query));
 const services = handle((req) => getServices(req.query));
 const sources = handle((req) => getSources(req.query));
 const time = handle((req) => getTime(req.query));
+const trends = handle((req) => getTrends(req.query));
 const locations = handle((req) => getLocations(req.query));
 const crosstabs = handle((req) => getCrosstabs(req.query));
 const jobs = handle((req) => getJobs(req.query));
@@ -110,6 +119,7 @@ module.exports = {
   services,
   sources,
   time,
+  trends,
   locations,
   crosstabs,
   jobs,

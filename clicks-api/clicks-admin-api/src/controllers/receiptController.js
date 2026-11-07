@@ -16,8 +16,8 @@ function withPdfUrl(receipt, jobId) {
   return row;
 }
 
-function sendPdf(res, { receipt, job, repairs }) {
-  const pdf = buildReceiptPdf({ receipt, job: job || {}, repairs });
+async function sendPdf(res, { receipt, job, repairs }) {
+  const pdf = await buildReceiptPdf({ receipt, job: job || {}, repairs });
   const filename = receiptFilename(job || {}, receipt || {});
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -27,6 +27,7 @@ function sendPdf(res, { receipt, job, repairs }) {
 async function loadJob(jobId) {
   return Job.findById(jobId)
     .populate("assignedTechnician", "firstName lastName")
+    .populate("customer_id", "first_name last_name phone_number email client_id")
     .lean();
 }
 
@@ -42,6 +43,7 @@ function snapshotReceipt(job, repairs) {
       description: row.description || row.name || "Repair",
       quantity: row.quantity,
       price: row.price,
+      receipt_image_url: row.receipt_image_url,
     })),
   };
 }
@@ -84,7 +86,7 @@ const downloadReceiptByJob = async (req, res) => {
     }
     const repairs = await RepairProcedure.find({ job_id: job._id }).lean();
     const receiptDoc = receipt || snapshotReceipt(job, repairs);
-    return sendPdf(res, { receipt: receiptDoc, job, repairs });
+    return await sendPdf(res, { receipt: receiptDoc, job, repairs });
   } catch (err) {
     return res.status(500).json({ error: "PDF download failed", details: err.message });
   }
@@ -101,7 +103,7 @@ const downloadReceipt = async (req, res) => {
     const repairs = receipt.job_id
       ? await RepairProcedure.find({ job_id: receipt.job_id }).lean()
       : [];
-    return sendPdf(res, { receipt, job: job || {}, repairs });
+    return await sendPdf(res, { receipt, job: job || {}, repairs });
   } catch (err) {
     return res.status(500).json({ error: "PDF download failed", details: err.message });
   }

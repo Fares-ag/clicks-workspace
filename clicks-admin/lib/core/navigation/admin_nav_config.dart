@@ -141,5 +141,7 @@ String titleForPath(String path) {
   if (path.startsWith('/jobs/')) return 'Job Details';
   if (path.startsWith('/leads/')) return 'Lead Details';
   if (path.startsWith('/technicians/')) return 'Technician Details';
+  if (path.startsWith('/subscription-plans')) return 'Membership Plans';
+  if (path.startsWith('/customer-memberships')) return 'Customer Memberships';
   return 'Clicks Admin';
 }

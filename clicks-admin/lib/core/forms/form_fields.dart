@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../helper/admin_time_picker.dart';
 import '../helper/phone_utils.dart';
 import '../theme/admin_typography.dart';
 import '../components/admin_page_scaffold.dart';
@@ -78,9 +79,10 @@ class DateTimePickerField extends StatelessWidget {
       lastDate: now.add(const Duration(days: 365)),
     );
     if (date == null || !context.mounted) return;
-    final time = await showTimePicker(
-      context: context,
+    final time = await showAdminTimePicker(
+      context,
       initialTime: TimeOfDay.fromDateTime(value ?? now),
+      title: 'Job time',
     );
     if (time == null) return;
     onChanged(DateTime(date.year, date.month, date.day, time.hour, time.minute));

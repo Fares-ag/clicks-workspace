@@ -22,6 +22,7 @@ import 'package:clicks_user/core/config/app_config.dart';
 import 'package:easy_localization/easy_localization.dart';
 
 import 'job_in_progress_screen.dart';
+import 'job_cancel_api.dart';
 import '../settings/ui/cubit/settings_cubit.dart';
 import '../my_cars/cubit/my_cars_cubit.dart';
 import 'rating_bottom_sheet.dart';
@@ -104,6 +105,52 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
 
   late Map<String, dynamic> _techInfo;
   Timer? _locationPollTimer;
+  bool _cancelling = false;
+
+  bool get _canCancelJob =>
+      _phase == 'en_route' ||
+      _phase == 'arrived' ||
+      _phase == 'assigned' ||
+      _phase == 'accepted';
+
+  bool get _cancelHasFee => _phase == 'en_route' || _phase == 'arrived';
+
+  Future<void> _cancelJob() async {
+    if (_cancelling || !_canCancelJob) return;
+    final feeNote = _cancelHasFee ? '\n${'home.cancel_fee_note'.tr()}' : '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('home.cancel_job'.tr()),
+        content: Text('${'home.cancel_job_confirm'.tr()}$feeNote'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('common.cancel'.tr()),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('home.cancel_job'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _cancelling = true);
+    try {
+      await JobCancelApi.cancelCustomer(
+        jobId: widget.args.jobId,
+        reason: 'changed_mind',
+      );
+      if (!mounted) return;
+      AppSnackBars.successSnackBar('home.job_cancelled'.tr());
+      context.offAllNamed(Routes.home);
+    } catch (e) {
+      if (!mounted) return;
+      AppSnackBars.errorSnackBar(e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _cancelling = false);
+    }
+  }
 
   @override
   void initState() {
@@ -616,6 +663,10 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
           } else if (state is JobCancelled || state is SosCancelled) {
             AppSnackBars.errorSnackBar('job_progress.job_cancelled'.tr());
             context.offAllNamed(Routes.home);
+          } else if (state is JobAtGarage) {
+            AppSnackBars.successSnackBar('home.garage_card_title'.tr());
+          } else if (state is JobGarageReady) {
+            AppSnackBars.successSnackBar('home.garage_returning_title'.tr());
           }
         },
         child: Stack(
@@ -651,6 +702,19 @@ class _TechnicianTrackingScreenState extends State<TechnicianTrackingScreen>
                         ),
                       ),
                     ),
+                    if (_canCancelJob)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: TextButton(
+                          onPressed: _cancelJob,
+                          child: Text(
+                            _cancelHasFee
+                                ? 'home.cancel_job_fee'.tr()
+                                : 'home.cancel_job'.tr(),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
                     GestureDetector(
                       onTap: () => Navigator.of(context).maybePop(),
                       child: Container(

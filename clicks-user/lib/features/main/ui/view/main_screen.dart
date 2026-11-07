@@ -29,14 +29,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   late final ActivityCubit _activityCubit =
       ActivityCubit(ActivityRepository())..loadHistory();
 
-  late final List<Widget> screens = [
-    HomeScreen(),
+  late final List<Widget> _tabScreens = [
+    const HomeScreen(),
     BlocProvider.value(
       value: _activityCubit,
       child: const ActivityScreen(),
     ),
-    ServicesScreen(),
-    SettingsScreen(),
+    const ServicesScreen(),
+    const SettingsScreen(),
   ];
 
   @override
@@ -73,18 +73,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ? MediaQuery.of(context).viewPadding.bottom
             : 0.0;
 
-    // Use .r so the FAB scales with the shorter axis — .w alone grows too tall
-    // on wide web viewports and gets clipped by the nav Stack.
-    final fabSize = 64.r;
-    final fabBottom = 18.h;
-    final navBarHeight = 60.h;
-    final navStackHeight =
-        (fabBottom + fabSize).clamp(90.h, double.infinity) + systemNavPadding;
+    // FAB sits on the bar; stack height = white bar + FAB overhang (no canvas gap).
+    final fabSize = 56.r;
+    final navBarHeight = 56.h;
+    final fabOverhang = fabSize * 0.28;
+    final barPanelHeight = navBarHeight + fabOverhang;
+    final fabBottom = navBarHeight * 0.30;
+    final navStackHeight = barPanelHeight + systemNavPadding;
 
     return SafeArea(
       bottom: false,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: ColorsManager.canvas,
         bottomNavigationBar: SizedBox(
           height: navStackHeight,
           child: Stack(
@@ -111,11 +111,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     }
 
                     return Container(
-                      height: navBarHeight,
+                      height: barPanelHeight,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         border: Border(
-                          top: BorderSide(color: ColorsManager.border),
+                          top: BorderSide(color: ColorsManager.washBorder),
                         ),
                         boxShadow: [
                           BoxShadow(
@@ -125,7 +125,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           ),
                         ],
                       ),
-                      child: Row(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: SizedBox(
+                          height: navBarHeight,
+                          child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           _buildNavItem(
@@ -158,6 +162,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             context,
                           ),
                         ],
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -196,12 +202,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
         ),
         body: BlocBuilder<HomeCubit, HomeState>(
+          buildWhen: (prev, curr) =>
+              prev.runtimeType != curr.runtimeType ||
+              (prev is ChangeBottomNavIndexHomeState &&
+                  curr is ChangeBottomNavIndexHomeState &&
+                  prev.index != curr.index),
           builder: (context, state) {
-            int currentIndex = 0;
-            if (state is ChangeBottomNavIndexHomeState) {
-              currentIndex = state.index;
-            }
-            return screens[currentIndex];
+            final currentIndex =
+                state is ChangeBottomNavIndexHomeState ? state.index : 0;
+            return IndexedStack(
+              index: currentIndex,
+              sizing: StackFit.expand,
+              children: _tabScreens,
+            );
           },
         ),
       ),
@@ -223,7 +236,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       onTap: () => context.read<HomeCubit>().changeBottomNavIndex(index),
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 64.w,
+        width: 72.w,
+        height: 56.h,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

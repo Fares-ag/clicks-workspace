@@ -1,7 +1,56 @@
 import { apiSlice } from "./apiSlice";
 
+function buildJobListQueryParams({
+  search = "",
+  status,
+  technician,
+  businessPortal,
+  completedToday,
+  dateFrom,
+  dateTo,
+  timeFrom,
+  timeTo,
+  paymentStatus,
+  jobType,
+  source,
+  jobOrigin,
+  garage,
+  page,
+  limit,
+}) {
+  const params = new URLSearchParams();
+  if (page != null) params.set("page", String(page));
+  if (limit != null) params.set("limit", String(limit));
+  params.set("search", search || "");
+  if (status) params.set("status", status);
+  if (garage) params.set("garage", garage);
+  if (technician) params.set("technician", technician);
+  if (businessPortal) params.set("businessPortal", "true");
+  if (completedToday) params.set("completedToday", "1");
+  if (dateFrom) params.set("dateFrom", dateFrom);
+  if (dateTo) params.set("dateTo", dateTo);
+  if (timeFrom) params.set("timeFrom", timeFrom);
+  if (timeTo) params.set("timeTo", timeTo);
+  if (paymentStatus) params.set("paymentStatus", paymentStatus);
+  if (jobType) params.set("jobType", jobType);
+  if (source) params.set("source", source);
+  if (jobOrigin) params.set("jobOrigin", jobOrigin);
+  return params;
+}
+
 export const jobApi = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getJobStats: builder.query({
+      query: (args = {}) => {
+        const params = buildJobListQueryParams(args);
+        return {
+          url: `/jobs/stats?${params.toString()}`,
+          method: "GET",
+        };
+      },
+      providesTags: ["Job"],
+      keepUnusedDataFor: 60,
+    }),
     getJobs: builder.query({
       query: ({
         page = 1,
@@ -19,28 +68,28 @@ export const jobApi = apiSlice.injectEndpoints({
         jobType,
         source,
         jobOrigin,
-      } = {}) => {
-        const params = new URLSearchParams();
-        params.set("page", String(page));
-        params.set("limit", String(limit));
-        params.set("search", search || "");
-        if (status) params.set("status", status);
-        if (technician) params.set("technician", technician);
-        if (businessPortal) params.set("businessPortal", "true");
-        if (completedToday) params.set("completedToday", "1");
-        if (dateFrom) params.set("dateFrom", dateFrom);
-        if (dateTo) params.set("dateTo", dateTo);
-        if (timeFrom) params.set("timeFrom", timeFrom);
-        if (timeTo) params.set("timeTo", timeTo);
-        if (paymentStatus) params.set("paymentStatus", paymentStatus);
-        if (jobType) params.set("jobType", jobType);
-        if (source) params.set("source", source);
-        if (jobOrigin) params.set("jobOrigin", jobOrigin);
-        return {
-          url: `/jobs?${params.toString()}`,
-          method: "GET",
-        };
-      },
+        garage,
+      } = {}) => ({
+        url: `/jobs?${buildJobListQueryParams({
+          page,
+          limit,
+          search,
+          status,
+          technician,
+          businessPortal,
+          completedToday,
+          dateFrom,
+          dateTo,
+          timeFrom,
+          timeTo,
+          paymentStatus,
+          jobType,
+          source,
+          jobOrigin,
+          garage,
+        }).toString()}`,
+        method: "GET",
+      }),
       providesTags: ["Job"],
       keepUnusedDataFor: 180,
     }),
@@ -220,6 +269,7 @@ export const jobApi = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetJobStatsQuery,
   useGetJobsQuery,
   useCreateJobMutation,
   useUpdateJobMutation,

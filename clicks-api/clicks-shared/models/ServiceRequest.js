@@ -40,6 +40,27 @@ const ServiceRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Job",
     },
+    origin_sos_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SOSRequest",
+      default: null,
+    },
+    origin_job_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Job",
+      default: null,
+    },
+    membership_cover: {
+      type: String,
+      enum: ["none", "included", "discounted"],
+      default: "none",
+    },
+    membership_subscription_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CustomerSubscription",
+      default: null,
+    },
+    membership_discount_percent: { type: Number, default: 0, min: 0, max: 100 },
   },
   { timestamps: true }
 );

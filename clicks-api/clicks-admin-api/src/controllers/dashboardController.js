@@ -149,6 +149,8 @@ async function buildDashboardSummary() {
       jobsEnRoute,
       jobsArrived,
       jobsInProgress,
+      jobsAtGarage,
+      jobsReturning,
       completedToday,
       completedYesterday,
       techsActive,
@@ -172,6 +174,16 @@ async function buildDashboardSummary() {
       cachedCount(Job, { job_status: "en_route" }, { ttlMs: 30000, key: "jobs_en_route" }),
       cachedCount(Job, { job_status: "arrived" }, { ttlMs: 30000, key: "jobs_arrived" }),
       cachedCount(Job, { job_status: "in_progress" }, { ttlMs: 30000, key: "jobs_in_progress" }),
+      cachedCount(
+        Job,
+        { "garage.phase": "at_garage" },
+        { ttlMs: 30000, key: "jobs_at_garage" }
+      ),
+      cachedCount(
+        Job,
+        { "garage.phase": "returning" },
+        { ttlMs: 30000, key: "jobs_returning" }
+      ),
       cachedCount(
         Job,
         { job_status: { $in: COMPLETED }, completed_at: { $gte: todayStart, $lte: todayEnd } },
@@ -274,6 +286,8 @@ async function buildDashboardSummary() {
         enRoute: jobsEnRoute,
         arrived: jobsArrived,
         inProgress: jobsInProgress,
+        atGarage: jobsAtGarage,
+        returning: jobsReturning,
         completedToday,
         completedYesterday,
         pendingList: pendingJobs,

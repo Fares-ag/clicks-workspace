@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/routing/app_page_route.dart';
 import 'package:flutter/material.dart';
 
 /// Extension on [BuildContext] to provide navigation methods.
@@ -32,6 +33,11 @@ extension Router on BuildContext {
     if (Navigator.of(this).canPop()) {
       Navigator.of(this).pop(result);
     }
+  }
+
+  /// Push a screen with the same transition as [AppRouter] named routes.
+  Future<T?> pushSmooth<T>(Widget page) {
+    return Navigator.of(this).push<T>(AppPageRoute(page: page));
   }
 }
 

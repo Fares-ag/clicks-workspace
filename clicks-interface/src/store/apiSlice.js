@@ -23,8 +23,37 @@ function getRequestUrl(args) {
   return typeof args === "string" ? args : args?.url;
 }
 
+function withAnalysisTimeout(args) {
+  const url = getRequestUrl(args) || "";
+  if (!url.includes("/data-analysis/")) return { args, cancel: () => {} };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 28000);
+  const next =
+    typeof args === "string"
+      ? { url: args, signal: controller.signal }
+      : { ...args, signal: controller.signal };
+  return {
+    args: next,
+    cancel: () => clearTimeout(timer),
+  };
+}
+
 async function baseQueryWithReauth(args, api, extraOptions) {
-  let result = await rawBase(args, api, extraOptions);
+  const timed = withAnalysisTimeout(args);
+  let result;
+  try {
+    result = await rawBase(timed.args, api, extraOptions);
+  } finally {
+    timed.cancel();
+  }
+  if (result?.error?.status === "ABORT_ERR" || result?.error?.name === "AbortError") {
+    return {
+      error: {
+        status: 504,
+        data: { message: "This range is too large. Narrow the dates or hide historical import." },
+      },
+    };
+  }
 
   const url = getRequestUrl(args);
   const isAuthEndpoint =

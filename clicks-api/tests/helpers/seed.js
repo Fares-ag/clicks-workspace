@@ -1,12 +1,16 @@
 const bcrypt = require("../../clicks-admin-api/node_modules/bcryptjs");
 const {
   Customer,
+  CustomerVehicle,
   Job,
   Source,
   Technician,
   FinanceUser,
   OTPVerification,
   Admin,
+  VehicleMake,
+  VehicleModel,
+  VehicleType,
 } = require("../../clicks-shared/models");
 
 const JOB_LAT = 25.2854;
@@ -159,14 +163,46 @@ async function seedAdmin({ _id = "507f1f77bcf86cd799439011", role = "Super Admin
   });
 }
 
-async function seedOtpRecord({ phone = "+97455500001", otp = "483920", purpose = "registration" } = {}) {
+async function seedCustomerVehicle(customer, overrides = {}) {
+  const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const make = await VehicleMake.create({
+    makeName: `Make-${suffix}`,
+    isActive: true,
+  });
+  const type = await VehicleType.create({
+    typeName: `Type-${suffix}`,
+    isActive: true,
+  });
+  const model = await VehicleModel.create({
+    modelName: `Model-${suffix}`,
+    makeId: make._id,
+    isActive: true,
+  });
+  return CustomerVehicle.create({
+    customer_id: customer._id,
+    vehicle_make: make._id,
+    vehicle_type: type._id,
+    vehicle_model: model._id,
+    year: 2022,
+    vehicle_color: "White",
+    plate_number: `P${String(suffix).slice(-5)}`,
+    ...overrides,
+  });
+}
+
+async function seedOtpRecord({
+  phone = "+97455500001",
+  otp = "483920",
+  purpose = "registration",
+  verified = false,
+} = {}) {
   await OTPVerification.deleteMany({ phone, purpose });
   return OTPVerification.create({
     phone,
     otp,
     purpose,
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    verified: false,
+    verified,
     attempts: 0,
   });
 }
@@ -187,6 +223,7 @@ module.exports = {
   seedSource,
   seedTechnician,
   seedCustomer,
+  seedCustomerVehicle,
   seedCustomerJob,
   seedArrivedJob,
   seedInProgressCompletableJob,

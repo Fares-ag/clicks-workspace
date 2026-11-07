@@ -1,12 +1,26 @@
+const fs = require("fs");
+const path = require("path");
 const { computeJobPricing } = require("../utils/jobPricing");
 
 const BRAND = {
-  company: "Clicks",
+  company: "Sanadcom",
+  legalName: "Sanadcom for Roadside Assistance Services",
   product: "Roadside Assistance",
   legal: "Sanad RSA",
   country: "State of Qatar",
+  city: "Doha",
   support: "7091 9191",
 };
+
+const LOGO = {
+  widthPx: 1400,
+  heightPx: 375,
+  drawWidth: 210,
+  drawHeight: 56,
+  bytes: fs.readFileSync(path.join(__dirname, "..", "assets", "sanad-logo.jpg")),
+};
+
+const LOGO_DATA_URI = `data:image/jpeg;base64,${LOGO.bytes.toString("base64")}`;
 
 const QATAR_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -15,6 +29,33 @@ const METHOD_LABELS = {
   card: "Card",
   wallet: "Wallet",
   fawran: "Fawran",
+};
+const NAVY = { r: 0.035, g: 0.2, b: 0.271 };
+const ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const TEENS = [
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+const HELVETICA_WIDTHS = {
+  " ": 278, "!": 278, '"': 355, "#": 556, $: 556, "%": 889, "&": 667, "'": 191,
+  "(": 333, ")": 333, "*": 389, "+": 584, ",": 278, "-": 333, ".": 278, "/": 278,
+  0: 556, 1: 556, 2: 556, 3: 556, 4: 556, 5: 556, 6: 556, 7: 556, 8: 556, 9: 556,
+  ":": 278, ";": 278, "=": 584, "?": 556, "@": 1015,
+  A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 500,
+  K: 667, L: 556, M: 833, N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611,
+  U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+  a: 556, b: 556, c: 500, d: 556, e: 556, f: 278, g: 556, h: 556, i: 222, j: 222,
+  k: 500, l: 222, m: 833, n: 556, o: 556, p: 556, q: 556, r: 333, s: 500, t: 278,
+  u: 556, v: 500, w: 722, x: 500, y: 500, z: 500,
 };
 
 function pdfEscape(value) {
@@ -92,13 +133,31 @@ function receiptFilename(job = {}, receipt = {}) {
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-  return `clicks-receipt-${ref || "receipt"}.pdf`;
+  return `sanadcom-receipt-${ref || "receipt"}.pdf`;
 }
 
-function vehicleLine(job = {}) {
-  return [job.vehicleMake, job.vehicleModel, job.vehicleYear, job.licensePlate]
-    .filter((part) => part != null && String(part).trim())
-    .join(" ");
+function accountFromJob(job = {}) {
+  const account = job.customer_id && typeof job.customer_id === "object" ? job.customer_id : {};
+  return {
+    name: `${account.first_name || ""} ${account.last_name || ""}`.trim(),
+    mobile: String(account.phone_number || "").trim(),
+    email: String(account.email || "").trim(),
+    clientId: String(account.client_id || "").trim(),
+  };
+}
+
+function customerIdentity(job = {}) {
+  const account = accountFromJob(job);
+  return {
+    name: String(job.clientName || account.name || "").trim(),
+    mobile: String(job.clientMobileNumber || account.mobile || "").trim(),
+    email: String(job.clientEmail || account.email || "").trim(),
+    clientId: account.clientId,
+    vehicle: [job.vehicleMake, job.vehicleModel, job.vehicleYear]
+      .filter((part) => part != null && String(part).trim())
+      .join(" "),
+    plate: String(job.licensePlate || "").trim(),
+  };
 }
 
 function technicianName(job = {}) {
@@ -143,22 +202,64 @@ function isPaid(receipt = {}, job = {}) {
 function paymentHeadline(receipt = {}, job = {}) {
   const paid = isPaid(receipt, job);
   const method = methodLabel(job);
-  if (paid && method) return `Paid · ${method}`;
-  if (paid) return "Paid";
-  if (method) return `Unpaid · ${method}`;
-  return "Unpaid";
+  if (paid && method) return `PAID  |  ${method}`;
+  if (paid) return "PAID";
+  if (method) return `UNPAID  |  ${method}`;
+  return "UNPAID";
 }
 
 function paymentDetail(receipt = {}, job = {}) {
   const paid = isPaid(receipt, job);
-  const method = methodLabel(job) || "—";
-  if (paid) return `Payment  ${method} · paid in full`;
-  return `Payment  ${method} · unpaid`;
+  const method = methodLabel(job) || "-";
+  if (paid) return `Payment received in full by ${method}.`;
+  return `Balance outstanding. Intended method: ${method}.`;
 }
 
 function resolveRepairs(receipt = {}, repairs) {
   if (Array.isArray(repairs)) return repairs;
   return Array.isArray(receipt.items) ? receipt.items : [];
+}
+
+function underHundred(n) {
+  if (n < 10) return ONES[n];
+  if (n < 20) return TEENS[n - 10];
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  return ones ? `${TENS[tens]}-${ONES[ones]}` : TENS[tens];
+}
+
+function underThousand(n) {
+  if (n < 100) return underHundred(n);
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  const head = `${ONES[hundreds]} hundred`;
+  return rest ? `${head} and ${underHundred(rest)}` : head;
+}
+
+function numberToWords(n) {
+  const value = Math.floor(Math.abs(Number(n) || 0));
+  if (value === 0) return "zero";
+  if (value < 1000) return underThousand(value);
+  const thousands = Math.floor(value / 1000);
+  const rest = value % 1000;
+  const head = `${underThousand(thousands)} thousand`;
+  if (!rest) return head;
+  if (rest < 100) return `${head} and ${underHundred(rest)}`;
+  return `${head} ${underThousand(rest)}`;
+}
+
+function moneyWords(value) {
+  const total = roundMoney(value);
+  const riyals = Math.floor(Math.abs(total));
+  const dirhams = Math.round((Math.abs(total) - riyals) * 100);
+  const riyalWord = riyals === 1 ? "Qatari riyal" : "Qatari riyals";
+  let text = `${numberToWords(riyals)} ${riyalWord}`;
+  if (dirhams > 0) {
+    const dirhamWord = dirhams === 1 ? "dirham" : "dirhams";
+    text += ` and ${numberToWords(dirhams)} ${dirhamWord}`;
+  }
+  if (total < 0) text = `minus ${text}`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)} only`;
 }
 
 function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
@@ -175,7 +276,12 @@ function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
     const price = Number(row.price) || 0;
     const description = row.description || row.name || "Repair";
     if (!String(description).trim() && price === 0) return;
-    items.push({ description, quantity: qty, price });
+    items.push({
+      description,
+      quantity: qty,
+      price,
+      receipt_image_url: row.receipt_image_url,
+    });
   });
   const distanceFee = Number(pricing.distanceFee) || 0;
   if (distanceFee > 0) {
@@ -192,13 +298,13 @@ function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
   const adj = roundMoney(total - gross);
   const plan = membership.planName || "Membership";
   if (membership.included || membership.cover === "included") {
-    const label = `${plan} — included`;
+    const label = `${plan} - included`;
     if (Math.abs(adj) > 0.009) {
       items.push({ description: label, quantity: 1, price: adj });
     }
   } else if (membership.cover === "discounted") {
     const pct = Number(membership.discountPercent) || 0;
-    const label = `${plan} — ${pct}% discount`;
+    const label = `${plan} - ${pct}% discount`;
     if (Math.abs(adj) > 0.009) {
       items.push({ description: label, quantity: 1, price: adj });
     }
@@ -215,162 +321,375 @@ function buildLineItems({ receipt = {}, job = {}, repairs } = {}) {
   return { items, total, pricing, membership };
 }
 
-function buildContentStream({ receipt, job, repairs }) {
+function stringWidth(text, size, font) {
+  const bold = font === "F2";
+  let width = 0;
+  for (const ch of String(text || "")) {
+    const base = HELVETICA_WIDTHS[ch] || 500;
+    const letter = ch >= "0" && ch <= "9" || ch === "." || ch === "," || ch === " " ? base : base * (bold ? 1.12 : 1);
+    width += letter / 1000 * size;
+  }
+  return width;
+}
+
+const LAYOUT = {
+  left: 40,
+  right: 555,
+  width: 515,
+  split: 298,
+  labelW: 78,
+  desc: 52,
+  qtyRight: 348,
+  unitRight: 448,
+  amtRight: 543,
+};
+
+function formatLocation(value) {
+  const text = String(value || "").trim();
+  const gps = text.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!gps) return text;
+  return `${Number(gps[1]).toFixed(5)}, ${Number(gps[2]).toFixed(5)}`;
+}
+
+function parseJpeg(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return null;
+  }
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) return null;
+    const marker = bytes[offset + 1];
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      return {
+        width: bytes.readUInt16BE(offset + 7),
+        height: bytes.readUInt16BE(offset + 5),
+        bytes,
+        filter: "DCTDecode",
+      };
+    }
+    if (marker === 0xd9 || marker === 0xda) break;
+    const length = bytes.readUInt16BE(offset + 2);
+    offset += 2 + length;
+  }
+  return null;
+}
+
+function loadAxios() {
+  try {
+    return require("axios");
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRepairReceiptImages(rows) {
+  const axios = loadAxios();
+  if (!axios) return [];
+  const candidates = [];
+  for (const row of rows || []) {
+    const url = String(row.receipt_image_url || "").trim();
+    if (!/^https?:\/\//i.test(url)) continue;
+    if (candidates.some((item) => item.url === url)) continue;
+    candidates.push({
+      url,
+      caption: String(row.description || row.name || "Parts receipt").trim() || "Parts receipt",
+    });
+    if (candidates.length >= 4) break;
+  }
+  const loaded = await Promise.all(
+    candidates.map(async (item) => {
+      try {
+        const res = await axios.get(item.url, {
+          responseType: "arraybuffer",
+          timeout: 4000,
+          maxContentLength: 2500000,
+          maxBodyLength: 2500000,
+          validateStatus: (status) => status === 200,
+        });
+        const jpeg = parseJpeg(Buffer.from(res.data));
+        if (!jpeg || !jpeg.width || !jpeg.height) return null;
+        return { ...jpeg, caption: item.caption };
+      } catch {
+        return null;
+      }
+    })
+  );
+  return loaded.filter(Boolean);
+}
+
+function kvPairs(pairs) {
+  return pairs.filter(([, value]) => value && String(value).trim());
+}
+
+function buildContentStream({ receipt, job, repairs, photos = [] }) {
   const { items, total } = buildLineItems({ receipt, job, repairs });
+  const customer = customerIdentity(job);
   const lines = [];
   const add = (text) => lines.push(text);
   const fill = (r, g, b) => add(`${r} ${g} ${b} rg`);
+  const navy = () => fill(NAVY.r, NAVY.g, NAVY.b);
+  const rect = (x, y, w, h) => add(`${x} ${y} ${w} ${h} re f`);
   const textAt = (font, size, x, y, value) => {
-    add(`BT /${font} ${size} Tf ${x} ${y} Td (${pdfEscape(value)}) Tj ET`);
+    add(`BT /${font} ${size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${pdfEscape(value)}) Tj ET`);
   };
+  const textRight = (font, size, rightX, y, value) => {
+    textAt(font, size, rightX - stringWidth(value, size, font), y, value);
+  };
+  const barBaseline = (barY, barH, size) => barY + (barH - size) / 2 + 1;
 
-  fill(0.545, 0.102, 0.106);
-  add("0 754 595 88 re f");
-  fill(1, 1, 1);
-  textAt("F2", 22, 40, 812, "CLICKS");
-  textAt("F1", 11, 40, 794, BRAND.product);
-  textAt("F1", 8, 40, 778, `Issued by ${BRAND.legal}  ·  ${BRAND.country}`);
-  textAt("F1", 9, 430, 812, "Support");
-  textAt("F2", 11, 430, 794, BRAND.support);
+  fill(NAVY.r, NAVY.g, NAVY.b);
+  rect(0, 832, 595, 10);
 
-  fill(0.12, 0.12, 0.14);
-  textAt("F2", 16, 40, 728, "SERVICE RECEIPT");
-  textAt("F2", 10, 400, 728, paymentHeadline(receipt, job));
+  add("q");
+  add(`${LOGO.drawWidth} 0 0 ${LOGO.drawHeight} ${LAYOUT.left} 770 cm`);
+  add("/Im1 Do");
+  add("Q");
 
-  fill(0.42, 0.42, 0.45);
-  textAt("F2", 8, 40, 704, "BILL TO");
-  textAt("F2", 8, 320, 704, "RECEIPT");
-
-  const left = [
-    job.clientName,
-    job.clientMobileNumber,
-    vehicleLine(job),
-    job.jobType || job.issue,
-  ].filter((value) => value && String(value).trim());
+  navy();
+  textRight("F2", 14, LAYOUT.right, 806, "SERVICE RECEIPT");
+  fill(0.35, 0.4, 0.44);
+  textRight("F1", 9, LAYOUT.right, 788, receiptNumber(receipt, job));
   const issued = receipt.issued_at || job.completed_at || job.paid_at || job.dateTime;
-  const right = [
-    receiptNumber(receipt, job),
-    jobRef(job, receipt) ? `Job ${jobRef(job, receipt)}` : "",
-    formatQatarWhen(issued),
-    technicianName(job) ? `Technician: ${technicianName(job)}` : "",
-  ].filter(Boolean);
+  textRight("F1", 9, LAYOUT.right, 774, formatQatarWhen(issued));
 
-  fill(0.12, 0.12, 0.14);
-  let yLeft = 688;
-  left.forEach((value) => {
-    textAt("F1", 10, 40, yLeft, clip(value, 42));
-    yLeft -= 14;
-  });
-  let yRight = 688;
-  right.forEach((value) => {
-    textAt("F1", 10, 320, yRight, clip(value, 40));
-    yRight -= 14;
-  });
+  fill(0.35, 0.4, 0.44);
+  textAt("F1", 8, LAYOUT.left, 756, `${BRAND.legalName}  |  ${BRAND.city}, ${BRAND.country}  |  Tel ${BRAND.support}`);
+  navy();
+  rect(LAYOUT.left, 748, LAYOUT.width, 1.2);
 
-  let y = Math.min(yLeft, yRight) - 8;
-  fill(0.545, 0.102, 0.106);
-  add(`40 ${y} 515 1 re f`);
+  const customerRows = kvPairs([
+    ["Customer", customer.name],
+    ["Mobile", customer.mobile],
+    ["Email", customer.email],
+    ["Vehicle", customer.vehicle],
+    ["Plate", customer.plate],
+    ["Client ID", customer.clientId],
+  ]);
+  const serviceRows = kvPairs([
+    ["Job", jobRef(job, receipt)],
+    ["Service", job.jobType || job.issue],
+    ["Location", formatLocation(job.location)],
+    ["Technician", technicianName(job)],
+  ]);
+
+  fill(0.4, 0.45, 0.48);
+  textAt("F2", 8, LAYOUT.left, 732, "CUSTOMER");
+  textAt("F2", 8, LAYOUT.split + 16, 732, "SERVICE");
+  fill(0.9, 0.92, 0.93);
+  rect(LAYOUT.split, 732 - Math.max(customerRows.length, serviceRows.length, 1) * 16 - 8, 0.6, Math.max(customerRows.length, serviceRows.length, 1) * 16 + 20);
+
+  const drawKv = (x, startY, rows) => {
+    let y = startY;
+    rows.forEach(([label, value]) => {
+      fill(0.45, 0.5, 0.53);
+      textAt("F1", 9, x, y, label);
+      fill(0.08, 0.12, 0.16);
+      textAt("F1", 9, x + LAYOUT.labelW, y, clip(value, 26));
+      y -= 16;
+    });
+    return y;
+  };
+  const leftBottom = drawKv(LAYOUT.left, 714, customerRows);
+  const rightBottom = drawKv(LAYOUT.split + 16, 714, serviceRows);
+  let y = Math.min(leftBottom, rightBottom) - 12;
+
+  const headerH = 22;
+  navy();
+  rect(LAYOUT.left, y, LAYOUT.width, headerH);
+  const headerTextY = barBaseline(y, headerH, 9);
+  fill(1, 1, 1);
+  textAt("F2", 9, LAYOUT.desc, headerTextY, "Description");
+  textRight("F2", 9, LAYOUT.qtyRight, headerTextY, "Qty");
+  textRight("F2", 9, LAYOUT.unitRight, headerTextY, "Unit (QAR)");
+  textRight("F2", 9, LAYOUT.amtRight, headerTextY, "Amount (QAR)");
   y -= 20;
-  fill(0.12, 0.12, 0.14);
-  textAt("F2", 9, 40, y, "Description");
-  textAt("F2", 9, 340, y, "Qty");
-  textAt("F2", 9, 400, y, "Price");
-  textAt("F2", 9, 480, y, "Amount");
-  y -= 16;
 
-  items.forEach((item) => {
-    if (y < 120) return;
+  items.forEach((item, index) => {
+    if (y < 210) return;
+    const rowH = 20;
+    const rowY = y - 5;
     const qty = Number(item.quantity) || 1;
     const price = Number(item.price) || 0;
-    fill(0.2, 0.2, 0.22);
-    textAt("F1", 9, 40, y, clip(item.description || "Item", 46));
-    textAt("F1", 9, 340, y, String(qty));
-    textAt("F1", 9, 400, y, money(price));
-    textAt("F1", 9, 480, y, money(price * qty));
-    y -= 15;
+    const amount = roundMoney(price * qty);
+    if (index % 2 === 1) {
+      fill(0.965, 0.973, 0.976);
+      rect(LAYOUT.left, rowY, LAYOUT.width, rowH);
+    }
+    const textY = barBaseline(rowY, rowH, 9);
+    fill(0.12, 0.14, 0.16);
+    textAt("F1", 9, LAYOUT.desc, textY, clip(item.description || "Item", 40));
+    textRight("F1", 9, LAYOUT.qtyRight, textY, String(qty));
+    textRight("F1", 9, LAYOUT.unitRight, textY, money(price));
+    textRight("F1", 9, LAYOUT.amtRight, textY, money(amount));
+    y -= rowH;
   });
 
-  y -= 6;
-  fill(0.545, 0.102, 0.106);
-  add(`40 ${y} 515 1 re f`);
+  const totalH = 24;
+  navy();
+  rect(LAYOUT.left, y - 6, LAYOUT.width, totalH);
+  const totalTextY = barBaseline(y - 6, totalH, 10);
+  fill(1, 1, 1);
+  textAt("F2", 10, LAYOUT.desc, totalTextY, "TOTAL");
+  textRight("F2", 9, LAYOUT.unitRight, totalTextY, "QAR");
+  textRight("F2", 10, LAYOUT.amtRight, totalTextY, money(total));
+  y -= 36;
+
+  fill(0.32, 0.36, 0.4);
+  textAt("F1", 8, LAYOUT.left, y, clip(`Amount in words: ${moneyWords(total)}`, 92));
+  y -= 18;
+
+  const paid = isPaid(receipt, job);
+  const payH = 24;
+  if (paid) fill(0.12, 0.42, 0.32);
+  else fill(0.62, 0.18, 0.16);
+  rect(LAYOUT.left, y - 6, LAYOUT.width, payH);
+  const payY = barBaseline(y - 6, payH, 9);
+  fill(1, 1, 1);
+  textAt("F2", 9, LAYOUT.desc, payY, paymentHeadline(receipt, job));
+  textRight("F1", 9, LAYOUT.amtRight, payY, clip(paymentDetail(receipt, job), 48));
   y -= 22;
-  fill(0.12, 0.12, 0.14);
-  textAt("F2", 12, 360, y, `Total QAR  ${money(total)}`);
-  y -= 20;
-  fill(0.2, 0.2, 0.22);
-  textAt("F1", 9, 40, y, paymentDetail(receipt, job));
   const skipRef = skipcashRef(job);
   if (skipRef) {
-    y -= 14;
-    textAt("F1", 9, 40, y, `SkipCash ref  ${clip(skipRef, 36)}`);
+    fill(0.32, 0.36, 0.4);
+    textAt("F1", 8, 40, y, `SkipCash reference  ${clip(skipRef, 42)}`);
+    y -= 16;
   }
 
-  fill(0.4, 0.4, 0.42);
+  if (photos.length) {
+    y -= 6;
+    fill(0.4, 0.45, 0.48);
+    textAt("F2", 8, LAYOUT.left, y, "CUSTOMER RECEIPTS");
+    y -= 8;
+    photos.forEach((photo, index) => {
+      if (y < 130) return;
+      const col = index % 2;
+      if (col === 0 && index > 0) y -= 132;
+      const boxW = 248;
+      const boxH = 118;
+      const x = col === 0 ? LAYOUT.left : LAYOUT.split + 9;
+      const boxY = y - boxH;
+      fill(0.945, 0.957, 0.961);
+      rect(x, boxY, boxW, boxH);
+      const scale = Math.min((boxW - 16) / photo.width, (boxH - 22) / photo.height);
+      const dw = photo.width * scale;
+      const dh = photo.height * scale;
+      const ix = x + (boxW - dw) / 2;
+      const iy = boxY + 14 + (boxH - 22 - dh) / 2;
+      add("q");
+      add(`${dw.toFixed(2)} 0 0 ${dh.toFixed(2)} ${ix.toFixed(2)} ${iy.toFixed(2)} cm`);
+      add(`/Im${index + 2} Do`);
+      add("Q");
+      fill(0.32, 0.36, 0.4);
+      textAt("F1", 7, x + 8, boxY + 4, clip(photo.caption || "Receipt", 40));
+    });
+    y -= 132;
+  }
+
+  y -= 10;
+  navy();
+  rect(LAYOUT.left, y, LAYOUT.width, 1);
+  y -= 14;
+  fill(0.32, 0.36, 0.4);
+  textAt("F1", 8, LAYOUT.left, y, `Thank you for choosing ${BRAND.company}.`);
+  y -= 12;
   textAt(
     "F1",
     8,
-    40,
-    56,
-    "Thank you for choosing Clicks. This roadside assistance receipt was issued"
+    LAYOUT.left,
+    y,
+    `Issued by ${BRAND.legal}, trading as ${BRAND.legalName}, ${BRAND.city}, ${BRAND.country}.`
   );
-  textAt(
-    "F1",
-    8,
-    40,
-    44,
-    `by ${BRAND.legal}, trading as Clicks ${BRAND.product} in the ${BRAND.country}.`
-  );
-  textAt("F1", 8, 40, 32, "Not a garage invoice unless parts are listed above.");
+  y -= 12;
+  textAt("F1", 8, LAYOUT.left, y, `Support ${BRAND.support}  |  This is a service receipt, not a VAT tax invoice.`);
+  navy();
+  rect(0, 0, 595, 10);
 
   return lines.join("\n");
 }
 
-function assemblePdf(stream) {
-  const numbered = [
-    `<< /Type /Catalog /Pages 2 0 R >>`,
-    `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`,
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>`,
-    `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`,
-    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`,
-    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`,
-  ];
+function pdfObject(id, dict, streamBytes) {
+  if (streamBytes) {
+    return Buffer.concat([
+      Buffer.from(`${id} 0 obj\n${dict}\nstream\n`, "utf8"),
+      streamBytes,
+      Buffer.from("\nendstream\nendobj\n", "utf8"),
+    ]);
+  }
+  return Buffer.from(`${id} 0 obj\n${dict}\nendobj\n`, "utf8");
+}
 
-  let offset = 0;
-  const chunks = ["%PDF-1.4\n"];
-  offset = Buffer.byteLength(chunks[0], "utf8");
-  const xref = [0];
-  numbered.forEach((body, i) => {
-    xref.push(offset);
-    const obj = `${i + 1} 0 obj\n${body}\nendobj\n`;
-    chunks.push(obj);
-    offset += Buffer.byteLength(obj, "utf8");
+function assemblePdf(stream, photos = []) {
+  const streamBuf = Buffer.from(stream, "utf8");
+  const xobjects = ["/Im1 7 0 R"].concat(
+    photos.map((_, index) => `/Im${index + 2} ${8 + index} 0 R`)
+  );
+  const objects = [
+    pdfObject(1, "<< /Type /Catalog /Pages 2 0 R >>"),
+    pdfObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+    pdfObject(
+      3,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> /XObject << ${xobjects.join(" ")} >> >> >>`
+    ),
+    pdfObject(4, `<< /Length ${streamBuf.length} >>`, streamBuf),
+    pdfObject(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+    pdfObject(6, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"),
+    pdfObject(
+      7,
+      `<< /Type /XObject /Subtype /Image /Width ${LOGO.widthPx} /Height ${LOGO.heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${LOGO.bytes.length} >>`,
+      LOGO.bytes
+    ),
+  ];
+  photos.forEach((photo, index) => {
+    objects.push(
+      pdfObject(
+        8 + index,
+        `<< /Type /XObject /Subtype /Image /Width ${photo.width} /Height ${photo.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /${photo.filter || "DCTDecode"} /Length ${photo.bytes.length} >>`,
+        photo.bytes
+      )
+    );
   });
 
-  const xrefStart = offset;
-  let xrefTable = `xref\n0 ${numbered.length + 1}\n0000000000 65535 f \n`;
+  const header = Buffer.from("%PDF-1.4\n", "utf8");
+  const chunks = [header];
+  const xref = [0];
+  let offset = header.length;
+  objects.forEach((obj) => {
+    xref.push(offset);
+    chunks.push(obj);
+    offset += obj.length;
+  });
+
+  let xrefTable = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
   xref.slice(1).forEach((pos) => {
     xrefTable += `${String(pos).padStart(10, "0")} 00000 n \n`;
   });
-  const trailer = `trailer\n<< /Size ${numbered.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
-  chunks.push(xrefTable, trailer);
-  return Buffer.concat(chunks.map((c) => Buffer.from(c, "utf8")));
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF\n`;
+  chunks.push(Buffer.from(xrefTable, "utf8"), Buffer.from(trailer, "utf8"));
+  return Buffer.concat(chunks);
 }
 
-function buildReceiptPdf({ receipt, job, repairs } = {}) {
+async function buildReceiptPdf({ receipt, job, repairs, photos } = {}) {
+  const rows = resolveRepairs(receipt || {}, repairs);
+  const images = Array.isArray(photos) ? photos : await fetchRepairReceiptImages(rows);
   return assemblePdf(
     buildContentStream({
       receipt: receipt || {},
       job: job || {},
       repairs,
-    })
+      photos: images,
+    }),
+    images
   );
 }
 
 module.exports = {
   BRAND,
+  LOGO_DATA_URI,
   buildReceiptPdf,
   buildLineItems,
+  customerIdentity,
   receiptNumber,
   receiptFilename,
   formatQatarWhen,
+  moneyWords,
 };

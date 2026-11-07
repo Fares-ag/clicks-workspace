@@ -41,10 +41,19 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     businessCutPercent,
   } = body;
 
-  if (!clientName || !clientMobileNumber || !location || !dateTime || !jobType || price == null || price === "" || !source) {
+  if (!clientName || !clientMobileNumber || !location || !dateTime || !jobType || !source) {
     const err = new Error("Missing required fields");
     err.status = 400;
     throw err;
+  }
+  let parsedPrice;
+  if (price != null && price !== "") {
+    parsedPrice = Number(price);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      const err = new Error("Invalid price");
+      err.status = 400;
+      throw err;
+    }
   }
   if (!issue || !String(issue).trim()) {
     const err = new Error("Issue description is mandatory");
@@ -73,7 +82,6 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
     dateTime,
     jobType,
     assignedTechnician: assignedTechnician || null,
-    price: Number(price),
     source,
     subSource: subSource || "",
     job_status: finalStatus,
@@ -89,7 +97,31 @@ async function createJobRecord(body, { notifyTechnicianFn } = {}) {
       businessCutPercent != null ? Number(businessCutPercent) : undefined,
     created_by_business_user: body.created_by_business_user || null,
   };
+  if (parsedPrice != null) {
+    jobData.price = parsedPrice;
+  }
   applyCanonicalJobFields(jobData);
+
+  if (service_request_id) {
+    try {
+      const sr = await ServiceRequest.findById(service_request_id);
+      if (sr) {
+        const {
+          stampJobMembership,
+        } = require("./membershipEntitlement");
+        stampJobMembership(jobData, {
+          cover: sr.membership_cover || "none",
+          discountPercent: sr.membership_discount_percent || 0,
+          subscription_id: sr.membership_subscription_id || null,
+          subscription: sr.membership_subscription_id
+            ? { _id: sr.membership_subscription_id }
+            : null,
+        });
+      }
+    } catch (e) {
+      console.error("Error stamping job membership:", e.message);
+    }
+  }
 
   jobData.locationCoordinates = await resolveJobLocationToGeoPointRequired(
     jobData.location

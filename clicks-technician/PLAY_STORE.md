@@ -12,35 +12,34 @@ Publish technician app updates to Google Play using the **Play Developer API** (
 
 1. Open [Google Play Console](https://play.google.com/console)
 2. **Create app** → name e.g. *Clicks Technician*
-3. Set package name: **`com.roya.clicks_technician`** (must match `android/app/build.gradle.kts`)
+3. Package name must match Play and Gradle: **`com.clicks.tech`** (`android/app/build.gradle.kts` → `applicationId`)
 
 Complete required store listing items (description, screenshots, content rating, privacy policy) before promoting beyond internal testing.
 
-### 2. Enable the Play Developer API
+### 2. Enable the Play Developer API (Google Cloud)
 
-1. Play Console → **Setup** → **API access**
-2. **Link** a Google Cloud project (or create one)
-3. Click **Enable Google Play Android Developer API** if prompted
-
-### 3. Create a service account
-
-1. In **API access**, click **Create new service account**
-2. Follow the link to Google Cloud Console → create service account, e.g. `play-publisher`
-3. Grant role: **Service Account User** (minimal) — API access is granted from Play Console
-4. **Keys** → **Add key** → **JSON** → download the file
+1. [Google Cloud Console](https://console.cloud.google.com) → create or select a project
+2. **APIs & Services → Library** → enable **Google Play Android Developer API**
+3. **IAM & Admin → Service accounts** → **Create service account** (e.g. `play-publisher`)
+4. Open the account → **Keys → Add key → JSON** → download the file
 5. Save as:
 
    ```
    clicks-technician/play-store/service-account.json
    ```
 
-6. Back in Play Console → **API access** → **Invite user** → select the service account
-7. Grant permissions:
-   - **Release to testing tracks** (internal/alpha/beta), or
+(Google removed the old Play Console **Setup → API access** page.)
+
+### 3. Grant the service account access in Play Console
+
+1. Play Console → **Settings** (gear) → **Users and permissions**
+2. **Invite new users** → paste the service account email (`client_email` from the JSON)
+3. Limit to **Sanad Technician** (`com.clicks.tech`) and grant:
+   - **Release to testing tracks** (internal/alpha/beta), and/or
    - **Release to production** (when ready)
    - **View app information**
 
-   For automated CI/agent uploads, **Admin** on the app is simplest.
+   Service accounts become **Active** without accepting an email invite.
 
 ### 4. Create an upload keystore
 
@@ -71,8 +70,10 @@ Enable [Play App Signing](https://support.google.com/googleplay/android-develope
 In `pubspec.yaml`, increment the build number (required every upload):
 
 ```yaml
-version: 1.2.0+11   # name+versionCode (must exceed Play production, currently 10)
+version: 1.2.3+16   # name+versionCode (versionCode must exceed Play production; prod was 15 / 1.2.2)
 ```
+
+See [`play-store/RELEASE-1.2.3.md`](play-store/RELEASE-1.2.3.md) for release notes and rollout checklist.
 
 ### Build + upload
 
@@ -122,9 +123,9 @@ For CI, store secrets outside git:
 
 | Error | Fix |
 |-------|-----|
-| `403 The caller does not have permission` | Grant service account access in Play Console → API access |
+| `403 The caller does not have permission` | Invite service account under **Settings → Users and permissions** |
 | `Version code X has already been used` | Bump `+N` in `pubspec.yaml` |
-| `You need to use a different package name` | Package already taken — use `com.roya.clicks_technician` |
+| `You need to use a different package name` | Listing must stay **`com.clicks.tech`** (Sanad Technician) |
 | `App not found` | Create app in Play Console with matching package name first |
 | Debug-signed release | Add `key.properties` + `upload-keystore.jks` |
 
@@ -136,7 +137,7 @@ For CI, store secrets outside git:
 clicks-technician/
   play-store/service-account.json    ← Play API key
   android/key.properties             ← keystore config
-  android/upload-keystore.jks          ← upload signing key
+  android/clicks-release.jks           ← upload signing key (path from key.properties)
 ```
 
 After you place `service-account.json` and the upload keystore, say when ready and we can run the first internal upload.

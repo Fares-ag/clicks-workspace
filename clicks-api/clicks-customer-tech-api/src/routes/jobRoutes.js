@@ -58,7 +58,24 @@ router.post("/:id/repairs", approvedTechnician, jobController.addRepairProcedure
 router.get("/:id/total", customerOrApprovedTechnician, jobController.calculateTotal);
 router.post("/:id/complete", approvedTechnician, jobController.markCompleted);
 router.post("/:id/cancel", approvedTechnician, jobController.cancelJobByTechnician);
+router.post(
+  "/:id/cancel-customer",
+  authenticate(["customer"]),
+  jobController.cancelJobByCustomer
+);
+router.post("/:id/garage", approvedTechnician, jobController.sendCustomerJobToGarage);
 router.post("/:id/payment", approvedTechnician, jobController.confirmPayment);
+router.post("/:id/pay-cash", authenticate(["customer"]), jobController.payCash);
+router.post(
+  "/:id/skipcash/session",
+  authenticate(["customer"]),
+  require("../controllers/skipcashController").createSession
+);
+router.get(
+  "/:id/skipcash/status",
+  authenticate(["customer"]),
+  require("../controllers/skipcashController").getStatus
+);
 router.post("/:id/hold-request", approvedTechnician, jobController.requestHold);
 router.delete(
   "/:id/hold-request",

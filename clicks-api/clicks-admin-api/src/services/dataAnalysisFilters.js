@@ -20,8 +20,8 @@ function asObjectId(id) {
 }
 
 function parseFilters(query = {}) {
-  const from = parseYmd(query.from);
-  const to = parseYmd(query.to);
+  let from = parseYmd(query.from);
+  let to = parseYmd(query.to);
   const excludeHistorical =
     query.excludeHistoricalImport == null ||
     query.excludeHistoricalImport === "" ||
@@ -29,6 +29,12 @@ function parseFilters(query = {}) {
 
   let jobStatus = String(query.jobStatus || "completed").trim();
   if (jobStatus === "all") jobStatus = "all";
+
+  if (from && to && from.getTime() > to.getTime()) {
+    const swapped = from;
+    from = to;
+    to = swapped;
+  }
 
   return {
     from,
@@ -56,17 +62,26 @@ function parseFilters(query = {}) {
   };
 }
 
+const SOURCE_TTL_MS = 60000;
+let sourceCache = { at: 0, rows: null };
+
+async function loadSources() {
+  const now = Date.now();
+  if (sourceCache.rows && now - sourceCache.at < SOURCE_TTL_MS) return sourceCache.rows;
+  const rows = await Source.find({}, "mainSourceName").lean();
+  sourceCache = { at: now, rows };
+  return rows;
+}
+
 async function hiddenSourceIds() {
-  const sources = await Source.find({}, "mainSourceName").lean();
-  return sources
+  return (await loadSources())
     .filter((row) => isHiddenSourceName(row.mainSourceName))
     .map((row) => row._id);
 }
 
 async function sourceNameMap() {
-  const sources = await Source.find({}, "mainSourceName").lean();
   const map = new Map();
-  for (const row of sources) {
+  for (const row of await loadSources()) {
     map.set(String(row._id), row.mainSourceName || "Unknown");
   }
   return map;
@@ -88,26 +103,18 @@ async function buildJobMatch(filters) {
     if (filters.from) range.$gte = startOfQatarDay(filters.from);
     if (filters.to) range.$lte = endOfQatarDay(filters.to);
     if (dateFieldForStatus(filters.jobStatus) === "completed_at") {
-      match.$and = [
-        {
-          $or: [
-            { completed_at: range },
-            { completed_at: null, dateTime: range },
-          ],
-        },
-      ];
+      match.completed_at = range;
     } else {
       match.dateTime = range;
     }
   }
 
   if (filters.excludeHistoricalImport) {
-    const hidden = await hiddenSourceIds();
+    match.legacy_id = { $exists: false };
     if (filters.sourceId) {
+      const hidden = await hiddenSourceIds();
       const blocked = hidden.some((id) => String(id) === String(filters.sourceId));
       match.source = blocked ? { $in: [] } : filters.sourceId;
-    } else if (hidden.length) {
-      match.source = { $nin: hidden };
     }
   } else if (filters.sourceId) {
     match.source = filters.sourceId;

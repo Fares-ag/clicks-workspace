@@ -1,5 +1,6 @@
 import '../../core/api/dio_helper.dart';
 import '../../core/api/end_points.dart';
+import '../../core/helper/booking_errors.dart';
 
 class ServiceRequestApi {
   static Future<Map<String, dynamic>> create({
@@ -30,7 +31,10 @@ class ServiceRequestApi {
     );
     if (response.statusCode != 201 && response.statusCode != 200) {
       throw Exception(
-        DioHelper.errorMessage(response) ?? 'Failed to create service request',
+        bookingErrorMessage(
+          DioHelper.errorCode(response),
+          DioHelper.errorMessage(response) ?? 'Failed to create service request',
+        ),
       );
     }
     final data = response.data;

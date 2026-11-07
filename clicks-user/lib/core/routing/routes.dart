@@ -19,6 +19,9 @@ class Routes {
   static const String jobInProgress = '/jobInProgress';
   static const String technicianTracking = '/technicianTracking';
   static const String contactUsSuccess = '/contactUsSuccess';
-
-
+  static const String paymentHold = '/paymentHold';
+  static const String skipcashCheckout = '/skipcashCheckout';
+  static const String membershipHub = '/membership';
+  static const String membershipPlans = '/membership/plans';
+  static const String membershipReview = '/membership/review';
 }

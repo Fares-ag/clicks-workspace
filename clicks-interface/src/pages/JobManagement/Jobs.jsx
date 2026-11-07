@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useGetJobsQuery } from "../../store/jobApi";
-import { useGetDashboardSummaryQuery } from "../../store/dashboardApi";
+import { useGetJobsQuery, useGetJobStatsQuery } from "../../store/jobApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useAdminRole } from "../../utils/adminRoles";
 import DataTable from "../../components/DataTable/DataTable.jsx";
@@ -201,13 +200,32 @@ function Jobs() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState(null);
 
+  const statsQueryParams = useMemo(() => ({
+    search: debouncedSearch,
+    technician: filters.technician || undefined,
+    dateFrom: filters.dateFrom || undefined,
+    dateTo: filters.dateTo || undefined,
+    timeFrom: filters.timeFrom || undefined,
+    timeTo: filters.timeTo || undefined,
+    paymentStatus: filters.paymentStatus || undefined,
+    jobType: filters.jobType || undefined,
+    source: filters.source || undefined,
+    jobOrigin: filters.jobOrigin || undefined,
+  }), [debouncedSearch, filters]);
+
   const {
     data: summary,
     isLoading: summaryLoading,
-  } = useGetDashboardSummaryQuery(undefined, {
-    pollingInterval: 0,
-    refetchOnFocus: false,
+    isFetching: summaryFetching,
+    refetch: refetchSummary,
+    dataUpdatedAt,
+  } = useGetJobStatsQuery(statsQueryParams, {
+    refetchOnFocus: true,
   });
+
+  const dateFilterActive = Boolean(
+    String(filters.dateFrom || "").trim() || String(filters.dateTo || "").trim()
+  );
 
   const jobQueryParams = useMemo(() => {
     const params = {
@@ -225,10 +243,22 @@ function Jobs() {
       jobOrigin: filters.jobOrigin || undefined,
     };
 
-    if (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") {
+    if (
+      (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") &&
+      !dateFilterActive
+    ) {
       params.completedToday = true;
+    } else if (
+      (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") &&
+      dateFilterActive
+    ) {
+      params.status = "completed";
     } else if (activeStatFilter === "ongoing") {
       params.status = "ongoing";
+    } else if (activeStatFilter === "at_garage") {
+      params.garage = "at_garage";
+    } else if (activeStatFilter === "returning") {
+      params.garage = "returning";
     } else if (activeStatFilter) {
       params.status = activeStatFilter;
     } else if (filters.status) {
@@ -236,7 +266,7 @@ function Jobs() {
     }
 
     return params;
-  }, [page, debouncedSearch, filters, activeStatFilter]);
+  }, [page, debouncedSearch, filters, activeStatFilter, dateFilterActive]);
 
   const activeFilterCount = useMemo(() => {
     return Object.entries(filters).filter(([, v]) => String(v || "").trim()).length;
@@ -418,6 +448,19 @@ function Jobs() {
     setPage(1);
   }, []);
 
+  const handleStatsReset = useCallback(() => {
+    handleFilterClear();
+    refetchSummary();
+    refetch();
+  }, [handleFilterClear, refetchSummary, refetch]);
+
+  const handleStatsRefresh = useCallback(() => {
+    refetchSummary();
+    refetch();
+  }, [refetchSummary, refetch]);
+
+  const statsFilterActive = Boolean(activeStatFilter) || activeFilterCount > 0;
+
   return (
     <div className="jobs-container">
       <div className="jobs-header-row">
@@ -432,10 +475,15 @@ function Jobs() {
       </div>
       <JobStatsStrip
         summary={summary}
-        loading={summaryLoading}
+        loading={summaryLoading && !summary}
+        refreshing={summaryFetching}
         activeFilter={activeStatFilter}
         onFilterChange={handleStatFilterChange}
         showRevenue={isFullAdmin}
+        updatedAt={dataUpdatedAt}
+        filterActive={statsFilterActive}
+        onRefresh={handleStatsRefresh}
+        onReset={handleStatsReset}
       />
       <DataTable
         columns={columns}

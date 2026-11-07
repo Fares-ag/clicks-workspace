@@ -40,6 +40,8 @@ dependencies:
   firebase_messaging: ^15.2.1
   flutter_local_notifications: ^18.0.1
   sentry_flutter: ^9.27.0
+  webview_flutter: ^4.13.0
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_lints: ^5.0.0

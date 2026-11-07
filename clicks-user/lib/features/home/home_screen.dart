@@ -9,79 +9,81 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../core/components/clicks_logo.dart';
+import '../../core/components/header_icon_button.dart';
 import '../../core/helper/app_snack_bars.dart';
+import '../../core/sos_services/customer_socket_service.dart';
 import '../../core/theme/colors_manager.dart';
 import '../../core/theme/text_styles.dart';
+import 'garage_job_card.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
-  static const Color _headerWash = Color(0xFFFEF2F2);
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: ColorsManager.canvas,
       body: Column(
         children: [
           Container(
             width: double.infinity,
-            color: _headerWash,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(color: ColorsManager.washBorder),
+              ),
+            ),
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 16.h),
-                child: Row(
+                padding: EdgeInsets.fromLTRB(16.w, 6.h, 16.w, 14.h),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    SizedBox(
+                      height: 44.h,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Text(
-                            "home.welcome".tr(),
-                            style: TextStyles.font24Medium
-                                .copyWith(fontSize: 18.sp),
-                          ),
-                          SizedBox(height: 2.h),
-                          BlocBuilder<SettingsCubit, SettingsState>(
-                            builder: (context, state) {
-                              final p = context.read<SettingsCubit>().profile;
-                              final name = p == null
-                                  ? ''
-                                  : '${p.firstName} ${p.lastName}'.trim();
-                              return Text(
-                                name,
-                                style: TextStyles.font16RegularBlack
-                                    .copyWith(fontWeight: FontWeight.w600),
-                              );
-                            },
+                          const ClicksLogo(height: 24),
+                          const Spacer(),
+                          HeaderIconButton(
+                            icon: Icons.notifications_outlined,
+                            semanticsLabel: 'notifications.notifications'.tr(),
+                            onTap: () => context.toNamed(Routes.notifications),
                           ),
                         ],
                       ),
                     ),
-                    InkWell(
-                      onTap: () => context.toNamed(Routes.notifications),
-                      borderRadius: BorderRadius.circular(24.r),
-                      child: Container(
-                        width: 44.w,
-                        height: 44.w,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: ColorsManager.border),
-                        ),
-                        child: Icon(
-                          Icons.notifications_outlined,
-                          color: ColorsManager.greyColor,
-                          size: 22.sp,
-                        ),
+                    SizedBox(height: 8.h),
+                    Text(
+                      "home.welcome".tr(),
+                      style: TextStyles.font14RegularGrey.copyWith(
+                        color: ColorsManager.greyColor,
                       ),
+                    ),
+                    SizedBox(height: 2.h),
+                    BlocBuilder<SettingsCubit, SettingsState>(
+                      builder: (context, state) {
+                        final p = context.read<SettingsCubit>().profile;
+                        final name = p == null
+                            ? ''
+                            : '${p.firstName} ${p.lastName}'.trim();
+                        return Text(
+                          name.isEmpty ? 'Clicks' : name,
+                          style: TextStyles.font20Bold.copyWith(
+                            color: ColorsManager.blackColor,
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
             ),
           ),
+          const _GarageSessionBanner(),
           SizedBox(height: 28.h),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 24.w),
@@ -103,42 +105,143 @@ class HomeScreen extends StatelessWidget {
           ),
           Expanded(
             child: Center(
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () {
-                    openConfirmVehicleBottomSheet(
-                      context,
-                      null,
-                      isEmergency: true,
-                    );
-                  },
-                  child: Ink(
-                    width: 220.w,
-                    height: 220.w,
-                    decoration: BoxDecoration(
-                      color: ColorsManager.mainColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        "home.sos".tr(),
-                        style: TextStyles.font28Bold.copyWith(
-                          fontSize: 42.sp,
-                          color: Colors.white,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              child: _SosHero(
+                onTap: () {
+                  openConfirmVehicleBottomSheet(
+                    context,
+                    null,
+                    isEmergency: true,
+                  );
+                },
               ),
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _SosHero extends StatefulWidget {
+  final VoidCallback onTap;
+  const _SosHero({required this.onTap});
+
+  @override
+  State<_SosHero> createState() => _SosHeroState();
+}
+
+class _SosHeroState extends State<_SosHero>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduce = MediaQuery.of(context).disableAnimations;
+    if (reduce) {
+      _pulse.stop();
+      _pulse.value = 0;
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (context, child) {
+        final t = _pulse.value;
+        return SizedBox(
+          width: 280.w,
+          height: 280.w,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              for (final scale in [1.32, 1.16])
+                CustomPaint(
+                  size: Size.square(220.w * (scale + 0.06 * t)),
+                  painter: _SosPulseRingPainter(
+                    color: ColorsManager.mainColor.withValues(
+                      alpha: 0.14 * (1 - t * 0.45),
+                    ),
+                    strokeWidth: 10,
+                  ),
+                ),
+              child!,
+            ],
+          ),
+        );
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: 220.w,
+          height: 220.w,
+          decoration: BoxDecoration(
+            color: ColorsManager.mainColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: ColorsManager.mainColor.withValues(alpha: 0.28),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            "home.sos".tr(),
+            style: TextStyles.font28Bold.copyWith(
+              fontSize: 42.sp,
+              color: Colors.white,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SosPulseRingPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+
+  const _SosPulseRingPainter({
+    required this.color,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = color;
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SosPulseRingPainter oldDelegate) {
+    return color != oldDelegate.color || strokeWidth != oldDelegate.strokeWidth;
   }
 }
 
@@ -151,6 +254,25 @@ Future<void> openConfirmVehicleBottomSheet(
   context.read<MyCarsCubit>().selectCar(null);
   context.read<MyCarsCubit>().getCars();
   context.read<SosCubit>().reset();
+
+  String? blockedVehicleId;
+  try {
+    final session = await SessionService.getCustomerSession();
+    final fromSession = session['sos_blocked_vehicle_id']?.toString();
+    if (fromSession != null && fromSession.isNotEmpty) {
+      blockedVehicleId = fromSession;
+    } else if (session['live_job'] is Map) {
+      final cv = (session['live_job'] as Map)['customer_vehicle_id'];
+      if (cv is Map) {
+        blockedVehicleId = cv['_id']?.toString();
+      } else if (cv != null) {
+        blockedVehicleId = cv.toString();
+      }
+    }
+  } catch (_) {}
+
+  if (!context.mounted) return;
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -285,13 +407,18 @@ Future<void> openConfirmVehicleBottomSheet(
                       children: cars.map((v) {
                         final selected =
                             context.read<MyCarsCubit>().selectedCar == v;
+                        final blocked = blockedVehicleId != null &&
+                            v.sId == blockedVehicleId;
                         return Padding(
                           padding: EdgeInsets.only(bottom: 10.h),
                           child: _VehicleSelectTile(
                             vehicle: v,
-                            selected: selected,
-                            onTap: () =>
-                                context.read<MyCarsCubit>().selectCar(v),
+                            selected: selected && !blocked,
+                            disabled: blocked,
+                            onTap: blocked
+                                ? null
+                                : () =>
+                                    context.read<MyCarsCubit>().selectCar(v),
                           ),
                         );
                       }).toList(),
@@ -406,18 +533,23 @@ class _VehicleSelectTile extends StatelessWidget {
     required this.vehicle,
     required this.selected,
     required this.onTap,
+    this.disabled = false,
   });
 
   final CarResponseModel vehicle;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool disabled;
 
   @override
   Widget build(BuildContext context) {
+    final muted = disabled;
     return InkWell(
       borderRadius: BorderRadius.circular(12.r),
       onTap: onTap,
-      child: Container(
+      child: Opacity(
+        opacity: muted ? 0.55 : 1,
+        child: Container(
         padding: EdgeInsets.all(12.w),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFEF2F2) : Colors.white,
@@ -468,6 +600,16 @@ class _VehicleSelectTile extends StatelessWidget {
                     'Plate Number - ${vehicle.plateNumber}',
                     style: TextStyles.font12RegularGrey,
                   ),
+                  if (disabled) ...[
+                    SizedBox(height: 4.h),
+                    Text(
+                      'home.vehicle_on_active_job'.tr(),
+                      style: TextStyles.font12RegularGrey.copyWith(
+                        color: ColorsManager.mainColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -484,6 +626,44 @@ class _VehicleSelectTile extends StatelessWidget {
           ],
         ),
       ),
+      ),
+    );
+  }
+}
+
+class _GarageSessionBanner extends StatefulWidget {
+  const _GarageSessionBanner();
+
+  @override
+  State<_GarageSessionBanner> createState() => _GarageSessionBannerState();
+}
+
+class _GarageSessionBannerState extends State<_GarageSessionBanner> {
+  Map<String, dynamic> _session = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final session = await SessionService.getCustomerSession();
+      if (!mounted) return;
+      setState(() => _session = session);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<SosCubit, SosState>(
+      listener: (_, state) {
+        if (state is JobAtGarage || state is JobGarageReady) {
+          _load();
+        }
+      },
+      child: GarageJobCard(session: _session),
     );
   }
 }

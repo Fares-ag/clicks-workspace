@@ -152,6 +152,28 @@ class DioHelper {
     return res;
   }
 
+  static Future<Response<List<int>>> getBytes({
+    required String url,
+    Map<String, dynamic>? query,
+    bool auth = true,
+  }) async {
+    final options = _authOptions(auth);
+    options.responseType = ResponseType.bytes;
+    final res = await dio.get<List<int>>(
+      url,
+      queryParameters: query,
+      options: options,
+    );
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      res.requestOptions.extra['_handledStatus'] = res.statusCode;
+      final retried = await _maybeRefreshAndRetry(res.requestOptions);
+      if (retried != null) {
+        return retried as Response<List<int>>;
+      }
+    }
+    return res;
+  }
+
   static Future<Response> postData({
     required String url,
     dynamic data,

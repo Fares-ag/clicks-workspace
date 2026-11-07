@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../features/welcome/logic/services/welcome_service.dart';
+import '../helper/booking_errors.dart';
 import '../monitoring/sentry_config.dart';
 import 'customer_socket_service.dart';
 
@@ -81,6 +82,12 @@ class JobCompleted extends SosState {
   JobCompleted(this.jobId, this.totalAmount, this.receipt, this.technician);
 }
 
+class PaymentConfirmed extends SosState {
+  final String jobId;
+  final String paymentStatus;
+  PaymentConfirmed(this.jobId, this.paymentStatus);
+}
+
 class SosExpired extends SosState {}
 
 class SosCancelled extends SosState {}
@@ -90,6 +97,26 @@ class JobCancelled extends SosState {
   JobCancelled(this.jobId);
 }
 
+class JobAtGarage extends SosState {
+  final String jobId;
+  JobAtGarage(this.jobId);
+}
+
+class JobGarageReady extends SosState {
+  final String jobId;
+  JobGarageReady(this.jobId);
+}
+
+class SosScheduled extends SosState {
+  final String sosId;
+  SosScheduled(this.sosId);
+}
+
+class SosClosed extends SosState {
+  final String sosId;
+  SosClosed(this.sosId);
+}
+
 class SosError extends SosState {
   final String message;
   SosError(this.message);
@@ -97,6 +124,9 @@ class SosError extends SosState {
 
 class SosCubit extends Cubit<SosState> {
   final CustomerSocketService socketService;
+
+  /// Customer-facing “we’ll call you” countdown — not the admin broadcast window.
+  static const int contactCountdownSeconds = 60;
 
   SosCubit(this.socketService) : super(SosInitial()) {
     _setupSocketListeners();
@@ -126,7 +156,9 @@ class SosCubit extends Cubit<SosState> {
     socketService.onSosCreated = (data) {
       _log('📱 SOS Created: ${data['sos_id']}');
       sosId = data['sos_id']?.toString();
-      expiresAt = _parseExpiresAt(data['expires_at']);
+      expiresAt = DateTime.now().add(
+        const Duration(seconds: contactCountdownSeconds),
+      );
       if (isClosed) return;
       emit(SosCreated(sosId!, expiresAt: expiresAt));
     };
@@ -206,6 +238,18 @@ class SosCubit extends Cubit<SosState> {
       ));
     };
 
+    socketService.onPaymentConfirmed = (data) {
+      _log('💳 Payment confirmed');
+      if (isClosed) return;
+      final map = data is Map ? data : const <dynamic, dynamic>{};
+      emit(
+        PaymentConfirmed(
+          map['job_id']?.toString() ?? '',
+          map['payment_status']?.toString() ?? 'paid',
+        ),
+      );
+    };
+
     socketService.onJobCompleted = (data) {
       _log('💰 Job Completed');
       if (isClosed) return;
@@ -242,20 +286,37 @@ class SosCubit extends Cubit<SosState> {
           : null;
       final code = map?['code']?.toString();
       if (isClosed) return;
-      if (code == 'LAUNCH_PUBLIC_SOS_OFF') {
-        emit(SosError(
-          map?['message']?.toString() ??
-              'SOS is temporarily unavailable. Please try again later.',
-        ));
-        return;
-      }
-      emit(SosError(map?['message']?.toString() ?? 'Unknown error'));
+      emit(SosError(bookingErrorMessage(code, map?['message']?.toString())));
     };
 
     socketService.onJobCancelled = (data) {
       _log('❌ Job Cancelled');
       if (isClosed) return;
-      emit(JobCancelled(data['job_id']));
+      emit(JobCancelled(data['job_id']?.toString() ?? ''));
+    };
+
+    socketService.onJobAtGarage = (data) {
+      if (isClosed) return;
+      final map = data is Map ? Map<String, dynamic>.from(data) : null;
+      emit(JobAtGarage(map?['job_id']?.toString() ?? ''));
+    };
+
+    socketService.onJobGarageReady = (data) {
+      if (isClosed) return;
+      final map = data is Map ? Map<String, dynamic>.from(data) : null;
+      emit(JobGarageReady(map?['job_id']?.toString() ?? ''));
+    };
+
+    socketService.onSosScheduled = (data) {
+      if (isClosed) return;
+      final map = data is Map ? Map<String, dynamic>.from(data) : null;
+      emit(SosScheduled(map?['sos_id']?.toString() ?? ''));
+    };
+
+    socketService.onSosClosed = (data) {
+      if (isClosed) return;
+      final map = data is Map ? Map<String, dynamic>.from(data) : null;
+      emit(SosClosed(map?['sos_id']?.toString() ?? ''));
     };
   }
 

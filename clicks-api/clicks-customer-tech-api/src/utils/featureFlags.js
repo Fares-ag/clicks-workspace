@@ -10,10 +10,13 @@ function flag(name, defaultValue = false) {
 
 function getLaunchFlags() {
   const isProd = process.env.NODE_ENV === "production";
+  const { getSkipcashConfig } = require("../../../clicks-shared/utils/skipcash");
   return {
     publicSos: flag("LAUNCH_PUBLIC_SOS", !isProd),
     publicSignup: flag("LAUNCH_PUBLIC_SIGNUP", !isProd),
+    customerMembership: flag("LAUNCH_CUSTOMER_MEMBERSHIP", !isProd),
     region: process.env.LAUNCH_REGION || "QA",
+    skipcash: getSkipcashConfig().enabled,
   };
 }
 
@@ -39,9 +42,21 @@ function requirePublicSignup(req, res, next) {
   next();
 }
 
+function requireCustomerMembership(req, res, next) {
+  const { customerMembership } = getLaunchFlags();
+  if (!customerMembership) {
+    return res.status(404).json({
+      error: "Membership is not available",
+      code: "LAUNCH_CUSTOMER_MEMBERSHIP_OFF",
+    });
+  }
+  next();
+}
+
 module.exports = {
   getLaunchFlags,
   requirePublicSos,
   requirePublicSignup,
+  requireCustomerMembership,
   flag,
 };
