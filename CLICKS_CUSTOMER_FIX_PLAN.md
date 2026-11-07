@@ -437,10 +437,12 @@ These are not blockers. They are scheduled for the first post-launch sprint:
 
 ---
 
-## 7. Open items needing an answer
+## 7. Open items, answered 7 November 2026
 
-1. Does the SkipCash API support refunds and partial refunds? This decides how WS-D item 7 is built.
-2. When a customer deletes their account, is an active membership forfeited, refunded or prorated? This is needed for the WS-F item 5 copy.
-3. Should memberships cover emergency types (SOS, towing, jump start)? Today they never do. This is needed for the WS-E item 6 copy.
-4. The on-call manager's phone number for the escalation SMS (`ONCALL_PHONE`).
-5. Whether any public store build of the customer app exists (section 4, compatibility).
+1. **SkipCash supports refunds.** WS-D item 7 calls the SkipCash refund API. Manual references stay as a fallback for refunds done in the portal.
+2. **Account deletion deactivates the membership.** Status becomes `cancelled`, with reason `account_deleted`. There is no automatic refund; finance can refund through the admin refund flow.
+3. **Admins control membership coverage.** WS-E adds:
+   - a per-plan `coversEmergency` toggle that replaces the hardcoded emergency exclusion;
+   - admin subscription actions: grant/comp, extend, cancel (immediately or at period end), refund, and usage adjustment, all audited, with screens in `clicks-admin`.
+4. **Escalation recipients are configurable (as recommended).** `ONCALL_PHONE` is a comma-separated env value, and can be overridden by an admin "ops settings" value. If neither is set, escalation alerts all admins by push and socket.
+5. **No public store build exists.** The temporary registration compatibility path is not needed.
