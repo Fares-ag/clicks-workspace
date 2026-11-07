@@ -135,6 +135,14 @@ export const jobApi = apiSlice.injectEndpoints({
         method: "GET"
       })
     }),
+    downloadJobReceipt: builder.query({
+      query: (jobId) => ({
+        url: `/receipts/job/${jobId}/download`,
+        method: "GET",
+        cache: "no-cache",
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
     importJobs: builder.mutation({
       query: (formData) => ({
         url: "/jobs/import",
@@ -226,6 +234,7 @@ export const {
   useGetJobRepairsQuery,
   useGetJobReceiptQuery,
   useLazyGetJobReceiptQuery,
+  useLazyDownloadJobReceiptQuery,
   useImportJobsMutation,
   useGetJobHeatmapQuery,
   useLazyGetJobHeatmapQuery,

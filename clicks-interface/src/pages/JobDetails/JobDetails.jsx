@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyGetJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
+import { useGetJobByIdQuery, useGetJobRepairsQuery, useUpdateJobMutation, useLazyDownloadJobReceiptQuery, useHoldJobMutation, useResumeJobMutation, useCompleteJobMutation, useApproveHoldRequestMutation, useRejectHoldRequestMutation } from "../../store/jobApi";
 import { useGetAssignmentRosterQuery } from "../../store/technicianApi";
 import SuccessModal from "../../components/SuccessModal";
 import ReassignJobModal from "../../components/ReassignJobModal.jsx";
@@ -53,7 +53,7 @@ function JobDetails() {
   const [completeJob] = useCompleteJobMutation();
   const [approveHoldRequest] = useApproveHoldRequestMutation();
   const [rejectHoldRequest] = useRejectHoldRequestMutation();
-  const [getJobReceipt] = useLazyGetJobReceiptQuery();
+  const [downloadJobReceipt, { isFetching: downloadingReceipt }] = useLazyDownloadJobReceiptQuery();
   
   const [cancelling, setCancelling] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -443,32 +443,38 @@ function JobDetails() {
     }
   };
 
-  // Handle download receipt
   const handleDownloadReceipt = async () => {
     if (!job || job.job_status !== 'completed') {
       alert('Receipt can only be downloaded for completed jobs');
       return;
     }
-    
+
     try {
-      // Use RTK Query lazy hook - this automatically includes auth token from Redux state
-      const result = await getJobReceipt(id);
-      
-      if (result.error) {
-        throw new Error(result.error.data?.error || result.error.data?.message || 'Failed to get receipt');
+      const blob = await downloadJobReceipt(id).unwrap();
+      if (!(blob instanceof Blob) || blob.size < 8) {
+        throw new Error('Receipt PDF was empty');
       }
-      
-      const data = result.data;
-      
-      // Open the PDF URL in a new tab (it already has SAS token)
-      if (data?.pdf_url) {
-        window.open(data.pdf_url, '_blank');
-      } else {
-        throw new Error('Receipt PDF URL not found in response');
+      const header = await blob.slice(0, 5).text();
+      if (header !== '%PDF-') {
+        throw new Error('Receipt PDF was empty');
       }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const ref = String(job.job_reference || job._id || 'receipt').replace(/[^\w.-]+/g, '-');
+      link.href = url;
+      link.download = `clicks-receipt-${ref}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading receipt:', error);
-      alert(`Failed to download receipt: ${error.message}`);
+      const message =
+        error?.data?.error ||
+        error?.data?.message ||
+        error?.message ||
+        'Failed to download receipt';
+      alert(`Failed to download receipt: ${message}`);
     }
   };
 
@@ -1509,9 +1515,9 @@ function JobDetails() {
           <button 
             className={`job-details-btn ${job.job_status === 'completed' ? 'job-details-btn-secondary' : 'job-details-btn-secondary-disabled'}`}
             onClick={handleDownloadReceipt}
-            disabled={job.job_status !== 'completed'}
+            disabled={job.job_status !== 'completed' || downloadingReceipt}
           >
-            Download Receipt
+            {downloadingReceipt ? 'Downloading...' : 'Download Receipt'}
           </button>
           
           <button 
