@@ -316,7 +316,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 
 ## C. Raising an SOS (27–41)
 
-### 27. `LAUNCH_PUBLIC_SOS` is not set in production ◐ partial (fix/ws-fhi-identity: boot assertion + flags in /config/public; app does not hide SOS yet)
+### 27. `LAUNCH_PUBLIC_SOS` is not set in production ✅ (fix/ws-bc-realtime: app hides SOS behind a call card when public_sos is off)
 - **What happens:** It defaults to **OFF** in production when unset (`API/utils/featureFlags.js:15`). The app never reads the flag, so the customer selects a vehicle, waits for GPS, and only then gets "unavailable".
 - **Customer expects:** SOS works, or the button is hidden.
 - **Business needs:** The core product switched on.
@@ -497,7 +497,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Include `pending` in the customer session and show "Finding a technician".
 - **Launch blocker:** **YES**
 
-### 46. The assigned technician rejects the job
+### 46. The assigned technician rejects the job ✅ (fix/ws-bc-realtime)
 - **What happens:** The server emits `jobReassigning` (`technicianController.js:797-803`). The customer app has no listener for it and no push is sent.
 - **Customer expects:** To know the technician changed.
 - **Business needs:** The customer doesn't call the old technician.
@@ -506,7 +506,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Listen for the event, show "Finding another technician", and push it.
 - **Launch blocker:** PRE-SCALE
 
-### 47. Dispatch reassigns to a new technician
+### 47. Dispatch reassigns to a new technician ✅ (fix/ws-bc-realtime)
 - **What happens:** The customer gets `technicianAssigned`, but the tracking screen has no handler for it (`technician_tracking_screen.dart:603-670`).
 - **Customer expects:** The new technician's name and location.
 - **Business needs:** The correct contact shown.
@@ -524,7 +524,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** A technician cancel puts the job back to `pending` for re-dispatch, alerts admin, and tells the customer "Assigning a new technician".
 - **Launch blocker:** **YES**
 
-### 49. Admin puts the job on hold (parts awaited, garage closed)
+### 49. Admin puts the job on hold (parts awaited, garage closed) ✅ (fix/ws-bc-realtime)
 - **What happens:** `putJobOnHold` and `resume` send nothing to the customer (`SH/services/jobHold.js`, `ADM/controllers/jobController.js:914-996`). There is no `on_hold` event in the app.
 - **Customer expects:** To be told it's paused and why.
 - **Business needs:** Fewer "where is my technician" calls.
@@ -551,7 +551,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Block cancelling or deleting a paid job without a refund decision. Replace hard delete with soft delete.
 - **Launch blocker:** **YES**
 
-### 52. The car is sent to a garage, or the garage reports it ready
+### 52. The car is sent to a garage, or the garage reports it ready ✅ (fix/ws-bc-realtime)
 - **What happens:** `jobAtGarage` and `jobGarageReady` are sent over the socket only, with no push (`ADM/controllers/jobController.js:1228-1300`).
 - **Customer expects:** To be told where the car is and when to collect it.
 - **Business needs:** Fewer status calls.
@@ -613,7 +613,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 
 ## F. Live tracking and job progress (58–68)
 
-### 58. The customer loses signal (basement car park, desert) and the technician arrives, starts or completes meanwhile
+### 58. The customer loses signal (basement car park, desert) and the technician arrives, starts or completes meanwhile ✅ (fix/ws-bc-realtime)
 - **What happens:** On reconnect the app only re-registers (`customer_socket_service.dart:88-91`). There is no event replay and no session re-fetch. The tracking poll runs only in `en_route`, reads only location, and ignores status (`technician_tracking_screen.dart:183-221`).
 - **Customer expects:** The screen catches up.
 - **Business needs:** The customer sees the same state as ops.
@@ -622,7 +622,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** On every reconnect and every app resume, re-fetch `/customer/session` and route from it. The tracking poll should also read `job_status`.
 - **Launch blocker:** **YES**
 
-### 59. The technician's phone dies, or their app is killed
+### 59. The technician's phone dies, or their app is killed ✅ (fix/ws-bc-realtime)
 - **What happens:** Locations are relayed only when they change. The `timestamp` is ignored by the customer app. Staleness detection exists only for admins (`SOCK:316-338`).
 - **Customer expects:** To know whether the technician is moving.
 - **Business needs:** No false ETA.
@@ -640,7 +640,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Get the ETA from the server-side Directions proxy (`mapsController`), throttled to about 30 seconds. Restrict the Maps key by app signature. Label the ETA "approx."
 - **Launch blocker:** PRE-SCALE. Restrict the key before launch.
 
-### 61. The customer's own location wasn't captured
+### 61. The customer's own location wasn't captured ✅ (fix/ws-bc-realtime)
 - **What happens:** It silently defaults to central Doha (`session_resume.dart:18-19, 62`).
 - **Customer expects:** A correct map.
 - **Business needs:** No false ETA.
@@ -649,7 +649,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Use the job's stored coordinates. If there are none, hide the ETA.
 - **Launch blocker:** NO
 
-### 62. Customer has two live jobs (two cars)
+### 62. Customer has two live jobs (two cars) ✅ (fix/ws-bc-realtime)
 - **What happens:** No screen filters events by job id. Any `JobCancelled` sends the timer and in-call screens Home, and any `JobCompleted` opens the rating sheet (`timer_sos_screen.dart:37-45`, `in_call_screen.dart:56-96`, `job_in_progress_screen.dart:160`).
 - **Customer expects:** Each job tracked separately.
 - **Business needs:** Ratings and payments attached to the right job.
@@ -658,7 +658,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Every listener checks `event.job_id` or `sos_id` against the screen's own id.
 - **Launch blocker:** PRE-SCALE. It becomes a blocker if scenario 35 isn't capped.
 
-### 63. Customer reopens the app on an `assigned` job and sees "Cancel (fee)"
+### 63. Customer reopens the app on an `assigned` job and sees "Cancel (fee)" ✅ (fix/ws-bc-realtime)
 - **What happens:** `trackingInitialPhase('assigned')` returns `en_route` (`session_resume.dart:275-279`), so the fee warning shows, though the server treats `assigned` as free.
 - **Customer expects:** Accurate fee information.
 - **Business needs:** No false charges and no disputes.
@@ -676,7 +676,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Either drop the fee from the UI for launch, or implement it properly: amount, display, a payment path, and a receipt.
 - **Launch blocker:** NO. Remove the threat if it isn't real.
 
-### 65. The API is redeployed during an active job
+### 65. The API is redeployed during an active job ✅ (fix/ws-bc-realtime: covered by the resync on reconnect/resume)
 - **What happens:** SIGTERM disconnects all sockets and in-memory maps are lost. Customers reconnect, but with the missed-event gap from scenario 58 and the spinner risk from scenario 30.
 - **Customer expects:** No interruption.
 - **Business needs:** To deploy safely during the day.
@@ -703,7 +703,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Treat non-2xx as an error, show a retry state, and never route to Home on an error.
 - **Launch blocker:** **YES** (cheap fix, prevents duplicates)
 
-### 68. A cross-service notification fails during a deploy
+### 68. A cross-service notification fails during a deploy ✅ (fix/ws-bc-realtime: admin → tech API notifies go through the outbox)
 - **What happens:** The admin API calls the customer/technician API (`notify-claim`, `notify-outcome`, `notify-technician`) with axios, with no timeout and no retry (`ADM/controllers/sosController.js:143-156`, `ADM/controllers/jobController.js:311-316`).
 - **Customer expects:** "Operator will call you."
 - **Business needs:** The technician gets the job alert.
@@ -716,7 +716,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 
 ## G. Notifications (69–76)
 
-### 69. iOS customer has the app in the background or closed
+### 69. iOS customer has the app in the background or closed ◐ partial (fix/ws-bc-realtime: notification + apns blocks sent; needs a real-iPhone check)
 - **What happens:** Customer pushes are **data-only**, with no `notification` block and no `apns` block (`API/services/fcmService.js:245-251`). **[verified]** iOS does not show data-only messages while the app is backgrounded or closed. The technician push uses the correct combined format.
 - **Customer expects:** "Your technician has arrived" on the lock screen.
 - **Business needs:** iOS customers informed.
@@ -734,7 +734,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Clear the token with a condition: `updateOne({_id, fcm_token: failedToken}, {$unset})`.
 - **Launch blocker:** NO (one-line fix, do it)
 
-### 71. Customer pays cash and the technician confirms it
+### 71. Customer pays cash and the technician confirms it ✅ (fix/ws-bc-realtime)
 - **What happens:** The REST confirmation pushes `paymentConfirmed` using `pricing.total`. The technician app then emits the socket `paymentReceived`, whose "idempotent" branch pushes again using `job.price` (`SOCK:1602-1639`).
 - **Customer expects:** One "paid" notification with the right amount.
 - **Business needs:** No contradictory amounts.
@@ -743,7 +743,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Notify only from the code path that actually changes the state. Use `pricing.total` everywhere.
 - **Launch blocker:** PRE-SCALE
 
-### 72. Customer taps a notification while the app is closed
+### 72. Customer taps a notification while the app is closed ✅ (fix/ws-bc-realtime)
 - **What happens:** The tap is lost, because `getNotificationAppLaunchDetails` is never called and the shown notification is a local one (`fcm_notification_service.dart:142-145`). The router ignores the `job_id` the notification carries. A `sosInCall` tap opens the in-call screen even for an SOS that has since been cancelled.
 - **Customer expects:** To land on that job.
 - **Business needs:** Correct routing.
@@ -752,7 +752,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Read the launch details, fetch the job by `job_id`, and route by its current status.
 - **Launch blocker:** PRE-SCALE
 
-### 73. The notification inbox shows something different from what was pushed
+### 73. The notification inbox shows something different from what was pushed ✅ (fix/ws-bc-realtime)
 - **What happens:**
   - The inbox row is written fire-and-forget, separately from the push.
   - Events sent only over the socket leave no inbox row.
@@ -765,7 +765,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** One `notifyCustomer()` function that writes the inbox row, then pushes and emits. Use a tray tag per job so entries replace each other.
 - **Launch blocker:** NO
 
-### 74. An event the customer needs only goes out over the socket
+### 74. An event the customer needs only goes out over the socket ✅ (fix/ws-bc-realtime)
 - **What happens:** These events have no push:
   - socket-path `technicianEnRoute` and `jobStarted` (`SOCK:1350, 1545`)
   - admin `adminCancelJob` (`SOCK:818`, and only if the client sends `customer_id`)
@@ -787,7 +787,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** At SOS time, ask the customer to allow notifications. For "arrived", send an SMS fallback when the push can't be delivered.
 - **Launch blocker:** NO
 
-### 76. An admin completes the job, or the customer was offline at completion
+### 76. An admin completes the job, or the customer was offline at completion ✅ (fix/ws-bc-realtime)
 - **What happens:** Admin `completeJob` sends no customer event. The rating prompt only appears if a live `JobCompleted` arrives while the tracking screen is open. Resume ignores paid completed jobs. The server allows unlimited re-rating and rating of unpaid jobs (`API/controllers/jobController.js:291-331`).
 - **Customer expects:** To be told the job is done and asked once for a rating.
 - **Business needs:** Rating data that is complete and trustworthy, since it feeds technician performance.
@@ -845,7 +845,7 @@ In my judgement **45 of the 100 scenarios are launch blockers**, plus the techni
 - **Correct behaviour:** Block `confirmPayment` while a card session is pending until the technician explicitly cancels it, after a live check against SkipCash. Record the ignored webhook as a duplicate needing a refund.
 - **Launch blocker:** **YES**
 
-### 81. The webhook secret is wrong in Railway ◐ partial (fix/ws-fhi-identity: secret required at boot; webhook-401 alert left to ws-de)
+### 81. The webhook secret is wrong in Railway ✅ (fix/ws-de-money + verified in fix/ws-bc-realtime: webhook 401 and failed outbox events report to Sentry)
 - **What happens:** The secret falls back to `KEY_SECRET` (`SH/utils/skipcash.js:149`). If SkipCash signs with a different key, every webhook returns 401. Payment then works only through app polling, and nothing alerts anyone.
 - **Customer expects:** Not applicable; they don't see it.
 - **Business needs:** To know payment confirmation is broken.
