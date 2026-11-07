@@ -16,6 +16,7 @@ const authLimiter = rateLimit(
     legacyHeaders: false,
     message: {
       error: "Too many attempts from this IP. Please try again after 15 minutes.",
+      code: "RATE_LIMITED",
     },
     skip: () => process.env.NODE_ENV === "test",
   })
@@ -33,6 +34,7 @@ const otpLimiter = rateLimit(
     legacyHeaders: false,
     message: {
       error: "Too many OTP attempts from this IP. Please try again after 15 minutes.",
+      code: "RATE_LIMITED",
     },
     skip: () => process.env.NODE_ENV === "test",
   })
@@ -58,4 +60,23 @@ const applicationStatusLimiter = rateLimit(
   })
 );
 
-module.exports = { authLimiter, otpLimiter, applicationStatusLimiter };
+/**
+ * Session refresh: the app calls it on launch/resume only when its token is
+ * close to expiry, so this is generous — it must never 429 a customer who
+ * is mid-job behind carrier NAT.
+ */
+const refreshLimiter = rateLimit(
+  withRedisStore("token-refresh", {
+    windowMs: WINDOW_MS,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: "Too many requests from this IP. Please try again later.",
+      code: "RATE_LIMITED",
+    },
+    skip: () => process.env.NODE_ENV === "test",
+  })
+);
+
+module.exports = { authLimiter, otpLimiter, applicationStatusLimiter, refreshLimiter };

@@ -115,6 +115,14 @@ async function sendViaSmsala(to, message) {
     throw new Error(`SMSala send failed: ${res.status} ${text}`);
   }
 
+  // SMSala answers HTTP 200 for rejected sends too (bad sender ID, empty
+  // balance, invalid number) — the verdict is in the body. Treating every 2xx
+  // as delivered meant OTPs silently never arrived (scenario 9).
+  const bodyError = smsalaBodyError(body);
+  if (bodyError) {
+    throw new Error(`SMSala rejected send: ${bodyError}`);
+  }
+
   console.log(
     JSON.stringify({
       level: "info",
@@ -128,8 +136,51 @@ async function sendViaSmsala(to, message) {
   return { ok: true, provider: "smsala", response: body };
 }
 
+/**
+ * Extract an error from a SMSala response body, or null when it reports
+ * success. Success looks like `{"Status":"Success", ...}` (possibly wrapped in
+ * an array, one entry per destination).
+ */
+function smsalaBodyError(body) {
+  if (body == null || body === "") return "empty response body";
+  if (typeof body === "string") {
+    return /error|invalid|fail|insufficient|denied|unauthori[sz]ed/i.test(body)
+      ? body.slice(0, 200)
+      : null;
+  }
+  const entries = Array.isArray(body) ? body : [body];
+  if (!entries.length) return "empty response body";
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") return "malformed response body";
+    const get = (name) => {
+      const key = Object.keys(entry).find((k) => k.toLowerCase() === name);
+      return key === undefined ? undefined : entry[key];
+    };
+    const status = get("status");
+    const errorCode = get("errorcode");
+    const message = get("message") || get("statusdescription") || get("error");
+    if (status !== undefined && !/^(success|ok|sent|accepted|true)$/i.test(String(status))) {
+      return `${status}${message ? `: ${message}` : ""}`.slice(0, 200);
+    }
+    if (errorCode !== undefined && errorCode !== null && !["0", ""].includes(String(errorCode))) {
+      return `error code ${errorCode}${message ? `: ${message}` : ""}`.slice(0, 200);
+    }
+    if (status === undefined && get("error")) {
+      return String(get("error")).slice(0, 200);
+    }
+  }
+  return null;
+}
+
 async function sendSMS(to, message) {
   const provider = (process.env.SMS_PROVIDER || "console").toLowerCase();
+
+  // Never log OTPs instead of sending them in production. Boot already
+  // refuses this config (assertProductionConfig); this guards a runtime
+  // env edit that skipped a restart.
+  if (process.env.NODE_ENV === "production" && provider === "console") {
+    throw new Error("SMS_PROVIDER=console is not allowed in production");
+  }
 
   if (provider === "smsala") {
     return sendViaSmsala(to, message);
@@ -163,4 +214,5 @@ module.exports = {
   verifyOTP,
   generateOTP,
   normalizePhone,
+  smsalaBodyError,
 };
