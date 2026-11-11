@@ -1121,30 +1121,31 @@ const cancelJobByTechnician = async (req, res) => {
   }
 };
 
+const TECH_PAYMENT_METHODS = ["cash", "card", "wallet", "fawran"];
+
 /**
- * Technician confirms CASH only. Card / wallet / Fawran are confirmed by
- * SkipCash or by finance with a reference (POST /api/finance/jobs/:id/mark-paid),
- * so a technician can never take cash and book it as card.
+ * Technician confirms collection (cash, card, wallet, or Fawran).
  *
- * While a card checkout is open SkipCash is asked first: a paid link settles
- * the job by card (409 CARD_PAYMENT_RECEIVED — do not take cash); a link still
- * in progress blocks until the technician cancels it (`cancel_card: true`).
+ * While a SkipCash checkout is open it is asked first: a paid link settles
+ * the job by card (409 CARD_PAYMENT_RECEIVED). Cash is blocked until the
+ * technician cancels the open link (`cancel_card: true`). In-person card /
+ * wallet / Fawran can still be confirmed while a checkout is pending.
  */
 const confirmPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const { payment_method, notes } = req.body || {};
     const cancelCard = req.body?.cancel_card === true || req.body?.cancel_card === "true";
+    const method = String(payment_method || "cash").trim().toLowerCase();
     const job = await Job.findById(id);
     if (!job) return res.status(404).json({ error: "Job not found" });
     if (!assertJobAccess(job, req.user)) {
       return res.status(403).json({ error: "Forbidden" });
     }
-    if (payment_method != null && payment_method !== "" && payment_method !== "cash") {
+    if (!TECH_PAYMENT_METHODS.includes(method)) {
       return res.status(400).json({
-        error:
-          "Technicians can only confirm cash. Card, wallet and Fawran payments are confirmed by SkipCash or by finance.",
-        code: "CASH_ONLY",
+        error: `payment_method must be one of ${TECH_PAYMENT_METHODS.join(", ")}`,
+        code: "INVALID_PAYMENT_METHOD",
       });
     }
     // Payment is collected during in_progress (before complete). Legacy unpaid
@@ -1195,7 +1196,7 @@ const confirmPayment = async (req, res) => {
           code: "CARD_PAYMENT_UNVERIFIED",
         });
       }
-      if (check.stillPending.length) {
+      if (check.stillPending.length && method === "cash") {
         if (!cancelCard) {
           return res.status(409).json({
             error:
@@ -1227,7 +1228,7 @@ const confirmPayment = async (req, res) => {
 
     const fresh = await Job.findById(job._id);
     const applied = await applyJobPayment(fresh, {
-      paymentMethod: "cash",
+      paymentMethod: method,
       notes: typeof notes === "string" && notes.trim() ? notes.trim().slice(0, 500) : undefined,
       paidBy: { type: "technician", id: req.user.id },
       notify,

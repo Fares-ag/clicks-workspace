@@ -1,4 +1,5 @@
 import React from "react";
+import { getJobStatusLabel } from "../utils/jobStatusLabels";
 
 function TrendLine({ pct }) {
   if (pct == null || Number.isNaN(Number(pct))) return null;
@@ -92,19 +93,12 @@ function JobStatsStrip({
     onFilterChange(activeFilter === key ? null : key);
   };
 
-  const completedToday = jobs.completedToday ?? 0;
-  const pending = jobs.pending ?? 0;
-  const ongoing = jobs.ongoing ?? 0;
-  const onHold = jobs.onHold ?? 0;
-  const atGarage = jobs.atGarage ?? 0;
-  const returning = jobs.returning ?? 0;
-  const cancelled = jobs.cancelled ?? 0;
-  const revenueToday = Number(earnings.today) || 0;
+  const n = (value) => Number(value) || 0;
+  const fmt = (value) => n(value).toLocaleString();
 
-  const garageHint =
-    returning > 0
-      ? `${returning} returning for drop-off`
-      : "Vehicle at workshop";
+  const revenueToday = Number(earnings.today) || 0;
+  const createdOrScheduled = n(jobs.createdToday ?? jobs.total);
+  const cancelledToday = n(jobs.cancelledToday ?? jobs.cancelled);
 
   return (
     <section className="jobs-stats-panel" aria-label="Job statistics">
@@ -115,10 +109,10 @@ function JobStatsStrip({
           </h2>
           <p className="jobs-stats-panel-subtitle">
             {scopedByDate
-              ? "Counts for selected dates (by scheduled job date). Tap a card to filter the list."
+              ? "Today cards follow the selected dates. Live cards are open jobs in that range. Tap a card to list the same jobs."
               : scopedByFilters
-                ? "Counts match your filters. Tap a card to filter the list."
-                : "Tap a card to filter the job list below."}
+                ? "Counts match your search and filters. Tap a card to list the same jobs."
+                : "Today cards use Qatar time. Live cards are open jobs right now. Tap a card to list the same jobs."}
             {updatedAt ? (
               <span className="jobs-stats-updated">
                 {" "}
@@ -149,79 +143,167 @@ function JobStatsStrip({
         </div>
       </div>
 
-      <div className="jobs-stats-grid" role="group" aria-label="Job KPI cards">
-        <StatChip
-          label={scopedByDate ? "Completed" : "Completed today"}
-          hint={
-            scopedByDate
-              ? "Completed jobs in the selected date range"
-              : "Finished today (Qatar time)"
-          }
-          value={completedToday.toLocaleString()}
-          trend={scopedByDate ? null : trends.completedJobsPct}
-          active={activeFilter === "completedToday"}
-          onClick={() => toggle("completedToday")}
-          loading={loading}
-        />
-        <StatChip
-          label="Pending"
-          hint="Awaiting technician assignment"
-          value={pending.toLocaleString()}
-          active={activeFilter === "pending"}
-          onClick={() => toggle("pending")}
-          variant={pending > 0 ? "warn" : undefined}
-          loading={loading}
-        />
-        <StatChip
-          label="Ongoing"
-          hint="Assigned through in progress"
-          value={ongoing.toLocaleString()}
-          active={activeFilter === "ongoing"}
-          onClick={() => toggle("ongoing")}
-          loading={loading}
-        />
-        <StatChip
-          label="On hold"
-          hint="Paused on site (not at workshop)"
-          value={onHold.toLocaleString()}
-          active={activeFilter === "on_hold"}
-          onClick={() => toggle("on_hold")}
-          variant={onHold > 0 ? "warn" : undefined}
-          loading={loading}
-        />
-        <StatChip
-          label="At garage"
-          hint={garageHint}
-          value={atGarage.toLocaleString()}
-          active={activeFilter === "at_garage"}
-          onClick={() => toggle("at_garage")}
-          variant={atGarage > 0 ? "accent" : undefined}
-          loading={loading}
-        />
-        <StatChip
-          label="Cancelled"
-          hint={scopedByDate ? "Cancelled in the selected date range" : "All cancelled jobs"}
-          value={cancelled.toLocaleString()}
-          active={activeFilter === "cancelled"}
-          onClick={() => toggle("cancelled")}
-          loading={loading}
-        />
-        {showRevenue ? (
+      <div className="jobs-stats-section">
+        <h3 className="jobs-stats-section-title">
+          {scopedByDate ? "In selected dates" : "Today (Qatar)"}
+        </h3>
+        <div className="jobs-stats-grid" role="group" aria-label="Today job counts">
           <StatChip
-            label={scopedByDate ? "Revenue" : "Revenue today"}
+            label={scopedByDate ? "Scheduled" : "Created today"}
             hint={
               scopedByDate
-                ? "From completed jobs in the selected date range"
-                : "From jobs completed today"
+                ? "Jobs created in the selected dates"
+                : "Opened today by created time (Qatar)"
             }
-            value={`QR ${revenueToday.toLocaleString()}`}
-            trend={scopedByDate ? null : trends.earningsPct}
-            active={activeFilter === "revenueToday"}
-            onClick={() => toggle("revenueToday")}
-            variant="revenue"
+            value={fmt(createdOrScheduled)}
+            active={activeFilter === "createdToday"}
+            onClick={() => toggle("createdToday")}
             loading={loading}
           />
-        ) : null}
+          <StatChip
+            label={scopedByDate ? "Completed" : "Completed today"}
+            hint={
+              scopedByDate
+                ? "Jobs completed in the selected dates (completion time)"
+                : "Finished today by completion time (Qatar)"
+            }
+            value={fmt(jobs.completedToday)}
+            trend={scopedByDate ? null : trends.completedJobsPct}
+            active={activeFilter === "completedToday"}
+            onClick={() => toggle("completedToday")}
+            loading={loading}
+          />
+          <StatChip
+            label={scopedByDate ? "Cancelled" : "Cancelled today"}
+            hint={
+              scopedByDate
+                ? "Jobs cancelled in the selected dates (cancel time)"
+                : "Cancelled today by cancel time (Qatar)"
+            }
+            value={fmt(cancelledToday)}
+            active={activeFilter === "cancelledToday"}
+            onClick={() => toggle("cancelledToday")}
+            loading={loading}
+          />
+          <StatChip
+            label="Unpaid"
+            hint="Open or completed jobs still unpaid (not cancelled)"
+            value={fmt(jobs.unpaid)}
+            active={activeFilter === "unpaid"}
+            onClick={() => toggle("unpaid")}
+            variant={n(jobs.unpaid) > 0 ? "warn" : undefined}
+            loading={loading}
+          />
+          {showRevenue ? (
+            <StatChip
+              label={scopedByDate ? "Revenue" : "Revenue today"}
+              hint={
+                scopedByDate
+                  ? "From jobs completed in the selected dates"
+                  : "From jobs completed today (completion time)"
+              }
+              value={`QR ${revenueToday.toLocaleString()}`}
+              trend={scopedByDate ? null : trends.earningsPct}
+              active={activeFilter === "revenueToday"}
+              onClick={() => toggle("revenueToday")}
+              variant="revenue"
+              loading={loading}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      <div className="jobs-stats-section">
+        <h3 className="jobs-stats-section-title">Live pipeline</h3>
+        <div className="jobs-stats-grid" role="group" aria-label="Live job counts">
+          <StatChip
+            label="Open"
+            hint="Pending through on hold — not completed or cancelled"
+            value={fmt(jobs.open)}
+            active={activeFilter === "open"}
+            onClick={() => toggle("open")}
+            loading={loading}
+          />
+          <StatChip
+            label="Pending"
+            hint="Awaiting technician assignment"
+            value={fmt(jobs.pending)}
+            active={activeFilter === "pending"}
+            onClick={() => toggle("pending")}
+            variant={n(jobs.pending) > 0 ? "warn" : undefined}
+            loading={loading}
+          />
+          <StatChip
+            label={getJobStatusLabel("assigned")}
+            hint="Assigned, not yet accepted"
+            value={fmt(jobs.assigned)}
+            active={activeFilter === "assigned"}
+            onClick={() => toggle("assigned")}
+            loading={loading}
+          />
+          <StatChip
+            label={getJobStatusLabel("accepted")}
+            hint="Accepted by technician (not returning from workshop)"
+            value={fmt(jobs.accepted)}
+            active={activeFilter === "accepted"}
+            onClick={() => toggle("accepted")}
+            loading={loading}
+          />
+          <StatChip
+            label={getJobStatusLabel("en_route")}
+            hint="Technician on the way"
+            value={fmt(jobs.enRoute)}
+            active={activeFilter === "en_route"}
+            onClick={() => toggle("en_route")}
+            variant="info"
+            loading={loading}
+          />
+          <StatChip
+            label={getJobStatusLabel("arrived")}
+            hint="Technician on site"
+            value={fmt(jobs.arrived)}
+            active={activeFilter === "arrived"}
+            onClick={() => toggle("arrived")}
+            variant="info"
+            loading={loading}
+          />
+          <StatChip
+            label={getJobStatusLabel("in_progress")}
+            hint="Work started"
+            value={fmt(jobs.inProgress)}
+            active={activeFilter === "in_progress"}
+            onClick={() => toggle("in_progress")}
+            variant="info"
+            loading={loading}
+          />
+          <StatChip
+            label="On hold"
+            hint="Paused on site (excludes workshop)"
+            value={fmt(jobs.onHold)}
+            active={activeFilter === "on_hold"}
+            onClick={() => toggle("on_hold")}
+            variant={n(jobs.onHold) > 0 ? "warn" : undefined}
+            loading={loading}
+          />
+          <StatChip
+            label="At garage"
+            hint="Vehicle at workshop"
+            value={fmt(jobs.atGarage)}
+            active={activeFilter === "at_garage"}
+            onClick={() => toggle("at_garage")}
+            variant={n(jobs.atGarage) > 0 ? "accent" : undefined}
+            loading={loading}
+          />
+          <StatChip
+            label="Returning"
+            hint="Ready for drop-off"
+            value={fmt(jobs.returning)}
+            active={activeFilter === "returning"}
+            onClick={() => toggle("returning")}
+            variant={n(jobs.returning) > 0 ? "accent" : undefined}
+            loading={loading}
+          />
+        </div>
       </div>
     </section>
   );

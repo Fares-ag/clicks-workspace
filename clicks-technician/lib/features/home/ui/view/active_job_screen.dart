@@ -1298,18 +1298,27 @@ class _Actions extends StatelessWidget {
                           ),
                         ],
                         SizedBox(height: 12.h),
-                        // Cash only: card, wallet and Fawran are confirmed by
-                        // SkipCash or by finance with a reference.
-                        ListTile(
-                          leading: const Icon(Icons.payments_outlined),
-                          title: const Text('Cash received'),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            cubit.confirmPayment();
-                          },
+                        ...const [
+                          ('cash', 'Cash'),
+                          ('card', 'Card'),
+                          ('wallet', 'Wallet'),
+                          ('fawran', 'Fawran'),
+                        ].map(
+                          (method) => ListTile(
+                            leading: Icon(
+                              method.$1 == 'cash'
+                                  ? Icons.payments_outlined
+                                  : Icons.credit_card,
+                            ),
+                            title: Text(method.$2),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              cubit.confirmPayment(paymentMethod: method.$1);
+                            },
+                          ),
                         ),
                         ListTile(
-                          leading: const Icon(Icons.credit_card),
+                          leading: const Icon(Icons.sync),
                           title: const Text('Re-check card payment'),
                           subtitle: const Text('Customer paid by card in the app'),
                           onTap: () {

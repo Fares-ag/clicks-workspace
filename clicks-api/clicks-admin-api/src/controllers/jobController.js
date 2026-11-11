@@ -50,10 +50,11 @@ const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit")
 const {
   buildAdminJobListFilters,
   buildAdminJobStatsBaseFilters,
+  kpiClause,
+  TODAY_EVENT_KPIS,
+  qatarBoundsForCalendarDate,
 } = require("../../../clicks-shared/utils/adminJobListFilters");
-const { ONGOING_JOB_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 const {
-  COMPLETED,
   sumCompletedRevenue,
 } = require("../../../clicks-shared/utils/dashboardRevenue");
 const { startOfQatarDay, endOfQatarDay } = require("../utils/qatarDay");
@@ -138,60 +139,98 @@ async function getJobListStats(req, res) {
     const hasDateFilter = Boolean(
       str(req.query.dateFrom).trim() || str(req.query.dateTo).trim()
     );
+    const fromBounds = hasDateFilter
+      ? qatarBoundsForCalendarDate(req.query.dateFrom)
+      : null;
+    const toBounds = hasDateFilter
+      ? qatarBoundsForCalendarDate(req.query.dateTo)
+      : null;
+    const rangeStart = hasDateFilter
+      ? (fromBounds && fromBounds.start) || (toBounds && toBounds.start) || startOfQatarDay()
+      : startOfQatarDay();
+    const rangeEnd = hasDateFilter
+      ? (toBounds && toBounds.end) || (fromBounds && fromBounds.end) || endOfQatarDay()
+      : endOfQatarDay();
+    const { query: baseNoDates } = buildAdminJobStatsBaseFilters(
+      { ...req.query, dateFrom: "", dateTo: "", timeFrom: "", timeTo: "" },
+      { techRoster: techRosterForFilter }
+    );
+    const queryNoDates = applyJobSearchToQuery({ ...baseNoDates }, search);
     const cacheKey = `clicks:admin:payload:job-stats:${str(search)}|${filterKeyParts.join(",")}`;
 
     const payload = await getCachedPayload(cacheKey, 15000, async () => {
-      const count = (extra) =>
-        cachedCount(Job, mergeJobQueries(query, extra), {
-          ttlMs: 15000,
-          key: `${cacheKey}:${JSON.stringify(extra)}`,
-        });
+      const kpiCtx = { rangeStart, rangeEnd };
+
+      const countKpi = (kpi) => {
+        const extra = kpiClause(kpi, kpiCtx);
+        const base = TODAY_EVENT_KPIS.has(kpi) ? queryNoDates : query;
+        const match = extra ? mergeJobQueries(base, extra) : base;
+        return Job.countDocuments(match);
+      };
 
       const [
+        open,
         pending,
+        assigned,
+        accepted,
+        enRoute,
+        arrived,
+        inProgress,
         ongoing,
         onHold,
-        cancelled,
         atGarage,
         returning,
+        createdToday,
+        completedToday,
+        cancelledToday,
+        unpaid,
+        revenueToday,
       ] = await Promise.all([
-        count({ job_status: "pending" }),
-        count({ job_status: { $in: ONGOING_JOB_STATUSES } }),
-        count({ job_status: "on_hold" }),
-        count({ job_status: "cancelled" }),
-        count({ "garage.phase": "at_garage" }),
-        count({ "garage.phase": "returning" }),
+        countKpi("open"),
+        countKpi("pending"),
+        countKpi("assigned"),
+        countKpi("accepted"),
+        countKpi("en_route"),
+        countKpi("arrived"),
+        countKpi("in_progress"),
+        countKpi("ongoing"),
+        countKpi("on_hold"),
+        countKpi("at_garage"),
+        countKpi("returning"),
+        countKpi("createdToday"),
+        countKpi("completedToday"),
+        countKpi("cancelledToday"),
+        countKpi("unpaid"),
+        sumCompletedRevenue(
+          Job,
+          mergeJobQueries(
+            queryNoDates,
+            kpiClause("revenueToday", kpiCtx) || {}
+          )
+        ),
       ]);
-
-      let completedToday;
-      let revenueToday;
-      if (hasDateFilter) {
-        completedToday = await count({ job_status: { $in: COMPLETED } });
-        revenueToday = await sumCompletedRevenue(Job, query);
-      } else {
-        const todayStart = startOfQatarDay();
-        const todayEnd = endOfQatarDay();
-        completedToday = await count({
-          job_status: { $in: COMPLETED },
-          completed_at: { $gte: todayStart, $lte: todayEnd },
-        });
-        revenueToday = await sumCompletedRevenue(Job, {
-          ...query,
-          completed_at: { $gte: todayStart, $lte: todayEnd },
-        });
-      }
 
       return {
         scopedByFilters: hasDateFilter || filterKeyParts.length > 0,
         scopedByDate: hasDateFilter,
         jobs: {
+          total: createdToday,
+          open,
           pending,
+          assigned,
+          accepted,
+          enRoute,
+          arrived,
+          inProgress,
           ongoing,
           onHold,
-          cancelled,
           atGarage,
           returning,
+          createdToday,
           completedToday,
+          cancelledToday,
+          cancelled: cancelledToday,
+          unpaid,
         },
         earnings: {
           today: revenueToday,
@@ -221,6 +260,7 @@ async function getJobs(req, res) {
       query: filterQuery,
       filterKeyParts,
       hasListFilters,
+      sort: listSort,
     } = buildAdminJobListFilters(req.query, { techRoster: techRosterForFilter });
 
     let query = { ...filterQuery };
@@ -239,9 +279,9 @@ async function getJobs(req, res) {
       const findStarted = Date.now();
       const listQuery = Job.find(query)
         .select(
-          "job_reference clientName clientMobileNumber job_status hold_reason dateTime location source subSource assignedTechnician legacyTechnicianName price jobType vehicleMake vehicleModel vehicleYear licensePlate business_id businessName createdByTechnicianName payment_status createdAt"
+          "job_reference clientName clientMobileNumber job_status hold_reason dateTime location source subSource assignedTechnician legacyTechnicianName price jobType vehicleMake vehicleModel vehicleYear licensePlate business_id businessName createdByTechnicianName payment_status createdAt completed_at cancelled_at assigned_at accepted_at en_route_at arrived_at started_at on_hold_at garage"
         )
-        .sort(hasFilter ? { createdAt: -1 } : { _id: -1 })
+        .sort(listSort || (hasFilter ? { createdAt: -1 } : { _id: -1 }))
         .skip(skip)
         .limit(limitNum)
         .lean();

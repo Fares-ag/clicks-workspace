@@ -86,7 +86,7 @@
   font-size: 12px;
   line-height: 1.45;
   color: var(--color-text-secondary);
-  max-width: 520px;
+  max-width: 720px;
 }
 
 .jobs-stats-updated {
@@ -135,10 +135,31 @@
   border-color: #fecdd3;
 }
 
+.jobs-stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jobs-stats-section + .jobs-stats-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.jobs-stats-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
 .jobs-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
   width: 100%;
 }
 
@@ -149,7 +170,7 @@
   border-radius: 12px;
   box-shadow: var(--shadow-sm);
   padding: 14px 14px 12px;
-  min-height: 108px;
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -190,6 +211,17 @@
   border-color: #027a48;
   background: #d1fadf;
   box-shadow: 0 0 0 1px #027a48;
+}
+
+.jobs-stat-chip--info {
+  border-color: #84caff;
+  background: #f0f9ff;
+}
+
+.jobs-stat-chip--info.jobs-stat-chip--active {
+  border-color: #1570ef;
+  background: #d1e9ff;
+  box-shadow: 0 0 0 1px #1570ef;
 }
 
 .jobs-stat-chip--accent {
@@ -402,6 +434,19 @@
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.job-datetime-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.job-datetime-scheduled {
+  font-size: 11px;
   color: var(--color-text-secondary);
 }
 

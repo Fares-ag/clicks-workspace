@@ -15,6 +15,7 @@ function buildJobListQueryParams({
   source,
   jobOrigin,
   garage,
+  kpi,
   page,
   limit,
 }) {
@@ -22,6 +23,7 @@ function buildJobListQueryParams({
   if (page != null) params.set("page", String(page));
   if (limit != null) params.set("limit", String(limit));
   params.set("search", search || "");
+  if (kpi) params.set("kpi", kpi);
   if (status) params.set("status", status);
   if (garage) params.set("garage", garage);
   if (technician) params.set("technician", technician);
@@ -69,6 +71,7 @@ export const jobApi = apiSlice.injectEndpoints({
         source,
         jobOrigin,
         garage,
+        kpi,
       } = {}) => ({
         url: `/jobs?${buildJobListQueryParams({
           page,
@@ -87,6 +90,7 @@ export const jobApi = apiSlice.injectEndpoints({
           source,
           jobOrigin,
           garage,
+          kpi,
         }).toString()}`,
         method: "GET",
       }),

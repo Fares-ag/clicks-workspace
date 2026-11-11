@@ -57,15 +57,15 @@ async function financeLogin(user, password) {
 }
 
 describe("Technician cash confirmation (scenarios 80, 85)", () => {
-  test("technicians can only confirm cash", async () => {
-    const customer = await seedCustomer();
-    const job = await seedCustomerJob({ customer, jobStatus: "in_progress", price: 150 });
-    for (const method of ["card", "wallet", "fawran"]) {
+  test("technicians can confirm cash, card, wallet and Fawran", async () => {
+    for (const method of ["cash", "card", "wallet", "fawran"]) {
+      const customer = await seedCustomer();
+      const job = await seedCustomerJob({ customer, jobStatus: "in_progress", price: 150 });
       const res = await confirmCash(job, { payment_method: method });
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe("CASH_ONLY");
+      expect(res.status).toBe(200);
+      expect(res.body.payment_method).toBe(method);
+      expect((await Job.findById(job._id)).payment_status).toBe("paid");
     }
-    expect((await Job.findById(job._id)).payment_status).toBe("unpaid");
   });
 
   test("blocked while a card checkout is pending; allowed after an explicit cancel", async () => {

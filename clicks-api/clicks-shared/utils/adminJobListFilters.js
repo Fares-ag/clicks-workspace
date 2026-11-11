@@ -67,6 +67,128 @@ function mergeAnd(query, clause) {
   }
 }
 
+const GARAGE_LIVE_PHASES = ["at_garage", "returning"];
+const OPEN_JOB_STATUSES = ["pending", ...ONGOING_JOB_STATUSES, "on_hold"];
+const PIPELINE_STATUS_KPIS = [
+  "pending",
+  "assigned",
+  "accepted",
+  "en_route",
+  "arrived",
+  "in_progress",
+];
+
+/**
+ * Event window that still includes legacy rows missing the dedicated timestamp.
+ * Matches dashboard earnings-by-date (completed_at, else updatedAt).
+ */
+function eventWindowOr(field, start, end, fallbackField = "updatedAt") {
+  return {
+    $or: [
+      { [field]: { $gte: start, $lte: end } },
+      {
+        $and: [
+          { $or: [{ [field]: null }, { [field]: { $exists: false } }] },
+          { [fallbackField]: { $gte: start, $lte: end } },
+        ],
+      },
+    ],
+  };
+}
+
+/** Today/event cards filter and sort on this timestamp, not scheduled dateTime. */
+const KPI_EVENT = {
+  createdToday: { field: "createdAt", sort: { createdAt: -1 } },
+  completedToday: { field: "completed_at", sort: { completed_at: -1, _id: -1 } },
+  revenueToday: { field: "completed_at", sort: { completed_at: -1, _id: -1 } },
+  cancelledToday: { field: "cancelled_at", sort: { cancelled_at: -1, _id: -1 } },
+  cancelled: { field: "cancelled_at", sort: { cancelled_at: -1, _id: -1 } },
+  assigned: { field: "assigned_at", sort: { assigned_at: -1, _id: -1 } },
+  accepted: { field: "accepted_at", sort: { accepted_at: -1, _id: -1 } },
+  en_route: { field: "en_route_at", sort: { en_route_at: -1, _id: -1 } },
+  arrived: { field: "arrived_at", sort: { arrived_at: -1, _id: -1 } },
+  in_progress: { field: "started_at", sort: { started_at: -1, _id: -1 } },
+  on_hold: { field: "on_hold_at", sort: { on_hold_at: -1, _id: -1 } },
+  at_garage: { field: "garage.sent_at", sort: { "garage.sent_at": -1, _id: -1 } },
+  returning: { field: "garage.ready_at", sort: { "garage.ready_at": -1, _id: -1 } },
+  pending: { field: "dateTime", sort: { dateTime: 1 } },
+  open: { field: "dateTime", sort: { dateTime: 1 } },
+  unpaid: { field: "dateTime", sort: { dateTime: -1 } },
+};
+
+const TODAY_EVENT_KPIS = new Set([
+  "createdToday",
+  "completedToday",
+  "revenueToday",
+  "cancelledToday",
+  "cancelled",
+]);
+
+function inRange(field, start, end) {
+  if (!start || !end) return {};
+  return { [field]: { $gte: start, $lte: end } };
+}
+
+/**
+ * Mongo clause for a Job Management KPI card. List and /jobs/stats must use
+ * the same helper so tapping a card always lists the jobs the number counted.
+ */
+function kpiClause(kpi, { rangeStart, rangeEnd, todayStart, todayEnd } = {}) {
+  const key = str(kpi, { maxLength: 32 }).trim();
+  const start = rangeStart || todayStart;
+  const end = rangeEnd || todayEnd;
+  switch (key) {
+    case "open":
+      return { job_status: { $in: OPEN_JOB_STATUSES } };
+    case "pending":
+    case "assigned":
+    case "en_route":
+    case "arrived":
+    case "in_progress":
+      return { job_status: key };
+    case "accepted":
+      return {
+        job_status: "accepted",
+        $nor: [{ "garage.phase": "returning" }],
+      };
+    case "ongoing":
+      return {
+        job_status: { $in: ONGOING_JOB_STATUSES },
+        $nor: [{ "garage.phase": "returning" }],
+      };
+    case "on_hold":
+      return {
+        job_status: "on_hold",
+        $nor: [{ "garage.phase": { $in: GARAGE_LIVE_PHASES } }],
+      };
+    case "at_garage":
+      return { "garage.phase": "at_garage" };
+    case "returning":
+      return { "garage.phase": "returning" };
+    case "completedToday":
+    case "revenueToday":
+      return {
+        job_status: { $in: COMPLETED },
+        ...inRange("completed_at", start, end),
+      };
+    case "cancelledToday":
+    case "cancelled":
+      return {
+        job_status: "cancelled",
+        ...inRange("cancelled_at", start, end),
+      };
+    case "createdToday":
+      return inRange("createdAt", start, end);
+    case "unpaid":
+      return {
+        payment_status: "unpaid",
+        job_status: { $nin: ["cancelled"] },
+      };
+    default:
+      return null;
+  }
+}
+
 function resolveTechnicianFilter(technicianParam, technicianIdParam, techRoster) {
   const techId = str(technicianIdParam, { maxLength: 32 }).trim();
   if (techId) {
@@ -114,24 +236,42 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
     source,
     jobOrigin,
     garage,
+    kpi,
   } = rawQuery;
 
   const query = {};
   const exprClauses = [];
   const filterKeyParts = [];
 
+  const kpiKey = str(kpi, { maxLength: 32 }).trim();
+  const fromBounds = dateFrom ? qatarBoundsForCalendarDate(dateFrom) : null;
+  const toBounds = dateTo ? qatarBoundsForCalendarDate(dateTo) : null;
+  const hasDateFilter = Boolean(fromBounds || toBounds);
+  const rangeStart = hasDateFilter
+    ? (fromBounds && fromBounds.start) || (toBounds && toBounds.start)
+    : startOfQatarDay();
+  const rangeEnd = hasDateFilter
+    ? (toBounds && toBounds.end) || (fromBounds && fromBounds.end)
+    : endOfQatarDay();
+  const isEventKpi = TODAY_EVENT_KPIS.has(kpiKey);
   const filterCompletedToday =
     completedToday === "1" || completedToday === "true";
 
-  if (filterCompletedToday) {
-    query.job_status = { $in: COMPLETED };
-    query.completed_at = {
-      $gte: startOfQatarDay(),
-      $lte: endOfQatarDay(),
-    };
+  if (kpiKey) {
+    const clause = kpiClause(kpiKey, { rangeStart, rangeEnd });
+    if (clause) mergeAnd(query, clause);
+    filterKeyParts.push(`kpi:${kpiKey}`);
+  } else if (filterCompletedToday) {
+    mergeAnd(
+      query,
+      kpiClause("completedToday", {
+        rangeStart: startOfQatarDay(),
+        rangeEnd: endOfQatarDay(),
+      })
+    );
     filterKeyParts.push("completedToday");
   } else if (status === "ongoing") {
-    query.job_status = { $in: ONGOING_JOB_STATUSES };
+    mergeAnd(query, kpiClause("ongoing"));
     filterKeyParts.push("status:ongoing");
   } else if (status) {
     query.job_status = str(status, { maxLength: 32 });
@@ -190,9 +330,7 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
     filterKeyParts.push(`tech:${technicianId || technician}`);
   }
 
-  const fromBounds = dateFrom ? qatarBoundsForCalendarDate(dateFrom) : null;
-  const toBounds = dateTo ? qatarBoundsForCalendarDate(dateTo) : null;
-  if (fromBounds || toBounds) {
+  if ((fromBounds || toBounds) && !isEventKpi) {
     query.dateTime = {};
     if (fromBounds) {
       query.dateTime.$gte = fromBounds.start;
@@ -202,11 +340,14 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
       query.dateTime.$lte = toBounds.end;
       filterKeyParts.push(`dt:${dateTo}`);
     }
+  } else if (isEventKpi && hasDateFilter) {
+    if (fromBounds) filterKeyParts.push(`df:${dateFrom}`);
+    if (toBounds) filterKeyParts.push(`dt:${dateTo}`);
   }
 
   const fromMin = parseTimeMinutes(timeFrom);
   const toMin = parseTimeMinutes(timeTo);
-  if (fromMin != null || toMin != null) {
+  if (!isEventKpi && (fromMin != null || toMin != null)) {
     const minutesExpr = qatarMinutesExpr();
     if (fromMin != null && toMin != null && fromMin <= toMin) {
       exprClauses.push({
@@ -228,8 +369,16 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
     mergeAnd(query, exprClauses.length === 1 ? { $expr: exprClauses[0] } : { $expr: { $and: exprClauses } });
   }
 
+  const kpiSort = KPI_EVENT[kpiKey] && KPI_EVENT[kpiKey].sort;
+  const sort =
+    kpiSort ||
+    (!str(search).trim() && filterKeyParts.length === 0
+      ? { _id: -1 }
+      : { createdAt: -1 });
+
   return {
     query,
+    sort,
     filterKeyParts,
     hasListFilters: Boolean(
       str(search).trim() ||
@@ -240,12 +389,13 @@ function buildAdminJobListFilters(rawQuery, { techRoster } = {}) {
   };
 }
 
-/** Same as list filters but without status / garage / completedToday (for KPI breakdown). */
+/** Same as list filters but without status / garage / KPI (for card breakdown). */
 function buildAdminJobStatsBaseFilters(rawQuery, options) {
   const stripped = { ...(rawQuery || {}) };
   delete stripped.status;
   delete stripped.garage;
   delete stripped.completedToday;
+  delete stripped.kpi;
   delete stripped.page;
   delete stripped.limit;
   return buildAdminJobListFilters(stripped, options);
@@ -254,6 +404,12 @@ function buildAdminJobStatsBaseFilters(rawQuery, options) {
 module.exports = {
   buildAdminJobListFilters,
   buildAdminJobStatsBaseFilters,
+  kpiClause,
+  eventWindowOr,
+  KPI_EVENT,
+  TODAY_EVENT_KPIS,
+  PIPELINE_STATUS_KPIS,
+  OPEN_JOB_STATUSES,
   calendarDateAnchor,
   qatarBoundsForCalendarDate,
   parseTimeMinutes,

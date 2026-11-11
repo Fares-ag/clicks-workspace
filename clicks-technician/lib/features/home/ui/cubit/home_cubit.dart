@@ -1484,9 +1484,9 @@ class HomeCubit extends Cubit<HomeState> {
     return jobPrice;
   }
 
-  /// Technicians confirm CASH only (the API refuses card/wallet/Fawran).
-  /// [cancelCard] cancels the customer's open card checkout first — the API
-  /// checks SkipCash and refuses if the card payment already went through.
+  /// Technician confirms collection. [paymentMethod] is cash, card, wallet
+  /// or fawran. [cancelCard] cancels the customer's open SkipCash checkout
+  /// first — the API refuses if that card payment already went through.
   Future<void> confirmPayment({
     String paymentMethod = 'cash',
     bool cancelCard = false,

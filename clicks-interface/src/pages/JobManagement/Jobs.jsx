@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useGetJobsQuery, useGetJobStatsQuery } from "../../store/jobApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useAdminRole } from "../../utils/adminRoles";
+import { usePageVisible } from "../../hooks/usePageVisible";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import SuccessModal from "../../components/SuccessModal.jsx";
 import JobFilterDropdown, { EMPTY_JOB_FILTERS } from "../../components/JobFilterDropdown.jsx";
@@ -124,6 +125,59 @@ function JobCardActions({ onView, job }) {
   );
 }
 
+const JOB_KPI_WHEN = {
+  createdToday: { path: "createdAt", label: "Created" },
+  completedToday: { path: "completed_at", label: "Completed" },
+  revenueToday: { path: "completed_at", label: "Completed" },
+  cancelledToday: { path: "cancelled_at", label: "Cancelled" },
+  assigned: { path: "assigned_at", label: "Assigned" },
+  accepted: { path: "accepted_at", label: "Accepted" },
+  en_route: { path: "en_route_at", label: "En route" },
+  arrived: { path: "arrived_at", label: "Arrived" },
+  in_progress: { path: "started_at", label: "Started" },
+  on_hold: { path: "on_hold_at", label: "On hold" },
+  at_garage: { path: "garage.sent_at", label: "Sent to garage" },
+  returning: { path: "garage.ready_at", label: "Ready" },
+  pending: { path: "dateTime", label: "Scheduled" },
+  open: { path: "dateTime", label: "Scheduled" },
+  unpaid: { path: "dateTime", label: "Scheduled" },
+};
+
+function readJobPath(job, path) {
+  return String(path || "")
+    .split(".")
+    .reduce((acc, key) => (acc == null ? acc : acc[key]), job);
+}
+
+function jobEventTimestamp(job, kpi) {
+  const meta = JOB_KPI_WHEN[kpi];
+  if (!meta) return { at: job.dateTime, label: null };
+  return { at: readJobPath(job, meta.path), label: meta.label };
+}
+
+function JobWhenCell({ job, kpi }) {
+  const { at, label } = jobEventTimestamp(job, kpi);
+  const primary = at || job.dateTime;
+  const date = primary ? new Date(primary) : null;
+  const scheduled = job.dateTime ? new Date(job.dateTime) : null;
+  const showScheduled =
+    Boolean(label && scheduled && primary) &&
+    scheduled.toDateString() !== date?.toDateString();
+
+  return (
+    <div className="job-datetime-cell">
+      {label ? <div className="job-datetime-kicker">{label}</div> : null}
+      <div className="job-date">{date ? date.toLocaleDateString() : "—"}</div>
+      <div className="job-time">{date ? date.toLocaleTimeString() : ""}</div>
+      {showScheduled ? (
+        <div className="job-datetime-scheduled">
+          Scheduled {scheduled.toLocaleDateString()}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function getJobVehicleLabel(job) {
   const v = job?.customer_vehicle_id;
   const make =
@@ -185,6 +239,7 @@ function Jobs() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isFullAdmin } = useAdminRole();
+  const pageVisible = usePageVisible();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState(() => {
     const params = new URLSearchParams(location.search);
@@ -221,11 +276,8 @@ function Jobs() {
     dataUpdatedAt,
   } = useGetJobStatsQuery(statsQueryParams, {
     refetchOnFocus: true,
+    pollingInterval: pageVisible ? 30000 : 0,
   });
-
-  const dateFilterActive = Boolean(
-    String(filters.dateFrom || "").trim() || String(filters.dateTo || "").trim()
-  );
 
   const jobQueryParams = useMemo(() => {
     const params = {
@@ -243,30 +295,14 @@ function Jobs() {
       jobOrigin: filters.jobOrigin || undefined,
     };
 
-    if (
-      (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") &&
-      !dateFilterActive
-    ) {
-      params.completedToday = true;
-    } else if (
-      (activeStatFilter === "completedToday" || activeStatFilter === "revenueToday") &&
-      dateFilterActive
-    ) {
-      params.status = "completed";
-    } else if (activeStatFilter === "ongoing") {
-      params.status = "ongoing";
-    } else if (activeStatFilter === "at_garage") {
-      params.garage = "at_garage";
-    } else if (activeStatFilter === "returning") {
-      params.garage = "returning";
-    } else if (activeStatFilter) {
-      params.status = activeStatFilter;
+    if (activeStatFilter) {
+      params.kpi = activeStatFilter;
     } else if (filters.status) {
       params.status = filters.status;
     }
 
     return params;
-  }, [page, debouncedSearch, filters, activeStatFilter, dateFilterActive]);
+  }, [page, debouncedSearch, filters, activeStatFilter]);
 
   const activeFilterCount = useMemo(() => {
     return Object.entries(filters).filter(([, v]) => String(v || "").trim()).length;
@@ -330,16 +366,11 @@ function Jobs() {
       )
     },
     {
-      title: "Date & Time",
+      title: (JOB_KPI_WHEN[activeStatFilter] && JOB_KPI_WHEN[activeStatFilter].label) || "Date & Time",
       key: "dateTime",
       dataIndex: "dateTime",
       width: "12%",
-      render: (row) => (
-        <div className="job-datetime-cell">
-          <div className="job-date">{new Date(row.dateTime).toLocaleDateString()}</div>
-          <div className="job-time">{new Date(row.dateTime).toLocaleTimeString()}</div>
-        </div>
-      )
+      render: (row) => <JobWhenCell job={row} kpi={activeStatFilter} />,
     },
     {
       title: "Job Location",
@@ -422,7 +453,7 @@ function Jobs() {
         />
       ),
     }
-  ], [navigate]);
+  ], [navigate, activeStatFilter]);
 
   const handleSearch = useCallback((value) => {
     setSearchInput(value);
