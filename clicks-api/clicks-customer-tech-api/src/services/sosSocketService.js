@@ -405,7 +405,12 @@ function initializeSOSSocket(io) {
       }
 
       await setTechnicianStatus(technicianId, "Online");
-      await Technician.updateOne({ _id: technicianId }, { autoOfflineAt: null });
+      // The reconnecting socket is the app-alive signal: stamp it before
+      // announcing them, or the Live Map is told they are back AND stale.
+      await Technician.updateOne(
+        { _id: technicianId },
+        { autoOfflineAt: null, lastHeartbeatAt: new Date() }
+      );
       await emitAdminTechnicianPresence(technicianId, "Online");
       devLog(`Technician ${technicianId} restored to Online after reconnect`);
     } catch (err) {
@@ -441,6 +446,43 @@ function initializeSOSSocket(io) {
   }
 
   setInterval(sweepGhostOnlineTechnicians, OFFLINE_SWEEP_MS).unref?.();
+
+  // Keep presence fresh for every technician whose app still holds a socket.
+  //
+  // The two sweeps above also do this, but only for technicians ALREADY past
+  // the stale window, and they run on that same period: a technician refreshed
+  // by one pass is a few milliseconds short of the cutoff on the next, so the
+  // rescue lands every second pass and the heartbeat age swings 0..2x the
+  // window. The Live Map then shows a connected technician as disconnected
+  // about half the time. This pass refreshes at half the window, on a shorter
+  // period, so a connected app never reaches the threshold at all.
+  //
+  // It only ever refreshes. It never marks anyone stale or Offline — those
+  // decisions stay with the sweeps above, on their existing timing.
+  const PRESENCE_REFRESH_SWEEP_MS = durationEnv("TECH_PRESENCE_REFRESH_SWEEP_MS", 20000);
+
+  async function refreshPresenceForConnectedTechnicians() {
+    // Nothing to do (and nothing worth alerting on) while the database is down.
+    if (Technician.db?.readyState !== 1) return;
+    try {
+      const cutoff = new Date(Date.now() - Math.floor(LOCATION_STALE_MS / 2));
+      const quiet = await Technician.find({
+        currentStatus: { $in: ["Online", "On Job"] },
+        isActive: true,
+        ...presenceStaleMongoFilter(cutoff),
+      }).select("_id lastLocationAt lastHeartbeatAt currentLocation");
+      for (const tech of quiet) {
+        if (await userHasLiveSockets(technicianNamespace, tech._id.toString())) {
+          await refreshPresenceFromLiveSocket(tech);
+        }
+      }
+    } catch (err) {
+      console.error("Connected technician presence refresh failed:", err);
+      captureException(err);
+    }
+  }
+
+  setInterval(refreshPresenceForConnectedTechnicians, PRESENCE_REFRESH_SWEEP_MS).unref?.();
 
   function emitAdminTechnicianLocationStale(technician_id, lastLocationAt) {
     const id = technician_id.toString();
@@ -921,15 +963,20 @@ function initializeSOSSocket(io) {
           clientRequestId,
         });
 
-        const sosCreatedPayload = (sos, extra = {}) => ({
-          sos_id: sos._id.toString(),
-          status: sos.status,
-          expires_at: sos.broadcast_expires_at,
-          client_request_id: sos.client_request_id || null,
-          outstanding_balance: sos.outstanding_balance || 0,
-          outstanding_job_ids: (sos.outstanding_job_ids || []).map(String),
-          ...extra,
-        });
+        const sosCreatedPayload = async (sos, extra = {}) => {
+          const { isHighDemand } = require("../../../clicks-shared/utils/sosBusy");
+          const highDemand = await isHighDemand().catch(() => false);
+          return {
+            sos_id: sos._id.toString(),
+            status: sos.status,
+            expires_at: sos.broadcast_expires_at,
+            client_request_id: sos.client_request_id || null,
+            outstanding_balance: sos.outstanding_balance || 0,
+            outstanding_job_ids: (sos.outstanding_job_ids || []).map(String),
+            high_demand: highDemand,
+            ...extra,
+          };
+        };
 
         // Replay of a request we already accepted: same answer, no new SOS.
         if (clientRequestId) {
@@ -938,7 +985,7 @@ function initializeSOSSocket(io) {
             client_request_id: clientRequestId,
           });
           if (replay) {
-            const payload = sosCreatedPayload(replay, { duplicate: true });
+            const payload = await sosCreatedPayload(replay, { duplicate: true });
             reply({ ok: true, ...payload });
             if (["pending", "in_call"].includes(replay.status)) {
               emitToUser(customerNamespace, customer_id, "sosCreated", payload);
@@ -1138,7 +1185,7 @@ function initializeSOSSocket(io) {
             clientRequestId &&
             winner.client_request_id === clientRequestId
           ) {
-            const payload = sosCreatedPayload(winner, { duplicate: true });
+            const payload = await sosCreatedPayload(winner, { duplicate: true });
             reply({ ok: true, ...payload });
             emitToUser(customerNamespace, customer_id, "sosCreated", payload);
             return;
@@ -1151,7 +1198,7 @@ function initializeSOSSocket(io) {
         }
         schedulePendingExpiry(sos);
 
-        const createdPayload = sosCreatedPayload(sos);
+        const createdPayload = await sosCreatedPayload(sos);
         reply({ ok: true, ...createdPayload });
         emitToUser(customerNamespace, customer_id, "sosCreated", createdPayload);
 

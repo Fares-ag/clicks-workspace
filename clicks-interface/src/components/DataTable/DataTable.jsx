@@ -11,6 +11,7 @@ const DataTable = ({
   loading = false,
   fetching = false,
   onSearch,
+  searchValue,
   onFilter,
   onEdit,
   onDelete,
@@ -32,7 +33,8 @@ const DataTable = ({
   filterButtonText = "Filter",
   hideFilterIcon = false,
   hideSearch = false,
-  hideTitle = false
+  hideTitle = false,
+  getRowClassName,
 }) => {
   return (
     <div className="data-table-outer">
@@ -40,6 +42,7 @@ const DataTable = ({
         <TableHeader
           title={title}
           onSearch={onSearch}
+          searchValue={searchValue}
           onFilter={onFilter}
           searchPlaceholder={searchPlaceholder}
           filterOptions={filterOptions}
@@ -58,6 +61,7 @@ const DataTable = ({
           onEdit={onEdit}
           onDelete={onDelete}
           actionIcons={actionIcons}
+          getRowClassName={getRowClassName}
         />
       </div>
       <div className="table-pagination-section">

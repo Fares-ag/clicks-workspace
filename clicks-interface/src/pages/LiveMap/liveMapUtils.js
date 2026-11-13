@@ -1,7 +1,28 @@
 /** Live Map merge / freshness helpers (shared with LiveMap.jsx + node tests). */
 
 export const LOCATION_STALE_MS = 60000;
+/** REST poll while the admin socket is down. */
 export const REST_POLL_MS = 8000;
+/**
+ * REST re-read while the socket is UP.
+ *
+ * The socket carries the real-time feed, but it can stop delivering without
+ * ever reporting a disconnect, and an event missed during a reconnect is gone
+ * for good. With no periodic re-read the map could only be corrected by a page
+ * reload. This is the safety net that makes it self-healing.
+ */
+export const REST_RESYNC_MS = 20000;
+/**
+ * How long a technician known only from socket events is kept while REST has
+ * not listed them yet. Longer than two re-reads, so a technician who has just
+ * come Online is never dropped between an event and the next snapshot.
+ */
+export const SOCKET_ONLY_GRACE_MS = 45000;
+/**
+ * How long a technician we were told went Offline is kept out of REST merges,
+ * so a snapshot already in flight cannot put them back on the map.
+ */
+export const OFFLINE_ECHO_GUARD_MS = 30000;
 export const SOCKET_COORD_PREFERENCE_MS = 60000;
 
 /** Parse a timestamp to epoch ms, or null when absent/unparseable. */
@@ -141,7 +162,46 @@ export function isSocketOnlyPreserved(tech, apiIds, nowMs = Date.now()) {
   if (!["Online", "On Job"].includes(tech.currentStatus)) return false;
   const presenceAt = tech._socketPresenceAt || tech._locationUpdatedAt;
   if (!presenceAt) return false;
-  return nowMs - new Date(presenceAt).getTime() < REST_POLL_MS * 2;
+  return nowMs - new Date(presenceAt).getTime() < SOCKET_ONLY_GRACE_MS;
+}
+
+/**
+ * Fold a REST snapshot into the technicians already on screen.
+ *
+ * - Technicians in the snapshot are merged with what the socket has told us,
+ *   keeping whichever source holds the newer measurement.
+ * - Technicians known only from socket events are kept for a grace period, so
+ *   someone who has just come Online survives until REST lists them.
+ * - Technicians we were just told went Offline are skipped, so a snapshot that
+ *   was already in flight cannot resurrect them.
+ *
+ * @param {object[]} apiTechnicians snapshot rows
+ * @param {object[]} prev current state
+ * @param {Map<string, number>} [recentlyOffline] id -> ms when Offline arrived
+ * @returns {{ technicians: object[], apiIds: Set<string> }}
+ */
+export function mergeLiveMapSnapshot(
+  apiTechnicians,
+  prev,
+  recentlyOffline = new Map(),
+  nowMs = Date.now()
+) {
+  const prevById = new Map(prev.map((t) => [String(t._id), t]));
+  const apiIds = new Set();
+  const merged = [];
+
+  for (const apiTech of apiTechnicians) {
+    const id = String(apiTech._id);
+    const wentOfflineAt = recentlyOffline.get(id);
+    if (wentOfflineAt != null && nowMs - wentOfflineAt < OFFLINE_ECHO_GUARD_MS) {
+      continue;
+    }
+    apiIds.add(id);
+    merged.push(mergeApiTechnicianWithSocketState(apiTech, prevById.get(id), nowMs));
+  }
+
+  const socketOnly = prev.filter((t) => isSocketOnlyPreserved(t, apiIds, nowMs));
+  return { technicians: [...merged, ...socketOnly], apiIds };
 }
 
 export function countVisibleStaleTechnicians(technicians, nowMs = Date.now()) {

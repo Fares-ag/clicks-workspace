@@ -58,6 +58,7 @@ const TableContent = ({
     { type: "edit", icon: "/icons/user.svg", handler: onEdit },
     { type: "delete", icon: "/icons/admin.svg", handler: onDelete },
   ],
+  getRowClassName,
 }) => {
   const isMobile = useIsMobile();
   const mobileColumns = useMemo(
@@ -97,7 +98,10 @@ const TableContent = ({
         </div>
       ) : (
         data.map((row, idx) => (
-          <div className="table-row table-row--desktop" key={row._id || idx}>
+          <div
+            className={`table-row table-row--desktop ${getRowClassName ? getRowClassName(row) : ""}`.trim()}
+            key={row._id || idx}
+          >
             {columns.map((col) => (
               <div
                 className={`table-cell ${
@@ -136,8 +140,12 @@ const TableContent = ({
 
     return (
       <div className="table-cards" role="list">
-        {data.map((row, idx) => (
-          <article className="table-card" key={row._id || idx} role="listitem">
+        {        data.map((row, idx) => (
+          <article
+            className={`table-card ${getRowClassName ? getRowClassName(row) : ""}`.trim()}
+            key={row._id || idx}
+            role="listitem"
+          >
             {featuredColumns.length > 0 ? (
               <div className="table-card-featured">
                 {featuredColumns.map((col) => (

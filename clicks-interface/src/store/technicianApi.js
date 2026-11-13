@@ -138,9 +138,12 @@ export const technicianApi = apiSlice.injectEndpoints({
       keepUnusedDataFor: 30,
     }),
     toggleTechnicianActive: builder.mutation({
-      query: (id) => ({
+      // Always states the wanted value. The endpoint used to be a bare flip,
+      // which a second click (or a retry) silently undid.
+      query: ({ id, isActive, force = false }) => ({
         url: `/technicians/${id}/toggle-active`,
-        method: "PATCH"
+        method: "PATCH",
+        body: { isActive, force }
       }),
       invalidatesTags: ["Technician"]
     })

@@ -267,9 +267,9 @@ async function updateLead(req, res) {
     if (!lead) {
       return res.status(404).json({ message: "Lead not found" });
     }
-    if (lead.status === "converted" || lead.status === "lost") {
+    if (lead.status === "converted") {
       return res.status(400).json({
-        message: `Cannot update a ${lead.status} lead`,
+        message: "Cannot update a converted lead",
       });
     }
 
@@ -305,19 +305,40 @@ async function updateLead(req, res) {
         message: "Invalid status transition via PATCH",
       });
     }
+    if (Object.prototype.hasOwnProperty.call(patch, "clientName")) {
+      patch.clientName = String(patch.clientName || "").trim();
+      if (!patch.clientName) {
+        return res.status(400).json({ message: "Client name is required" });
+      }
+    }
     if (patch.clientMobileNumber) {
       patch.clientMobileNumber = normalizePhoneE164(patch.clientMobileNumber);
     }
-    if (patch.inquiry) {
-      patch.inquiry = String(patch.inquiry).trim();
+    if (Object.prototype.hasOwnProperty.call(patch, "inquiry")) {
+      patch.inquiry = String(patch.inquiry || "").trim();
+      if (!patch.inquiry) {
+        return res.status(400).json({ message: "Inquiry is required" });
+      }
     }
     if (patch.vehicleYear != null && patch.vehicleYear !== "") {
       patch.vehicleYear = Number(patch.vehicleYear);
     }
 
+    const before = lead.toObject();
     Object.assign(lead, patch);
     applyCanonicalLeadFields(lead);
     await lead.save();
+
+    const changes = computeChanges(before, lead, allowed);
+    if (Object.keys(changes).length) {
+      await recordAudit({
+        req,
+        action: "lead.update",
+        entityType: "lead",
+        entityId: lead._id,
+        changes,
+      });
+    }
 
     const populated = await Lead.findById(lead._id).populate(
       "source",

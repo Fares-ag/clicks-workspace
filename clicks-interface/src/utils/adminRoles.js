@@ -30,6 +30,8 @@ export const FULL_ADMIN_ONLY_PREFIXES = [
   "/refunds",
   "/payment-ledger",
   "/failed-events",
+  "/membership-plans",
+  "/customer-memberships",
 ];
 
 /** Route prefixes allowed for ops roles (Job Dispatcher, etc.). */

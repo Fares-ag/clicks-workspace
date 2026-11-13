@@ -2,7 +2,7 @@
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../features/welcome/logic/services/welcome_service.dart';
@@ -213,6 +213,9 @@ class SosCubit extends Cubit<SosState> {
   /// What the customer still owes on earlier jobs (never blocks the SOS).
   double outstandingBalance = 0;
 
+  /// Server said pending volume is over SOS_BUSY_PENDING — show call-us now.
+  bool highDemand = false;
+
   /// Idempotency key for this SOS attempt — a retry after a timeout sends
   /// the same key, so the server returns the SOS it already saved.
   String? _clientRequestId;
@@ -226,6 +229,7 @@ class SosCubit extends Cubit<SosState> {
     sosId = null;
     expiresAt = null;
     outstandingBalance = 0;
+    highDemand = false;
     _clientRequestId = null;
     _awaitingCreateAck = false;
     emit(SosInitial());
@@ -245,13 +249,33 @@ class SosCubit extends Cubit<SosState> {
         : p.accuracy <= maxAccuracyMeters;
   }
 
+  void _applyHighDemand(Map<String, dynamic>? data) {
+    if (data == null) return;
+    if (data.containsKey('high_demand')) {
+      highDemand = data['high_demand'] == true;
+    }
+    final sos = data['active_sos'];
+    if (sos is Map && sos.containsKey('high_demand')) {
+      highDemand = sos['high_demand'] == true;
+    }
+  }
+
   void _applyCreated(Map<String, dynamic> data) {
     sosId = data['sos_id']?.toString();
     final balance = data['outstanding_balance'];
     if (balance is num) outstandingBalance = balance.toDouble();
+    _applyHighDemand(data);
     expiresAt = DateTime.now().add(
       const Duration(seconds: contactCountdownSeconds),
     );
+  }
+
+  @visibleForTesting
+  void applyCreatedForTest(Map<String, dynamic> data) {
+    _applyCreated(data);
+    if (!isClosed && sosId != null && sosId!.isNotEmpty) {
+      emit(SosCreated(sosId!, expiresAt: expiresAt));
+    }
   }
 
   DateTime? _parseExpiresAt(dynamic raw) {
@@ -642,6 +666,7 @@ class SosCubit extends Cubit<SosState> {
     try {
       final session = await SessionService.getCustomerSession();
       SosSupportContact.updateFrom(session);
+      _applyHighDemand(session);
       final balance = session['outstanding_balance'];
       if (balance is num) outstandingBalance = balance.toDouble();
       final sos = session['active_sos'];
@@ -677,6 +702,7 @@ class SosCubit extends Cubit<SosState> {
     try {
       final session = await SessionService.getCustomerSession();
       SosSupportContact.updateFrom(session);
+      _applyHighDemand(session);
       final sos = session['active_sos'];
       final fromSos = sos is Map ? sos['outstanding_balance'] : null;
       final fromSession = session['outstanding_balance'];

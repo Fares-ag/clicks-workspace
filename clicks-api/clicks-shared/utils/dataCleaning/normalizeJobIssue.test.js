@@ -76,7 +76,7 @@ describe("normalizeJobType", () => {
 });
 
 describe("applyCanonicalJobFields", () => {
-  it("writes high-confidence issue and vehicle on create", () => {
+  it("cleans vehicle and job type without replacing the issue text", () => {
     const doc = {
       issue: "tire repair",
       jobType: "Engines",
@@ -85,11 +85,21 @@ describe("applyCanonicalJobFields", () => {
       licensePlate: "١٢٣",
     };
     applyCanonicalJobFields(doc);
-    assert.equal(doc.issue, "Puncture repair");
+    assert.equal(doc.issue, "tire repair");
     assert.equal(doc.jobType, "Flat Tire");
     assert.equal(doc.vehicleMake, "Toyota");
     assert.equal(doc.vehicleModel, "Camry");
     assert.equal(doc.licensePlate, "123");
+  });
+
+  it("keeps a long dispatcher note that happens to mention a catalog issue", () => {
+    const doc = {
+      issue: "Customer waiting at Villaggio P1, puncture on front left",
+      jobType: "Engines",
+    };
+    applyCanonicalJobFields(doc);
+    assert.equal(doc.issue, "Customer waiting at Villaggio P1, puncture on front left");
+    assert.equal(doc.jobType, "Flat Tire");
   });
 
   it("leaves unknown issue text alone", () => {

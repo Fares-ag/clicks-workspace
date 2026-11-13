@@ -6,7 +6,6 @@ const THROTTLE_MS = Number(process.env.LOCATION_THROTTLE_MS || 3000);
 const HEARTBEAT_THROTTLE_MS = Number(
   process.env.LOCATION_HEARTBEAT_THROTTLE_MS || 10000
 );
-const SAME_COORD_TOLERANCE_M = 1;
 /** A client clock running fast must not be able to stamp itself fresh forever. */
 const MAX_FIX_FUTURE_SKEW_MS = 60000;
 
@@ -89,13 +88,6 @@ function isAccuracyAcceptable(accuracy) {
   if (!Number.isFinite(value)) return true;
   if (value <= 0) return false;
   return value <= MAX_ACCURACY_M;
-}
-
-function isSameCoords(aLat, aLng, bLat, bLng) {
-  return (
-    distanceBetween({ lat: aLat, lng: aLng }, { lat: bLat, lng: bLng }) <=
-    SAME_COORD_TOLERANCE_M
-  );
 }
 
 async function loadStateFromDb(Technician, technicianId) {
@@ -196,28 +188,42 @@ async function applyTechnicianLocationWrite({
     { lat, lng }
   );
 
-  if (isSameCoords(state.lat, state.lng, lat, lng)) {
+  // Anything short of a real move is a liveness beat: the pin stays where it
+  // is, but the app has proven it is alive and that must be recorded.
+  //
+  // This used to be two cases — "same point (<= 1 m)" was a heartbeat and
+  // "1–15 m" was dropped outright as jitter. The app replays its OWN last
+  // dispatched pin every 12 s, and that pin is re-seeded from a fresh GPS read
+  // whenever its location stream restarts (going Online, relaunch). A van that
+  // has not moved then reports a few metres from the stored point, forever
+  // inside the dropped band, so lastHeartbeatAt never advanced: a healthy
+  // parked technician read "disconnected" on the Live Map and was eligible for
+  // auto-Offline, until they drove 15 m.
+  if (movedMeters < MIN_MOVE_METERS) {
     if (now - state.lastHeartbeatAt < HEARTBEAT_THROTTLE_MS) {
-      return { ok: false, skipped: true, reason: "heartbeat_throttle", lat, lng };
+      return {
+        ok: false,
+        skipped: true,
+        reason: "heartbeat_throttle",
+        lat: state.lat,
+        lng: state.lng,
+      };
     }
     state.lastHeartbeatAt = now;
     await Technician.updateOne({ _id: id }, { lastLocationAt, lastHeartbeatAt });
+    // Broadcast the STORED pin, not the jittered reading, so the marker holds still.
     if (typeof onAdminBroadcast === "function") {
-      onAdminBroadcast(id, lat, lng, lastLocationAt, lastHeartbeatAt);
+      onAdminBroadcast(id, state.lat, state.lng, lastLocationAt, lastHeartbeatAt);
     }
     return {
       ok: true,
       coordsChanged: false,
       heartbeat: true,
-      lat,
-      lng,
+      lat: state.lat,
+      lng: state.lng,
       lastLocationAt,
       lastHeartbeatAt,
     };
-  }
-
-  if (movedMeters < MIN_MOVE_METERS) {
-    return { ok: false, skipped: true, reason: "min_move", lat, lng };
   }
 
   if (now - state.lastWriteAt < THROTTLE_MS) {

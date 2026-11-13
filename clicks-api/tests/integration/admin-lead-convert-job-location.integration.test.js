@@ -224,3 +224,123 @@ describe("Admin: convert lost leads", () => {
     expect(statuses).not.toContain("converted");
   });
 });
+
+describe("Admin: edit open leads before convert", () => {
+  async function seedOpenLead(source, overrides = {}) {
+    return Lead.create({
+      clientName: "Draft Lead",
+      clientMobileNumber: "+97450000401",
+      inquiry: "Wrong issue text",
+      location: "Old location",
+      vehicleMake: "Nissan",
+      source: source._id,
+      status: "new",
+      ...overrides,
+    });
+  }
+
+  test("PATCH /api/leads/:id updates details on a new lead", async () => {
+    const source = await seedSource("Edit open lead");
+    const lead = await seedOpenLead(source);
+    const token = adminToken("Super Admin");
+
+    const res = await request(adminApp)
+      .patch(`/api/leads/${lead._id}`)
+      .set(bearer(token))
+      .send({
+        clientName: "Corrected Name",
+        inquiry:
+          "Customer is waiting at the Corniche and described a rattling noise after hitting a speed bump",
+        location: `${NEW_LAT}, ${NEW_LNG}`,
+        vehicleMake: "Toyota",
+        vehicleModel: "Camry",
+        licensePlate: "123456",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.lead.clientName).toBe("Corrected Name");
+    expect(res.body.lead.inquiry).toMatch(/rattling noise after hitting a speed bump/i);
+    expect(res.body.lead.location).toBe(`${NEW_LAT}, ${NEW_LNG}`);
+    expect(res.body.lead.vehicleMake).toBe("Toyota");
+    expect(res.body.lead.vehicleModel).toBe("Camry");
+    expect(res.body.lead.licensePlate).toBe("123456");
+    expect(res.body.lead.status).toBe("new");
+  });
+
+  test("convert uses the edited lead fields on the job", async () => {
+    const source = await seedSource("Edit then convert");
+    const lead = await seedOpenLead(source);
+    const token = adminToken("Super Admin");
+
+    await request(adminApp)
+      .patch(`/api/leads/${lead._id}`)
+      .set(bearer(token))
+      .send({
+        clientName: "Fatima Ali",
+        inquiry:
+          "Customer called back. Battery is dead on the Corniche and they need a jump start now.",
+        location: `${NEW_LAT}, ${NEW_LNG}`,
+        vehicleMake: "Toyota",
+      });
+
+    const convert = await request(adminApp)
+      .post(`/api/leads/${lead._id}/convert`)
+      .set(bearer(token))
+      .send({
+        dateTime: new Date(Date.now() + 3600000).toISOString(),
+        jobType: "Jump Start",
+        price: 150,
+      });
+
+    expect(convert.status).toBe(201);
+    expect(convert.body.job.clientName).toBe("Fatima Ali");
+    expect(convert.body.job.vehicleMake).toBe("Toyota");
+    expect(String(convert.body.job.location)).toContain(String(NEW_LAT));
+  });
+
+  test("PATCH /api/leads/:id is rejected after convert", async () => {
+    const source = await seedSource("No edit converted");
+    const lead = await seedOpenLead(source, { status: "qualified" });
+    const token = adminToken("Super Admin");
+
+    const convert = await request(adminApp)
+      .post(`/api/leads/${lead._id}/convert`)
+      .set(bearer(token))
+      .send({
+        location: `${JOB_LAT}, ${JOB_LNG}`,
+        dateTime: new Date(Date.now() + 3600000).toISOString(),
+        jobType: "Flat Tire",
+        price: 120,
+        issue: "Converted, should lock",
+      });
+    expect(convert.status).toBe(201);
+
+    const res = await request(adminApp)
+      .patch(`/api/leads/${lead._id}`)
+      .set(bearer(token))
+      .send({ inquiry: "too late" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/converted/i);
+  });
+
+  test("a lost lead can still be edited before convert", async () => {
+    const source = await seedSource("Edit lost lead");
+    const lead = await seedOpenLead(source, {
+      status: "lost",
+      lost_reason: "no answer",
+    });
+    const token = adminToken("Super Admin");
+
+    const res = await request(adminApp)
+      .patch(`/api/leads/${lead._id}`)
+      .set(bearer(token))
+      .send({
+        clientMobileNumber: "+97450000499",
+        inquiry:
+          "Came back after no answer — vehicle is stuck on the Salwa Road shoulder",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.lead.inquiry).toMatch(/Salwa Road shoulder/i);
+    expect(res.body.lead.status).toBe("lost");
+  });
+});

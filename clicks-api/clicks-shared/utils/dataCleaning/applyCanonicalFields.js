@@ -3,12 +3,12 @@ const { normalizeJobIssue } = require("./normalizeJobIssue");
 const { normalizeJobType } = require("./normalizeJobType");
 const { normalizePlate } = require("./normalizePlate");
 
-const ISSUE_WRITE_MIN = 0.72;
 const VEHICLE_WRITE_MIN = 0.65;
 
 /**
  * Mutates a job/lead-like object so high-confidence canonical values are
- * written back. Leaves unmatched free text alone.
+ * written back. Free-text `issue` / inquiry is left alone — analytics maps it
+ * at read time. Job type, vehicle, and plate still get cleaned.
  */
 function applyCanonicalJobFields(doc, extraAliases = []) {
   if (!doc || typeof doc !== "object") return doc;
@@ -25,12 +25,6 @@ function applyCanonicalJobFields(doc, extraAliases = []) {
   }
 
   const issue = normalizeJobIssue(doc.issue, doc.jobType, extraAliases);
-  if (
-    issue.canonicalIssueId !== "unmapped" &&
-    issue.confidence >= ISSUE_WRITE_MIN
-  ) {
-    doc.issue = issue.canonicalIssueLabel;
-  }
 
   const type = normalizeJobType(doc.jobType, issue);
   if (type.canonicalJobType && (type.method === "exact" || type.method === "legacy" || type.method === "issueDerived")) {
@@ -47,6 +41,5 @@ function applyCanonicalJobFields(doc, extraAliases = []) {
 
 module.exports = {
   applyCanonicalJobFields,
-  ISSUE_WRITE_MIN,
   VEHICLE_WRITE_MIN,
 };

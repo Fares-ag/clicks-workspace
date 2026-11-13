@@ -11,6 +11,8 @@
     "send_sos": "Send SOS here",
     "still_connecting_title": "Still connecting you",
     "still_connecting_body": "Our team hasn't reached you yet. Tap to call us now — we're available 24/7.",
+    "high_demand_title": "High demand right now",
+    "high_demand_body": "We're connecting many requests. Stay on this screen — or tap to call us now.",
     "call_us_now": "Call us now",
     "outstanding_banner": "You have QAR {amount} outstanding from an earlier job. The technician can collect it.",
     "finding_technician_title": "Finding a technician",

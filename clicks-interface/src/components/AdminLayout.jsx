@@ -115,8 +115,12 @@ function AdminLayout() {
     const adminSocket = io(`${socketUrl}/admin`, {
       transports: ["websocket", "polling"],
       reconnection: true,
-      reconnectionAttempts: 10,
+      // Never give up. Ten attempts ran out in under a minute, so an outage
+      // longer than that (a slow deploy) left the dashboard permanently
+      // without SOS alerts or map updates until someone reloaded the page.
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
       auth: { token },
     });
 

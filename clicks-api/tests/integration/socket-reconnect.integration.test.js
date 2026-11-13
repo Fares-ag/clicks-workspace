@@ -385,3 +385,138 @@ describe("technician location is scoped to Live Map watchers", () => {
     await bystanderQuiet;
   });
 });
+
+describe("an Online technician always reaches the Live Map", () => {
+  const TWELVE_HOURS_AGO = () => new Date(Date.now() - 12 * 60 * 60 * 1000);
+
+  test("a parked technician a few metres from the stored pin still checks in", async () => {
+    // Where the van was left at the end of the last shift.
+    const tech = await seedTechnician({
+      currentLocation: { type: "Point", coordinates: [JOB_LNG, JOB_LAT] },
+      lastLocationAt: TWELVE_HOURS_AGO(),
+      lastHeartbeatAt: TWELVE_HOURS_AGO(),
+    });
+    await seedAdmin();
+
+    const watcher = await connectAndRegister({
+      namespace: "/admin",
+      token: adminToken("Super Admin"),
+    });
+    const techSocket = await connectAndRegister({
+      namespace: "/technician",
+      token: technicianToken(tech._id),
+    });
+
+    // First fix of the new shift: ~5.5 m off the stored point (GPS noise).
+    // This used to be dropped as jitter, every 12 s, until the van drove 15 m.
+    const fixTime = new Date().toISOString();
+    const seen = [];
+    watcher.on("technicianLocationBatch", ({ updates }) => seen.push(...(updates || [])));
+    techSocket.emit("updateLocation", {
+      latitude: JOB_LAT + 0.00005,
+      longitude: JOB_LNG,
+      accuracy: 8,
+      fix_time: fixTime,
+    });
+
+    // The GPS time only moves when the technician's own update is accepted
+    // (the socket-register refresh stamps the heartbeat alone).
+    const deadline = Date.now() + 8000;
+    let fresh;
+    while (Date.now() < deadline) {
+      fresh = await Technician.findById(tech._id).lean();
+      if (new Date(fresh.lastLocationAt).toISOString() === fixTime) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(new Date(fresh.lastLocationAt).toISOString()).toBe(fixTime);
+    expect(Date.now() - new Date(fresh.lastHeartbeatAt).getTime()).toBeLessThan(10000);
+    // The pin itself has not moved.
+    expect(fresh.currentLocation.coordinates).toEqual([JOB_LNG, JOB_LAT]);
+
+    // ...and the admin is told, with the stored coordinates.
+    const waitUntil = Date.now() + 6000;
+    while (
+      Date.now() < waitUntil &&
+      !seen.some((u) => u.lastLocationAt === fixTime)
+    ) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const delivered = seen.find((u) => u.lastLocationAt === fixTime);
+    expect(delivered).toBeTruthy();
+    expect(delivered.latitude).toBe(JOB_LAT);
+    expect(delivered.presenceStale).toBe(false);
+  });
+
+  test("going Online stamps the heartbeat, so the shift does not start as disconnected", async () => {
+    const request = require("supertest");
+    const tech = await seedTechnician({
+      currentStatus: "Offline",
+      currentLocation: { type: "Point", coordinates: [JOB_LNG, JOB_LAT] },
+      lastLocationAt: TWELVE_HOURS_AGO(),
+      lastHeartbeatAt: TWELVE_HOURS_AGO(),
+    });
+    await seedAdmin();
+    const watcher = await connectAndRegister({
+      namespace: "/admin",
+      token: adminToken("Super Admin"),
+    });
+    const announced = waitForEvent(watcher, "technicianOnline", 8000);
+
+    const res = await request(server)
+      .patch("/api/technicians/status")
+      .set("Authorization", `Bearer ${technicianToken(tech._id)}`)
+      .send({ status: "Online" });
+    expect(res.status).toBe(200);
+
+    const payload = await announced;
+    expect(payload.technician_id).toBe(String(tech._id));
+    expect(payload.presenceStale).toBe(false);
+
+    const fresh = await Technician.findById(tech._id).lean();
+    expect(Date.now() - new Date(fresh.lastHeartbeatAt).getTime()).toBeLessThan(10000);
+    // The GPS time is untouched: no position was measured.
+    expect(Date.now() - new Date(fresh.lastLocationAt).getTime()).toBeGreaterThan(60 * 60 * 1000);
+  });
+
+  test("an admin who reconnects must rejoin the feed; once it does, events resume", async () => {
+    const tech = await seedTechnician({
+      currentLocation: { type: "Point", coordinates: [JOB_LNG, JOB_LAT] },
+    });
+    await seedAdmin();
+    const watcher = await connectAndRegister({
+      namespace: "/admin",
+      token: adminToken("Super Admin"),
+    });
+    const techSocket = await connectAndRegister({
+      namespace: "/technician",
+      token: technicianToken(tech._id),
+    });
+
+    // Drop and re-establish the admin connection (deploy, network blip, sleep).
+    watcher.disconnect();
+    const reconnected = waitForEvent(watcher, "connect", 8000);
+    watcher.connect();
+    await reconnected;
+    watcher.emit("register");
+    await new Promise((r) => setTimeout(r, 2500)); // let any pending batch drain
+
+    // Rooms belong to the old connection. Without a fresh join: silence.
+    const silent = expectNoEvent(watcher, "technicianLocationBatch", 4000);
+    techSocket.emit("updateLocation", {
+      latitude: JOB_LAT + 0.002,
+      longitude: JOB_LNG + 0.002,
+    });
+    await silent;
+
+    // What the Live Map now does on every connect.
+    watcher.emit("joinLiveMap");
+    await new Promise((r) => setTimeout(r, 100));
+    const resumed = waitForAdminLocation(watcher, 10000);
+    techSocket.emit("updateLocation", {
+      latitude: JOB_LAT + 0.004,
+      longitude: JOB_LNG + 0.004,
+    });
+    const update = await resumed;
+    expect(update.technician_id).toBe(String(tech._id));
+  });
+});

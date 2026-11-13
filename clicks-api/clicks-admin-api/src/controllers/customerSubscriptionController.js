@@ -1,10 +1,17 @@
 const mongoose = require("mongoose");
 const {
+  Customer,
   CustomerSubscription,
   CustomerVehicle,
   SubscriptionPlan,
   Refund,
 } = require("../../../clicks-shared/models");
+const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
+const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
+const {
+  digitsOnly,
+  buildPrefixSearchFilter,
+} = require("../../../clicks-shared/utils/searchFields");
 const { findInterval, addMonths } = require("../../../clicks-shared/services/membershipPlans");
 const {
   pushHistory,
@@ -98,22 +105,47 @@ async function respondWith(res, sub, extra = {}) {
 
 async function listSubscriptions(req, res) {
   try {
-    const { page = 1, limit = 50, search = "", status, interval } = req.query;
+    const { page = 1, limit = 50, search = "", status, interval, customer_id } = req.query;
+    const limitNum = capAdminLimit(limit, 50, 100);
     const match = {};
     if (status) match.status = status;
     if (interval === "month" || interval === "year") match.interval = interval;
-    if (search) {
+    if (customer_id) {
+      if (!mongoose.isValidObjectId(customer_id)) {
+        return res.status(400).json({ message: "Invalid customer_id" });
+      }
+      match.customer_id = customer_id;
+    }
+    const term = String(search || "").trim().slice(0, 64);
+    if (term) {
+      const rx = new RegExp(escapeRegex(term), "i");
+      const digits = digitsOnly(term);
+      const customerQuery =
+        digits.length >= 4
+          ? { search_phone: new RegExp(`^${escapeRegex(digits)}`) }
+          : buildPrefixSearchFilter(term, {
+              phoneField: "search_phone",
+              nameField: "search_name",
+            }) || {
+              $or: [{ first_name: rx }, { last_name: rx }, { phone_number: rx }],
+            };
+      const [customers, vehicles] = await Promise.all([
+        Customer.find(customerQuery).select("_id").limit(50).lean(),
+        CustomerVehicle.find({ plate_number: rx }).select("_id").limit(50).lean(),
+      ]);
       match.$or = [
-        { planName: { $regex: search, $options: "i" } },
-        { planCode: { $regex: search, $options: "i" } },
+        { planName: rx },
+        { planCode: rx },
+        { customer_id: { $in: customers.map((c) => c._id) } },
+        { customer_vehicle_id: { $in: vehicles.map((v) => v._id) } },
       ];
     }
-    const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
+    const skip = (Math.max(1, Number(page)) - 1) * limitNum;
     const [rows, total] = await Promise.all([
       CustomerSubscription.find(match)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit))
+        .limit(limitNum)
         .populate("customer_id", "first_name last_name phone_number")
         .populate("customer_vehicle_id", "plate_number"),
       CustomerSubscription.countDocuments(match),
@@ -122,7 +154,7 @@ async function listSubscriptions(req, res) {
       subscriptions: rows.map(serialize),
       total,
       page: Number(page),
-      limit: Number(limit),
+      limit: limitNum,
     });
   } catch (err) {
     res.status(500).json({

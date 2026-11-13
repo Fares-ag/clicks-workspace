@@ -196,7 +196,19 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        if (canConvert)
+        if (canConvert) ...[
+          PrimaryButton(
+            label: 'Edit lead',
+            outlined: true,
+            loading: _working,
+            onPressed: () async {
+              await Navigator.of(context).pushNamed(
+                Routes.leadEditPath(widget.leadId),
+              );
+              if (mounted) _load();
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
           PrimaryButton(
             label: status == 'lost' ? 'Convert to job (reopen)' : 'Convert to job',
             loading: _working,
@@ -204,6 +216,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
               Routes.leadConvertPath(widget.leadId),
             ),
           ),
+        ],
         if (status == 'new') ...[
           const SizedBox(height: AppSpacing.sm),
           PrimaryButton(

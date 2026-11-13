@@ -4,8 +4,8 @@
  * Technician documents in Atlas carry a huge unused `performance.earningsData`
  * array. Reading even 8 of them takes ~8s, so we:
  *   1. unset that array once per process
- *   2. keep the slim roster in process memory (hours, not seconds)
- * Stale-while-revalidate never blocks a request on a Mongo reread.
+ *   2. keep the slim roster in process memory (~10 min)
+ * Expired roster data is refreshed before serving lists; toggle-active warms cache after writes.
  */
 const Technician = require("../models/Technician");
 const Source = require("../models/Source");
@@ -30,6 +30,8 @@ const TECH_PROJECTION = {
 let techRoster = null;
 let techRosterAt = 0;
 let techRosterLoading = null;
+/** Bumped on invalidate so an in-flight roster load cannot overwrite a fresh write. */
+let techRosterGeneration = 0;
 let sourceRoster = null;
 let sourceRosterAt = 0;
 let sourceRosterLoading = null;
@@ -89,11 +91,15 @@ async function shrinkTechnicianDocuments() {
 }
 
 async function loadTechnicianRoster() {
+  const gen = techRosterGeneration;
   const started = Date.now();
   await shrinkTechnicianDocuments();
   const technicians = await Technician.collection
     .find({}, { projection: TECH_PROJECTION })
     .toArray();
+  if (gen !== techRosterGeneration) {
+    return techRoster ?? technicians.map(mapTech);
+  }
   console.log(
     JSON.stringify({
       msg: "tech_roster_load",
@@ -118,23 +124,17 @@ async function getSlimTechnicianRoster() {
   if (techRoster && Date.now() - techRosterAt < TECH_ROSTER_MAX_AGE_MS) {
     return techRoster;
   }
-  if (techRoster) {
-    refreshTechnicianRoster().catch((err) => {
-      console.error(
-        JSON.stringify({
-          msg: "tech_roster_refresh_failed",
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
-    });
-    return techRoster;
-  }
+  // Never serve an expired roster while a refresh runs in the background —
+  // that returned stale isActive and made reactivation look like it failed
+  // after a page refresh.
   return refreshTechnicianRoster();
 }
 
 function invalidateTechnicianRoster() {
+  techRosterGeneration += 1;
   techRoster = null;
   techRosterAt = 0;
+  techRosterLoading = null;
 }
 
 function technicianRosterMap(roster) {
@@ -191,6 +191,7 @@ module.exports = {
   sourceRosterMap,
   warmAdminLookups,
   invalidateTechnicianRoster,
+  refreshTechnicianRoster,
   shrinkTechnicianDocuments,
   toId,
 };

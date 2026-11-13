@@ -1,6 +1,8 @@
 /**
- * Upsert Basic + Plus membership plans (monthly and yearly SKUs).
- * Usage: node scripts/seed-membership-plans.js
+ * Create the Basic + Plus membership plans if they do not exist yet.
+ * Existing plans are left as edited in the admin.
+ * Usage: node scripts/seed-membership-plans.js [--overwrite]
+ *   --overwrite  reset Basic and Plus to the code defaults (undoes admin edits)
  */
 const fs = require("fs");
 const path = require("path");
@@ -23,7 +25,9 @@ async function main() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI missing");
   await mongoose.connect(uri);
-  const plans = await seedMembershipPlans(SubscriptionPlan);
+  const plans = await seedMembershipPlans(SubscriptionPlan, {
+    overwrite: process.argv.includes("--overwrite"),
+  });
   for (const plan of plans) {
     console.log(
       `✓ ${plan.code} — ${plan.intervals

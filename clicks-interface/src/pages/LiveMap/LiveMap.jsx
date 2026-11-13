@@ -11,13 +11,14 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAdminSocket } from "../../context/AdminSocketContext.jsx";
 import {
   REST_POLL_MS,
+  REST_RESYNC_MS,
   countVisibleStaleTechnicians,
   formatLastSeen,
   formatPresenceLabel,
   isSocketOnlyPreserved,
   isTechGpsStale,
   isTechPresenceStale,
-  mergeApiTechnicianWithSocketState,
+  mergeLiveMapSnapshot,
 } from "./liveMapUtils.js";
 import {
   GOOGLE_MAPS_API_KEY,
@@ -26,6 +27,8 @@ import {
 import "./LiveMap.css";
 
 const SOCKET_DOWN_POLL_MS = 10000;
+/** Floor between on-demand REST re-reads, so a burst of triggers costs one request. */
+const RESYNC_MIN_GAP_MS = 5000;
 
 // Same van marker as technician app (`assets/images/map_icon.png`).
 const CAR_ICON = {
@@ -217,7 +220,10 @@ function LiveMap() {
     socketDownSince != null &&
     Date.now() - socketDownSince >= SOCKET_DOWN_POLL_MS;
 
-  // REST snapshot on mount; poll only when the shared admin socket has been down 10s+.
+  // The socket is the real-time feed; REST keeps it honest. It is re-read on
+  // every mount, every REST_RESYNC_MS while the socket is up, and every
+  // REST_POLL_MS once the socket has been down 10s+. It used to be read once,
+  // on mount, so anything the socket missed stayed wrong until a page reload.
   const {
     data: liveMapData,
     isLoading,
@@ -225,8 +231,28 @@ function LiveMap() {
     isFetching,
     refetch,
   } = useGetLiveMapTechniciansQuery(undefined, {
-    pollingInterval: restPollFallback && pageVisible ? REST_POLL_MS : 0,
+    pollingInterval: !pageVisible ? 0 : restPollFallback ? REST_POLL_MS : REST_RESYNC_MS,
+    refetchOnMountOrArgChange: true,
   });
+
+  const refetchRef = useRef(refetch);
+  useEffect(() => {
+    refetchRef.current = refetch;
+  }, [refetch]);
+
+  /** Re-read REST now (reconnect, tab shown again, event for an unknown technician). */
+  const lastResyncAtRef = useRef(0);
+  const requestResync = useCallback(() => {
+    const now = Date.now();
+    if (now - lastResyncAtRef.current < RESYNC_MIN_GAP_MS) return;
+    lastResyncAtRef.current = now;
+    refetchRef.current?.();
+  }, []);
+
+  /** id -> ms when we were told a technician went Offline (see mergeLiveMapSnapshot). */
+  const recentlyOfflineRef = useRef(new Map());
+  /** Ids currently in state, readable from socket handlers without a re-subscribe. */
+  const knownIdsRef = useRef(new Set());
 
   // ==================== GOOGLE MAPS LOADER ====================
   const mapsKeyMissing = !GOOGLE_MAPS_API_KEY.trim();
@@ -236,24 +262,20 @@ function LiveMap() {
   useEffect(() => {
     if (!liveMapData?.technicians) return;
     setTechnicians((prev) => {
-      const prevById = new Map(prev.map((t) => [String(t._id), t]));
-      const apiIds = new Set();
-
-      const mergedFromApi = liveMapData.technicians.map((t) => {
-        const id = String(t._id);
-        apiIds.add(id);
-        return mergeApiTechnicianWithSocketState(t, prevById.get(id));
-      });
-
-      // Union: keep socket-only techs until REST catches up (≤2 poll windows).
-      const socketOnly = prev.filter((t) => isSocketOnlyPreserved(t, apiIds));
-
+      const { technicians: next, apiIds } = mergeLiveMapSnapshot(
+        liveMapData.technicians,
+        prev,
+        recentlyOfflineRef.current
+      );
       apiIdsRef.current = apiIds;
       sawRestRef.current = true;
-
-      return [...mergedFromApi, ...socketOnly];
+      return next;
     });
   }, [liveMapData]);
+
+  useEffect(() => {
+    knownIdsRef.current = new Set(technicians.map((t) => String(t._id)));
+  }, [technicians]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -263,6 +285,10 @@ function LiveMap() {
       // reference — an idle fleet, or a REST outage — and it used to be the
       // only place pruning ran, so a ghost could outlive its window forever.
       if (!sawRestRef.current) return;
+      // A hidden tab does not apply socket patches (they wait for the next
+      // frame), so presence stamps stop advancing while this timer keeps
+      // firing. Pruning then would drop technicians who are in fact live.
+      if (document.visibilityState !== "visible") return;
       setTechnicians((prev) => {
         const next = prev.filter(
           (t) =>
@@ -283,6 +309,17 @@ function LiveMap() {
     const pending = pendingLocationPatchesRef.current;
     if (pending.size === 0) return;
     pendingLocationPatchesRef.current = new Map();
+    // A location for a technician we do not have means our list is behind
+    // (they came Online while an event was missed). The patch alone carries no
+    // name or status, so it cannot add them — but it must not be dropped in
+    // silence either, which is how a live technician stayed off the map until
+    // a reload. Ask REST for the full row.
+    for (const id of pending.keys()) {
+      if (!knownIdsRef.current.has(id)) {
+        requestResync();
+        break;
+      }
+    }
     setTechnicians((prev) => {
       const indexById = new Map(prev.map((t, i) => [String(t._id), i]));
       let next = prev;
@@ -294,7 +331,18 @@ function LiveMap() {
       }
       return next;
     });
-  }, []);
+  }, [requestResync]);
+
+  // Coming back to the tab: apply what queued up while hidden and re-read REST,
+  // since polling was paused the whole time.
+  const wasVisibleRef = useRef(pageVisible);
+  useEffect(() => {
+    if (pageVisible && !wasVisibleRef.current) {
+      flushLocationPatches();
+      requestResync();
+    }
+    wasVisibleRef.current = pageVisible;
+  }, [pageVisible, flushLocationPatches, requestResync]);
 
   const queueLocationPatch = useCallback(
     (data) => {
@@ -325,6 +373,19 @@ function LiveMap() {
   useEffect(() => {
     if (!socket) return undefined;
 
+    // The location feed goes only to connections that asked for it, and the
+    // server forgets that on every reconnect: a reconnected socket is a new
+    // connection in no room. Joining once per mount left the map connected but
+    // deaf after any deploy, network blip or laptop sleep — header "Connected",
+    // every technician ageing to "disconnected" — until the page was reloaded.
+    // Join on every connect, and re-read REST for whatever was missed meanwhile.
+    const onConnect = () => {
+      socket.emit("joinLiveMap");
+      requestResync();
+    };
+    socket.on("connect", onConnect);
+    // Covers the socket that is already up; if it is still connecting, the
+    // client buffers this and onConnect repeats it (joining twice is harmless).
     socket.emit("joinLiveMap");
 
     const onLocationBatch = (payload) => {
@@ -367,7 +428,11 @@ function LiveMap() {
       const status = data.currentStatus || "Online";
       // Ignore Offline presence events here — handled by technicianOffline
       if (!["Online", "On Job"].includes(status)) return;
-      const presenceAt = data.lastLocationAt || new Date().toISOString();
+      // Arrival time, like location patches. This used the payload's GPS time,
+      // which for a technician starting a shift is hours old — they were added
+      // already past the socket-only grace window and pruned seconds later.
+      const presenceAt = new Date().toISOString();
+      recentlyOfflineRef.current.delete(id);
       setTechnicians((prev) => {
         const exists = prev.find((t) => String(t._id) === id);
         if (exists) {
@@ -401,6 +466,8 @@ function LiveMap() {
 
     const onTechnicianOffline = (data) => {
       const id = String(data.technician_id);
+      // Remember it, so a REST snapshot already on its way cannot put them back.
+      recentlyOfflineRef.current.set(id, Date.now());
       setTechnicians((prev) => prev.filter((t) => String(t._id) !== id));
       setSelectedTechId((prev) => (prev === id ? null : prev));
     };
@@ -412,6 +479,9 @@ function LiveMap() {
     socket.on("technicianOffline", onTechnicianOffline);
 
     return () => {
+      socket.off("connect", onConnect);
+      // Stop receiving the fleet feed on every other admin page.
+      socket.emit("leaveLiveMap");
       socket.off("technicianLocationBatch", onLocationBatch);
       socket.off("technicianLocationUpdate", onLocationUpdate);
       socket.off("technicianLocationStale", onLocationStale);
@@ -422,7 +492,7 @@ function LiveMap() {
         locationFlushRafRef.current = 0;
       }
     };
-  }, [socket, queueLocationPatch]);
+  }, [socket, queueLocationPatch, requestResync]);
 
   // ==================== CLOSE PANEL ON OUTSIDE CLICK ====================
   useEffect(() => {

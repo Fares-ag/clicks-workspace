@@ -5,6 +5,7 @@ const { requireOps, requireFullAdmin } = require("../middleware/rbac");
 const sosController = require("../controllers/sosController");
 
 router.get("/", authenticateToken, requireOps, sosController.getSOSRequests);
+router.post("/claim-next", authenticateToken, requireOps, sosController.claimNextSOS);
 router.get("/:id", authenticateToken, requireOps, sosController.getSOSById);
 router.post("/:id/claim", authenticateToken, requireOps, sosController.claimSOS);
 // Supervisor take-over of a claim held by an absent dispatcher (scenario 39).

@@ -1,0 +1,389 @@
+/* Membership package editor and memberships. Builds on pay-* in Payments.css. */
+
+.confirmation-modal.pay-modal.mp-modal {
+  box-sizing: border-box;
+  width: min(720px, calc(100vw - 32px)) !important;
+  max-width: min(720px, calc(100vw - 32px)) !important;
+  min-width: 0 !important;
+  max-height: min(880px, calc(100vh - 32px));
+  padding: 0 !important;
+  overflow: hidden;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-direction: column;
+}
+
+.mp-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 24px 24px 12px;
+}
+
+.mp-modal-head .confirmation-modal-close {
+  position: static;
+  flex-shrink: 0;
+  margin: -4px -8px 0 0;
+}
+
+.mp-modal .confirmation-modal-title {
+  text-align: left;
+  max-width: none;
+  font-size: 22px;
+  margin-top: 0;
+  line-height: 1.3;
+}
+
+.mp-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 24px 20px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mp-modal .pay-modal-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.mp-modal-foot {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px 24px 24px;
+  border-top: 1px solid #e4e7ec;
+  box-sizing: border-box;
+}
+
+.mp-modal-foot .confirmation-modal-cancel,
+.mp-modal-foot .confirmation-modal-confirm {
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.mp-section {
+  margin: 20px 0 10px;
+  padding-top: 16px;
+  border-top: 1px solid #e4e7ec;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #667085;
+}
+
+.mp-modal-body > .mp-section:first-of-type {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.mp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: start;
+}
+
+.mp-field-narrow {
+  max-width: 280px;
+}
+
+.mp-modal input[type="checkbox"] {
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  height: 16px !important;
+}
+
+.mp-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.mp-switch input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.mp-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.mp-service {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  background: #fff;
+  white-space: nowrap;
+}
+
+.mp-service.on {
+  border-color: #175cd3;
+  background: #eff8ff;
+}
+
+.mp-service input {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.mp-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #b54708;
+  background: #fff6ed;
+  border: 1px solid #fdc7a0;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.mp-billing {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin-bottom: 12px;
+}
+
+.mp-billing.off {
+  background: #f9fafb;
+}
+
+.mp-included-head {
+  margin-top: 16px;
+}
+
+.mp-included-head .pay-hint {
+  margin-top: 2px;
+}
+
+.mp-included {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  min-width: 0;
+}
+
+.mp-included-top {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 4px;
+}
+
+.mp-included-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.mp-modal .pay-hint,
+.mp-modal .pay-field-hint {
+  overflow-wrap: break-word;
+}
+
+.mp-included-qty input {
+  width: 100%;
+}
+
+.mp-text-btn {
+  width: auto !important;
+  max-width: none !important;
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  color: #667085;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.mp-text-btn:hover {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.mp-add {
+  align-self: flex-start;
+  margin-top: 10px;
+  white-space: nowrap;
+}
+
+.mp-errors {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.mp-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.mp-vehicle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.mp-vehicle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.mp-vehicle.on {
+  border-color: #175cd3;
+  background: #eff8ff;
+}
+
+.mp-action-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4e7ec;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mp-client-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.mp-client-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-client-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.mp-client-row:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.mp-client-status {
+  align-items: flex-end;
+}
+
+.mp-client-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mp-client-history-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+@media (max-width: 900px) {
+  .confirmation-modal.pay-modal.mp-modal {
+    width: min(720px, calc(100vw - 32px)) !important;
+    max-width: min(720px, calc(100vw - 32px)) !important;
+    padding: 0 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .mp-grid,
+  .mp-included-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mp-field-narrow {
+    max-width: none;
+  }
+
+  .mp-modal-head,
+  .mp-modal-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .mp-modal-foot {
+    padding: 12px 16px 16px;
+  }
+
+  .mp-modal-foot .confirmation-modal-cancel,
+  .mp-modal-foot .confirmation-modal-confirm {
+    font-size: 14px;
+    height: 44px;
+  }
+
+  .mp-client-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

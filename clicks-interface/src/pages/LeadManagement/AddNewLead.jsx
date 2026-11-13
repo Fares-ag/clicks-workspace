@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useCreateLeadMutation } from "../../store/leadApi";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
+import {
+  useCreateLeadMutation,
+  useGetLeadByIdQuery,
+  useUpdateLeadMutation,
+} from "../../store/leadApi";
 import { useGetSourcesQuery } from "../../store/sourceApi";
 import { useGetVehicleMakesQuery, useGetVehicleModelsByMakeQuery } from "../../store/vehicleConfigApi";
 import CustomSelect from "../../components/CustomSelect.jsx";
 import PhoneInput from "../../components/PhoneInput.jsx";
+import { JOB_TYPE_OPTIONS } from "../../constants/jobTypes";
 import {
   DEFAULT_COUNTRY_CODE,
+  countryCodeFromPhone,
   isValidLocalPhone,
   localLengthHint,
   toE164,
@@ -17,6 +23,8 @@ import "../JobManagement/AddNewJob.css";
 function AddNewLead() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { id: leadId } = useParams();
+  const isEdit = Boolean(leadId);
   const serviceRequestData = location.state?.serviceRequestData;
 
   const [formData, setFormData] = useState({
@@ -42,7 +50,13 @@ function AddNewLead() {
     service_request_id: "",
   });
   const [phoneError, setPhoneError] = useState("");
-  const [createLead, { isLoading }] = useCreateLeadMutation();
+  const [createLead, { isLoading: creating }] = useCreateLeadMutation();
+  const [updateLead, { isLoading: updating }] = useUpdateLeadMutation();
+  const isSaving = creating || updating;
+  const { data: leadData, isLoading: leadLoading } = useGetLeadByIdQuery(leadId, {
+    skip: !isEdit,
+  });
+  const lead = leadData?.lead;
   const { data: sourcesData } = useGetSourcesQuery();
   const { data: vehicleMakesData } = useGetVehicleMakesQuery();
 
@@ -104,6 +118,45 @@ function AddNewLead() {
     }));
   }, [serviceRequestData, sources]);
 
+  useEffect(() => {
+    if (!lead) return;
+    const sourceId =
+      typeof lead.source === "object" ? lead.source._id : lead.source || "";
+    const countryCode = countryCodeFromPhone(
+      lead.clientMobileNumber,
+      DEFAULT_COUNTRY_CODE
+    );
+    const scheduled = lead.preferredDateTime
+      ? new Date(lead.preferredDateTime)
+      : null;
+    setFormData({
+      clientName: lead.clientName || "",
+      countryCode,
+      clientMobileNumber: toLocalDigits(lead.clientMobileNumber || "", countryCode),
+      clientEmail: lead.clientEmail || "",
+      inquiry: lead.inquiry || "",
+      internalNotes: lead.internalNotes || "",
+      serviceType: lead.serviceType || "",
+      timing: lead.timing || "",
+      preferredDateTime:
+        scheduled && !Number.isNaN(scheduled.getTime())
+          ? scheduled.toISOString().slice(0, 16)
+          : "",
+      location: lead.location || "",
+      vehicleMake: lead.vehicleMake || "",
+      vehicleModel: lead.vehicleModel || "",
+      vehicleYear: lead.vehicleYear != null ? String(lead.vehicleYear) : "",
+      licensePlate: lead.licensePlate || "",
+      vinNumber: lead.vinNumber || "",
+      source: sourceId,
+      subSource: lead.subSource || "",
+      customer_id: lead.customer_id || "",
+      customer_vehicle_id: lead.customer_vehicle_id || "",
+      service_request_id: lead.service_request_id || "",
+    });
+    setPhoneError("");
+  }, [lead]);
+
   const handlePhoneChange = (localDigits) => {
     setFormData((prev) => ({ ...prev, clientMobileNumber: localDigits }));
     const cc = formData.countryCode || DEFAULT_COUNTRY_CODE;
@@ -134,38 +187,69 @@ function AddNewLead() {
       return;
     }
 
+    const payload = {
+      clientName: formData.clientName,
+      clientMobileNumber: toE164(
+        formData.clientMobileNumber,
+        formData.countryCode
+      ),
+      clientEmail: formData.clientEmail,
+      inquiry: formData.inquiry.trim(),
+      internalNotes: formData.internalNotes,
+      serviceType: formData.serviceType,
+      timing: formData.timing || undefined,
+      preferredDateTime: formData.preferredDateTime || null,
+      location: formData.location,
+      vehicleMake: formData.vehicleMake,
+      vehicleModel: formData.vehicleModel,
+      vehicleYear: formData.vehicleYear
+        ? Number(formData.vehicleYear)
+        : undefined,
+      licensePlate: formData.licensePlate,
+      vinNumber: formData.vinNumber,
+      source: formData.source,
+      subSource: formData.subSource,
+    };
+
     try {
+      if (isEdit) {
+        await updateLead({ id: leadId, ...payload }).unwrap();
+        navigate(`/leads/${leadId}`, {
+          state: { successMessage: "Lead updated" },
+        });
+        return;
+      }
       await createLead({
-        clientName: formData.clientName,
-        clientMobileNumber: toE164(
-          formData.clientMobileNumber,
-          formData.countryCode
-        ),
-        clientEmail: formData.clientEmail,
-        inquiry: formData.inquiry.trim(),
-        internalNotes: formData.internalNotes,
-        serviceType: formData.serviceType,
-        timing: formData.timing || undefined,
-        preferredDateTime: formData.preferredDateTime || null,
-        location: formData.location,
-        vehicleMake: formData.vehicleMake,
-        vehicleModel: formData.vehicleModel,
-        vehicleYear: formData.vehicleYear
-          ? Number(formData.vehicleYear)
-          : undefined,
-        licensePlate: formData.licensePlate,
-        vinNumber: formData.vinNumber,
-        source: formData.source,
-        subSource: formData.subSource,
+        ...payload,
         customer_id: formData.customer_id || undefined,
         customer_vehicle_id: formData.customer_vehicle_id || undefined,
         service_request_id: formData.service_request_id || undefined,
       }).unwrap();
       navigate("/leads", { state: { successMessage: "Lead created successfully" } });
     } catch (error) {
-      alert(error?.data?.message || "Failed to create lead");
+      alert(error?.data?.message || (isEdit ? "Failed to update lead" : "Failed to create lead"));
     }
   };
+
+  const lockContactFromSr = Boolean(serviceRequestData) && !isEdit;
+  const backTo = isEdit ? `/leads/${leadId}` : "/leads";
+
+  if (isEdit && leadLoading) {
+    return <div className="add-new-job-container">Loading lead…</div>;
+  }
+  if (isEdit && !lead) {
+    return <div className="add-new-job-container">Lead not found</div>;
+  }
+  if (isEdit && lead.status === "converted") {
+    return (
+      <div className="add-new-job-container">
+        <p>This lead is already a job and cannot be edited.</p>
+        <button type="button" onClick={() => navigate(`/leads/${leadId}`)}>
+          Back to lead
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="add-new-job-container">
@@ -173,11 +257,11 @@ function AddNewLead() {
         <button
           type="button"
           className="add-new-job-back"
-          onClick={() => navigate("/leads")}
+          onClick={() => navigate(backTo)}
         >
           <img src="/icons/long-arrow-left.svg" alt="Back" />
         </button>
-        <h1 className="add-new-job-title">Add New Lead</h1>
+        <h1 className="add-new-job-title">{isEdit ? "Edit Lead" : "Add New Lead"}</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="add-new-job-form">
@@ -193,7 +277,7 @@ function AddNewLead() {
                   value={formData.clientName}
                   onChange={handleInputChange}
                   required
-                  disabled={!!serviceRequestData}
+                  disabled={lockContactFromSr}
                 />
               </div>
               <div className="add-new-job-field">
@@ -212,7 +296,7 @@ function AddNewLead() {
                       ),
                     }))
                   }
-                  disabled={!!serviceRequestData}
+                  disabled={lockContactFromSr}
                   required
                   error={!!phoneError}
                 />
@@ -291,6 +375,21 @@ function AddNewLead() {
             </div>
             <div className="add-new-job-row">
               <div className="add-new-job-field">
+                <label>Service type</label>
+                <CustomSelect
+                  value={formData.serviceType}
+                  onChange={(value) =>
+                    setFormData((prev) => ({ ...prev, serviceType: value }))
+                  }
+                  options={JOB_TYPE_OPTIONS.map(({ value, label }) => ({
+                    value,
+                    label,
+                  }))}
+                  placeholder="Select service type"
+                  searchable
+                />
+              </div>
+              <div className="add-new-job-field">
                 <label>Internal notes</label>
                 <textarea
                   name="internalNotes"
@@ -349,16 +448,25 @@ function AddNewLead() {
                   onChange={handleInputChange}
                 />
               </div>
+              <div className="add-new-job-field">
+                <label>Plate</label>
+                <input
+                  type="text"
+                  name="licensePlate"
+                  value={formData.licensePlate}
+                  onChange={handleInputChange}
+                />
+              </div>
             </div>
           </div>
         </div>
 
         <div className="add-new-job-actions">
-          <button type="button" className="add-new-job-cancel" onClick={() => navigate("/leads")}>
+          <button type="button" className="add-new-job-cancel" onClick={() => navigate(backTo)}>
             Cancel
           </button>
-          <button type="submit" className="add-new-job-submit" disabled={isLoading}>
-            {isLoading ? "Saving…" : "Create Lead"}
+          <button type="submit" className="add-new-job-submit" disabled={isSaving}>
+            {isSaving ? "Saving…" : isEdit ? "Save changes" : "Create Lead"}
           </button>
         </div>
       </form>

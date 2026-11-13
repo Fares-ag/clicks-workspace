@@ -13,8 +13,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 
 class AddLeadScreen extends StatefulWidget {
-  const AddLeadScreen({super.key, this.serviceRequestData});
+  const AddLeadScreen({super.key, this.serviceRequestData, this.leadId});
   final Map<String, dynamic>? serviceRequestData;
+  final String? leadId;
 
   @override
   State<AddLeadScreen> createState() => _AddLeadScreenState();
@@ -28,6 +29,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   final _location = TextEditingController();
   final _year = TextEditingController();
   final _plate = TextEditingController();
+  final _modelCtrl = TextEditingController();
 
   String _countryCode = defaultCountryCode;
   String _localPhone = '';
@@ -35,7 +37,6 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   String? _sourceId;
   String? _subSourceId;
   String? _make;
-  String? _model;
   bool _saving = false;
 
   List<Map<String, dynamic>> _sources = [];
@@ -44,10 +45,17 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   String? _customerVehicleId;
   String? _serviceRequestId;
 
+  bool get _isEdit => widget.leadId != null && widget.leadId!.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
-    _loadMeta().then((_) => _prefillFromSr());
+    _loadMeta().then((_) {
+      if (_isEdit) {
+        return _loadLead();
+      }
+      _prefillFromSr();
+    });
   }
 
   Future<void> _loadMeta() async {
@@ -85,7 +93,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     final vehicle = sr['vehicle'];
     if (vehicle is Map) {
       _make = vehicle['make']?.toString();
-      _model = vehicle['model']?.toString();
+      _modelCtrl.text = vehicle['model']?.toString() ?? '';
       _year.text = vehicle['year']?.toString() ?? '';
       _plate.text = vehicle['plate']?.toString() ?? '';
     }
@@ -103,6 +111,38 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         break;
       }
     }
+    setState(() {});
+  }
+
+  Future<void> _loadLead() async {
+    final id = widget.leadId;
+    if (id == null) return;
+    final res = await DioHelper.getData(url: '${EndPoints.leads}/$id');
+    if (!mounted) return;
+    if (res.statusCode != 200 || res.data is! Map) {
+      _toast(DioHelper.errorMessage(res) ?? 'Lead not found');
+      return;
+    }
+    final data = res.data as Map;
+    final lead = Map<String, dynamic>.from((data['lead'] ?? data) as Map);
+    final source = lead['source'];
+    final sourceId = source is Map
+        ? source['_id']?.toString()
+        : source?.toString();
+    final phone = lead['clientMobileNumber']?.toString() ?? '';
+    _countryCode = countryCodeFromPhone(phone);
+    _localPhone = toLocalDigits(phone, _countryCode);
+    _clientName.text = lead['clientName']?.toString() ?? '';
+    _email.text = lead['clientEmail']?.toString() ?? '';
+    _inquiry.text = lead['inquiry']?.toString() ?? '';
+    _notes.text = lead['internalNotes']?.toString() ?? '';
+    _location.text = lead['location']?.toString() ?? '';
+    _year.text = lead['vehicleYear']?.toString() ?? '';
+    _plate.text = lead['licensePlate']?.toString() ?? '';
+    _make = lead['vehicleMake']?.toString();
+    _modelCtrl.text = lead['vehicleModel']?.toString() ?? '';
+    _sourceId = sourceId;
+    _subSourceId = lead['subSource']?.toString();
     setState(() {});
   }
 
@@ -132,22 +172,31 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         'source': _sourceId,
         if (_subSourceId != null) 'subSource': _subSourceId,
         if (_make != null) 'vehicleMake': _make,
-        if (_model != null) 'vehicleModel': _model,
+        if (_modelCtrl.text.trim().isNotEmpty) 'vehicleModel': _modelCtrl.text.trim(),
         if (_year.text.isNotEmpty) 'vehicleYear': _year.text.trim(),
         if (_plate.text.isNotEmpty) 'licensePlate': _plate.text.trim(),
         if (_customerId != null) 'customer_id': _customerId,
         if (_customerVehicleId != null) 'customer_vehicle_id': _customerVehicleId,
         if (_serviceRequestId != null) 'service_request_id': _serviceRequestId,
       };
-      final res = await DioHelper.postData(url: EndPoints.leads, data: body);
+      final res = _isEdit
+          ? await DioHelper.patchData(
+              url: '${EndPoints.leads}/${widget.leadId}',
+              data: body,
+            )
+          : await DioHelper.postData(url: EndPoints.leads, data: body);
       if (!mounted) return;
       if (res.statusCode == 200 || res.statusCode == 201) {
-        Navigator.of(context).pushNamedAndRemoveUntil(Routes.leads, (_) => false);
+        if (_isEdit) {
+          Navigator.of(context).pop();
+        } else {
+          Navigator.of(context).pushNamedAndRemoveUntil(Routes.leads, (_) => false);
+        }
       } else {
-        _toast(DioHelper.errorMessage(res) ?? 'Create failed');
+        _toast(DioHelper.errorMessage(res) ?? (_isEdit ? 'Update failed' : 'Create failed'));
       }
     } catch (_) {
-      _toast('Failed to create lead');
+      _toast(_isEdit ? 'Failed to update lead' : 'Failed to create lead');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -168,6 +217,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     _location.dispose();
     _year.dispose();
     _plate.dispose();
+    _modelCtrl.dispose();
     super.dispose();
   }
 
@@ -176,10 +226,12 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     return AdminPageContent(
       children: [
         AdminDetailHeader(
-          title: 'Add Lead',
+          title: _isEdit ? 'Edit Lead' : 'Add Lead',
           subtitle: widget.serviceRequestData != null
               ? 'Pre-filled from service request'
-              : null,
+              : _isEdit
+                  ? 'Fix details before converting to a job'
+                  : null,
         ),
         const SizedBox(height: AppSpacing.lg),
         AdminCard(
@@ -227,16 +279,18 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                 itemLabel: (v) => v,
                 onChanged: (v) => setState(() => _make = v),
               ),
-              AdminLabeledField(label: 'Vehicle Model', child: TextField(
-                onChanged: (v) => _model = v,
-                decoration: InputDecoration(hintText: _model ?? 'Model'),
-              )),
+              AdminLabeledField(
+                label: 'Vehicle Model',
+                child: TextField(controller: _modelCtrl),
+              ),
+              AdminLabeledField(label: 'Year', child: TextField(controller: _year)),
+              AdminLabeledField(label: 'Plate', child: TextField(controller: _plate)),
               AdminLabeledField(label: 'Notes', child: TextField(controller: _notes, maxLines: 2)),
               const SizedBox(height: 16),
               AdminFormActions(
                 onCancel: () => Navigator.of(context).pop(),
                 onSave: _save,
-                saveLabel: 'Create lead',
+                saveLabel: _isEdit ? 'Save changes' : 'Create lead',
                 loading: _saving,
               ),
             ],

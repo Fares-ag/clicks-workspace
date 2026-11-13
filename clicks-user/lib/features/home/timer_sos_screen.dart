@@ -7,6 +7,7 @@ import 'package:clicks_user/core/sos_services/sos_support_contact.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -15,6 +16,13 @@ import '../../core/helper/app_snack_bars.dart';
 import '../../core/routing/routes.dart';
 import '../../core/services/session_sync.dart';
 import '../../core/sos_services/event_scope.dart';
+
+@visibleForTesting
+bool showImmediateSosCallCard({
+  required bool timerExpired,
+  required bool highDemand,
+}) =>
+    timerExpired || highDemand;
 
 class TimerSosScreen extends StatefulWidget {
   final bool isEmergency;
@@ -155,18 +163,20 @@ class _TimerSosScreenState extends State<TimerSosScreen> {
                   vertical: 8,
                 ),
                 child: Text(
-                  isEmergency
-                      ? 'home.team_reviewing'.tr()
-                      : 'services.team_reviewing'.tr(),
+                  context.watch<SosCubit>().highDemand
+                      ? 'dispatch.high_demand_body'.tr()
+                      : isEmergency
+                          ? 'home.team_reviewing'.tr()
+                          : 'services.team_reviewing'.tr(),
                   style: TextStyles.font14Regular,
                   textAlign: TextAlign.center,
                 ),
               ),
               if (outstanding > 0) OutstandingBalanceBanner(amount: outstanding),
+              if (context.watch<SosCubit>().highDemand)
+                const HighDemandBanner(),
               Spacer(),
-              if (_showCallCard)
-                const StillConnectingCallCard()
-              else
+              if (!_showCallCard)
                 Builder(
                   builder: (context) {
                     final expiresAt = context.watch<SosCubit>().expiresAt;
@@ -195,6 +205,11 @@ class _TimerSosScreenState extends State<TimerSosScreen> {
                     );
                   },
                 ),
+              if (showImmediateSosCallCard(
+                timerExpired: _showCallCard,
+                highDemand: context.watch<SosCubit>().highDemand,
+              ))
+                const StillConnectingCallCard(),
               Spacer(),
               Row(
                 children: [
@@ -251,6 +266,37 @@ class _TimerSosScreenState extends State<TimerSosScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class HighDemandBanner extends StatelessWidget {
+  const HighDemandBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3F3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFE0E0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.groups_outlined, color: Color(0xFFB42318)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'dispatch.high_demand_title'.tr(),
+              style: TextStyles.font12RegularBlack.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

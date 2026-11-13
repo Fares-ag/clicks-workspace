@@ -330,6 +330,7 @@ async function findRatingPromptJob(customerId) {
 async function buildCustomerSession({ customerId } = {}) {
   const { getSupportPhone } = require("../services/opsSettings");
   const { customerCancelPolicy } = require("./customerCancelPolicy");
+  const { isHighDemand } = require("./sosBusy");
   const [
     activeSos,
     liveJob,
@@ -339,6 +340,7 @@ async function buildCustomerSession({ customerId } = {}) {
     outstanding,
     supportPhone,
     ratingPromptJob,
+    highDemand,
   ] = await Promise.all([
     findActiveSos(customerId).then((doc) =>
       doc ? doc.populate(VEHICLE_POPULATE) : null
@@ -356,6 +358,7 @@ async function buildCustomerSession({ customerId } = {}) {
     outstandingBalanceForCustomer(customerId),
     getSupportPhone().catch(() => null),
     findRatingPromptJob(customerId).catch(() => null),
+    isHighDemand().catch(() => false),
   ]);
 
   const activeId = activeServiceRequest ? String(activeServiceRequest._id) : null;
@@ -388,6 +391,7 @@ async function buildCustomerSession({ customerId } = {}) {
     outstanding_balance: outstanding.outstanding_balance,
     outstanding_job_ids: outstanding.outstanding_job_ids,
     support_phone: supportPhone || null,
+    high_demand: !!highDemand,
     sos_blocked_vehicle_id: liveJob ? liveJobVehicleId(liveJob) : null,
     // Fee note next to Cancel, from the rule the cancel endpoint enforces (S63).
     cancel_policy: liveJob ? customerCancelPolicy(liveJob) : null,

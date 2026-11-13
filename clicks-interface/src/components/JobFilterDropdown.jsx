@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useGetTechniciansQuery } from "../store/technicianApi";
 import { useGetSourcesQuery } from "../store/sourceApi";
 import CustomSelect from "./CustomSelect";
@@ -114,12 +115,60 @@ function JobFilterDropdown({ open, onClose, onApply, onClear, initialFilters, an
     onClose();
   };
 
+  const [panelStyle, setPanelStyle] = useState({});
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const positionPanel = () => {
+      const pad = 12;
+      const gap = 8;
+      const node = anchorEl?.current ?? anchorEl;
+      const rect = node?.getBoundingClientRect?.();
+      if (!rect) {
+        setPanelStyle({
+          position: "fixed",
+          top: pad,
+          right: pad,
+          bottom: "auto",
+          marginTop: 0,
+          maxHeight: `calc(100dvh - ${pad * 2}px)`,
+        });
+        return;
+      }
+
+      const spaceBelow = window.innerHeight - rect.bottom - gap - pad;
+      const spaceAbove = rect.top - pad;
+      const openUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+      const available = openUp ? spaceAbove - gap : spaceBelow;
+      const maxHeight = Math.max(180, Math.min(available, window.innerHeight - pad * 2));
+
+      setPanelStyle({
+        position: "fixed",
+        top: openUp ? "auto" : rect.bottom + gap,
+        bottom: openUp ? window.innerHeight - rect.top + gap : "auto",
+        right: Math.max(pad, window.innerWidth - rect.right),
+        left: "auto",
+        marginTop: 0,
+        maxHeight,
+      });
+    };
+
+    positionPanel();
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+    return () => {
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+    };
+  }, [open, anchorEl]);
+
   if (!open) return null;
 
-  return (
+  return createPortal(
     <>
       <div className="filter-overlay" onClick={onClose} />
-      <div className="filter-dropdown filter-dropdown--jobs" style={anchorEl ? undefined : {}}>
+      <div className="filter-dropdown filter-dropdown--jobs" style={panelStyle}>
         <div className="filter-header">
           <span className="filter-title">Filter jobs</span>
         </div>
@@ -232,7 +281,8 @@ function JobFilterDropdown({ open, onClose, onApply, onClear, initialFilters, an
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 

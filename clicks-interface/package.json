@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test:live-map": "node --test src/pages/LiveMap/liveMapUtils.test.js",
+    "test:membership": "node --test src/pages/Memberships/planForm.test.js",
     "vercel:setup": "powershell -ExecutionPolicy Bypass -File ./scripts/vercel-setup-prod.ps1",
     "vercel:prod": "vercel --prod --yes"
   },

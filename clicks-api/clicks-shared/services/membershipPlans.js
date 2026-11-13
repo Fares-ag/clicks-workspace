@@ -128,13 +128,18 @@ function addMonths(date, months) {
   return new Date(wall - QATAR_UTC_OFFSET_MS);
 }
 
-async function seedMembershipPlans(SubscriptionPlan) {
+/**
+ * Insert the default plans that do not exist yet. Plans are edited in the
+ * admin, so an existing plan is left exactly as the admin set it unless
+ * `overwrite` is passed (scripts/seed-membership-plans.js --overwrite).
+ */
+async function seedMembershipPlans(SubscriptionPlan, { overwrite = false } = {}) {
   const Model = SubscriptionPlan || require("../models/SubscriptionPlan");
   const saved = [];
   for (const plan of DEFAULT_PLANS) {
     const doc = await Model.findOneAndUpdate(
       { code: plan.code },
-      { $set: plan },
+      overwrite ? { $set: plan } : { $setOnInsert: plan },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     saved.push(doc);

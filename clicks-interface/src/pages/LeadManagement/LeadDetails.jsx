@@ -89,13 +89,16 @@ function LeadDetails() {
           )}
           <p><strong>Source:</strong> {sourceName}{lead.subSource ? ` / ${lead.subSource}` : ""}</p>
           {lead.location && <p><strong>Location:</strong> {lead.location}</p>}
-          {(lead.vehicleMake || lead.vehicleModel) && (
+          {(lead.vehicleMake || lead.vehicleModel || lead.licensePlate) && (
             <p>
               <strong>Vehicle:</strong>{" "}
-              {[lead.vehicleYear, lead.vehicleMake, lead.vehicleModel]
+              {[lead.vehicleYear, lead.vehicleMake, lead.vehicleModel, lead.licensePlate]
                 .filter(Boolean)
                 .join(" ")}
             </p>
+          )}
+          {lead.serviceType && (
+            <p><strong>Service type:</strong> {lead.serviceType}</p>
           )}
           {lead.status === "converted" && lead.job_id && (
             <p>
@@ -132,6 +135,13 @@ function LeadDetails() {
           </select>
           <button
             type="button"
+            className="add-new-job-cancel"
+            onClick={() => navigate(`/leads/${id}/edit`)}
+          >
+            Edit lead
+          </button>
+          <button
+            type="button"
             className="add-new-job-submit"
             onClick={() => navigate(`/leads/${id}/convert`)}
           >
@@ -152,6 +162,13 @@ function LeadDetails() {
           <span style={{ color: "#667085", fontSize: 13 }}>
             Lost lead — converting creates a job and reopens it.
           </span>
+          <button
+            type="button"
+            className="add-new-job-cancel"
+            onClick={() => navigate(`/leads/${id}/edit`)}
+          >
+            Edit lead
+          </button>
           <button
             type="button"
             className="add-new-job-submit"

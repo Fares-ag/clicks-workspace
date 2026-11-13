@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useGetJobsQuery, useGetJobStatsQuery } from "../../store/jobApi";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useAdminRole } from "../../utils/adminRoles";
@@ -143,6 +143,90 @@ const JOB_KPI_WHEN = {
   unpaid: { path: "dateTime", label: "Scheduled" },
 };
 
+const JOBS_LIST_STATE_KEY = "clicks.admin.jobs.list";
+const JOB_FILTER_KEYS = Object.keys(EMPTY_JOB_FILTERS);
+const JOB_KPI_KEYS = new Set(Object.keys(JOB_KPI_WHEN));
+
+function emptyJobsListState() {
+  return {
+    filters: { ...EMPTY_JOB_FILTERS },
+    page: 1,
+    kpi: null,
+    search: "",
+  };
+}
+
+function parseJobsListParams(searchParams) {
+  const filters = { ...EMPTY_JOB_FILTERS };
+  let hasAny = false;
+  for (const key of JOB_FILTER_KEYS) {
+    const value = searchParams.get(key);
+    if (value) {
+      filters[key] = value;
+      hasAny = true;
+    }
+  }
+  const pageRaw = parseInt(searchParams.get("page") || "1", 10);
+  const page = Number.isFinite(pageRaw) && pageRaw > 1 ? pageRaw : 1;
+  if (page > 1) hasAny = true;
+  const kpiRaw = searchParams.get("kpi");
+  const kpi = kpiRaw && JOB_KPI_KEYS.has(kpiRaw) ? kpiRaw : null;
+  if (kpi) hasAny = true;
+  const search = searchParams.get("search") || "";
+  if (search) hasAny = true;
+  return {
+    hasAny,
+    state: { filters, page, kpi, search },
+  };
+}
+
+function serializeJobsListParams({ filters, page, kpi, search }) {
+  const params = new URLSearchParams();
+  const searchTrim = String(search || "").trim();
+  if (searchTrim) params.set("search", searchTrim);
+  if (page > 1) params.set("page", String(page));
+  if (kpi && JOB_KPI_KEYS.has(kpi)) params.set("kpi", kpi);
+  for (const key of JOB_FILTER_KEYS) {
+    const value = String(filters?.[key] || "").trim();
+    if (value) params.set(key, value);
+  }
+  return params;
+}
+
+function readStoredJobsListState() {
+  try {
+    const raw = sessionStorage.getItem(JOBS_LIST_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const filters = { ...EMPTY_JOB_FILTERS };
+    for (const key of JOB_FILTER_KEYS) {
+      filters[key] = String(parsed.filters?.[key] || "");
+    }
+    const pageRaw = parseInt(parsed.page, 10);
+    const page = Number.isFinite(pageRaw) && pageRaw > 1 ? pageRaw : 1;
+    const kpi = parsed.kpi && JOB_KPI_KEYS.has(parsed.kpi) ? parsed.kpi : null;
+    const search = String(parsed.search || "");
+    return { filters, page, kpi, search };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJobsListState(state) {
+  try {
+    sessionStorage.setItem(JOBS_LIST_STATE_KEY, JSON.stringify(state));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+function initialJobsListState(searchParams) {
+  const fromUrl = parseJobsListParams(searchParams);
+  if (fromUrl.hasAny) return fromUrl.state;
+  return readStoredJobsListState() || emptyJobsListState();
+}
+
 function readJobPath(job, path) {
   return String(path || "")
     .split(".")
@@ -238,18 +322,17 @@ function WhatsAppShareCell({ job }) {
 function Jobs() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isFullAdmin } = useAdminRole();
   const pageVisible = usePageVisible();
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState(() => {
-    const params = new URLSearchParams(location.search);
-    return params.get("search") || "";
-  });
+  const [initialListState] = useState(() => initialJobsListState(searchParams));
+  const [page, setPage] = useState(initialListState.page);
+  const [searchInput, setSearchInput] = useState(initialListState.search);
   const debouncedSearch = useDebouncedValue(searchInput, 400);
   const filterButtonRef = useRef(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [filters, setFilters] = useState(() => ({ ...EMPTY_JOB_FILTERS }));
-  const [activeStatFilter, setActiveStatFilter] = useState(null);
+  const [filters, setFilters] = useState(() => ({ ...initialListState.filters }));
+  const [activeStatFilter, setActiveStatFilter] = useState(initialListState.kpi);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -318,18 +401,31 @@ function Jobs() {
       setSuccessMessage(location.state.successMessage);
       setShowSuccess(true);
       // Clear the state to prevent showing again on refresh
-      window.history.replaceState({}, document.title);
+      window.history.replaceState(
+        {},
+        document.title,
+        `${window.location.pathname}${window.location.search}`
+      );
     }
   }, [location]);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const q = params.get("search");
-    if (q != null) {
-      setSearchInput(q);
-      setPage(1);
+    const next = serializeJobsListParams({
+      filters,
+      page,
+      kpi: activeStatFilter,
+      search: debouncedSearch,
+    });
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
     }
-  }, [location.search]);
+    writeStoredJobsListState({
+      filters,
+      page,
+      kpi: activeStatFilter,
+      search: debouncedSearch,
+    });
+  }, [filters, page, activeStatFilter, debouncedSearch, searchParams, setSearchParams]);
 
   const handleEdit = (job) => {
     setEditJobId(job._id);
@@ -522,6 +618,7 @@ function Jobs() {
         loading={isLoading && !data}
         fetching={isFetching && !!data}
         onSearch={handleSearch}
+        searchValue={searchInput}
         onFilter={() => setFilterOpen(!filterOpen)}
         filterButtonRef={filterButtonRef}
         filterButtonText={
@@ -534,7 +631,7 @@ function Jobs() {
             onApply={handleFilterApply}
             onClear={handleFilterClear}
             initialFilters={filters}
-            anchorEl={filterButtonRef.current}
+            anchorEl={filterButtonRef}
           />
         }
         pagination={{

@@ -1,3 +1,4 @@
+const request = require("supertest");
 const { SOSRequest } = require("../../clicks-shared/models");
 const { connectTestDb, disconnectTestDb, clearCollections } = require("../helpers/db");
 const {
@@ -8,8 +9,11 @@ const {
   disconnectAll,
 } = require("../helpers/socket");
 const { seedCustomer, seedTechnician, seedAdmin, JOB_LAT, JOB_LNG } = require("../helpers/seed");
-const { adminToken, customerToken } = require("../helpers/tokens");
+const { adminToken, customerToken, bearer } = require("../helpers/tokens");
+const { clearCountCache } = require("../../clicks-shared/utils/cachedCount");
+const { busyPendingThreshold } = require("../../clicks-shared/utils/sosBusy");
 
+let app;
 let server;
 let baseUrl;
 const openSockets = [];
@@ -18,7 +22,7 @@ beforeAll(async () => {
   await connectTestDb();
   await SOSRequest.init();
   const { createTechAppWithSocket } = require("../../clicks-customer-tech-api/src/createApp");
-  ({ server } = await createTechAppWithSocket());
+  ({ app, server } = await createTechAppWithSocket());
   ({ baseUrl } = await listenServer(server));
 });
 
@@ -30,6 +34,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await clearCollections();
+  clearCountCache();
+  delete process.env.SOS_BUSY_PENDING;
 });
 
 function trackSocket(socket) {
@@ -280,5 +286,65 @@ describe("SOS end-to-end (realtime)", () => {
     await expect(
       connectSocket({ baseUrl, namespace: "/customer", token: undefined })
     ).rejects.toThrow(/Unauthorized/i);
+  });
+});
+
+describe("SOS busy-mode copy (high_demand)", () => {
+  test("createSOS ack has high_demand false when SOS_BUSY_PENDING is off", async () => {
+    expect(busyPendingThreshold()).toBe(0);
+    const customer = await seedCustomer();
+    const sock = await connectAndRegister({
+      namespace: "/customer",
+      token: customerToken(customer._id),
+    });
+    const ack = await sock.timeout(10000).emitWithAck("createSOS", {
+      latitude: JOB_LAT,
+      longitude: JOB_LNG,
+      skip_vehicle: true,
+      client_request_id: "busy-off-1",
+    });
+    expect(ack.ok).toBe(true);
+    expect(ack.high_demand).toBe(false);
+  });
+
+  test("createSOS ack has high_demand true at the pending threshold and session matches", async () => {
+    process.env.SOS_BUSY_PENDING = "1";
+    const customer = await seedCustomer();
+    const sock = await connectAndRegister({
+      namespace: "/customer",
+      token: customerToken(customer._id),
+    });
+    const ack = await sock.timeout(10000).emitWithAck("createSOS", {
+      latitude: JOB_LAT,
+      longitude: JOB_LNG,
+      skip_vehicle: true,
+      client_request_id: "busy-on-1",
+    });
+    expect(ack.ok).toBe(true);
+    expect(ack.status).toBe("pending");
+    expect(ack.high_demand).toBe(true);
+
+    const session = await request(app)
+      .get("/api/jobs/customer/session")
+      .set(bearer(customerToken(customer._id)));
+    expect(session.status).toBe(200);
+    expect(session.body.high_demand).toBe(true);
+  });
+
+  test("createSOS still succeeds when below the busy threshold", async () => {
+    process.env.SOS_BUSY_PENDING = "5";
+    const customer = await seedCustomer();
+    const sock = await connectAndRegister({
+      namespace: "/customer",
+      token: customerToken(customer._id),
+    });
+    const ack = await sock.timeout(10000).emitWithAck("createSOS", {
+      latitude: JOB_LAT,
+      longitude: JOB_LNG,
+      skip_vehicle: true,
+      client_request_id: "busy-below-1",
+    });
+    expect(ack.ok).toBe(true);
+    expect(ack.high_demand).toBe(false);
   });
 });

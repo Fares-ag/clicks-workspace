@@ -576,7 +576,16 @@ const toggleStatus = async (req, res) => {
     }
 
     // The technician chose this, so a later reconnect must not undo it.
-    await Technician.updateOne({ _id: technician._id }, { autoOfflineAt: null });
+    // Going Online is itself proof the app is alive right now. Without the
+    // stamp the technician started every shift carrying the previous shift's
+    // heartbeat: announced to the Live Map as already disconnected, and
+    // eligible for the ghost-Online sweep before their first fix landed.
+    await Technician.updateOne(
+      { _id: technician._id },
+      status === "Online"
+        ? { autoOfflineAt: null, lastHeartbeatAt: new Date() }
+        : { autoOfflineAt: null }
+    );
 
     const notifyPresence = req.app.get("notifyAdminTechnicianPresence");
     if (typeof notifyPresence === "function") {

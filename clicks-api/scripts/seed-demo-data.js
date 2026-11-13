@@ -225,11 +225,11 @@ async function main() {
       phone_number: "+97433333333",
       first_name: "Ahmed",
       last_name: "Khalil",
-      password: bcrypt.hashSync("Customer123!", 10),
+      password: bcrypt.hashSync("Carage123!", 10),
       status: "Active",
     }
   );
-  console.log("✓ customer@clicks.local / Customer123! phone +97433333333");
+  console.log("✓ customer@clicks.local / Carage123! phone +97433333333");
 
   let custVehicle = await CustomerVehicle.findOne({ customer_id: customer._id });
   if (!custVehicle) {

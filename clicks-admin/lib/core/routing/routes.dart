@@ -56,6 +56,7 @@ class Routes {
 
   static String jobDetailPath(String id) => '/jobs/$id';
   static String leadDetailPath(String id) => '/leads/$id';
+  static String leadEditPath(String id) => '/leads/$id/edit';
   static String leadConvertPath(String id) => '/leads/$id/convert';
   static String technicianDetailPath(String id) => '/technicians/$id';
 

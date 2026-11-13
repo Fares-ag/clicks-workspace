@@ -1,5 +1,6 @@
 import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { message } from "antd";
 import DataTable from "../../components/DataTable/DataTable.jsx";
 import { useGetTechniciansQuery, useGetAssignmentRosterQuery, useGetTechnicianByIdQuery, useAssignVehicleMutation, useToggleTechnicianActiveMutation } from "../../store/technicianApi";
 import { useGetVehiclesQuery } from "../../store/vehicleApi";
@@ -195,11 +196,16 @@ function TechnicianApplicationPill({ status }) {
   );
 }
 
-function TechnicianActivationToggle({ active, onToggle }) {
+function TechnicianActivationToggle({ active, onToggle, busy = false }) {
   return (
     <button
+      type="button"
       className={`tech-activation-toggle${active ? " active" : ""}`}
       onClick={onToggle}
+      disabled={busy}
+      aria-pressed={active}
+      title={active ? "Active — can sign in and take jobs" : "Deactivated — locked out of the app"}
+      style={busy ? { opacity: 0.5, cursor: "wait" } : undefined}
     >
       <span
         className="tech-activation-toggle-dot"
@@ -328,12 +334,79 @@ function Technicians() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editTechId, setEditTechId] = useState(null);
 
-  const handleToggleActive = async (techId) => {
+  // What the server last told us about activation, per technician. The list
+  // itself is cached server-side, so straight after a change it can still
+  // report the old value; showing that made the switch look like it had not
+  // worked, which invited a second click that undid the first.
+  const [activeOverrides, setActiveOverrides] = useState({});
+  const [activationBusy, setActivationBusy] = useState({});
+  // { tech, force, message } while a deactivation is waiting for confirmation.
+  const [deactivation, setDeactivation] = useState(null);
+
+  const isTechActive = (tech) =>
+    activeOverrides[tech._id] !== undefined
+      ? activeOverrides[tech._id]
+      : tech.isActive !== false;
+
+  const applyActivation = async (tech, isActive, force = false) => {
+    const id = tech._id;
+    const name = `${tech.firstName || ""} ${tech.lastName || ""}`.trim() || "Technician";
+    setActivationBusy((prev) => ({ ...prev, [id]: true }));
     try {
-      await toggleActive(techId).unwrap();
+      const res = await toggleActive({ id, isActive, force }).unwrap();
+      const saved = res?.technician?.isActive !== false;
+      setActiveOverrides((prev) => ({ ...prev, [id]: saved }));
+      message.success(
+        saved ? `${name} is active again.` : `${name} has been deactivated.`
+      );
     } catch (err) {
-      console.error("Error toggling technician active status:", err);
+      if (err?.data?.code === "TECHNICIAN_HAS_ACTIVE_JOB") {
+        // Ask again, spelling out what it will do to the job in progress.
+        setDeactivation({
+          tech,
+          force: true,
+          message: `${name} has a job in progress${
+            err.data.job_reference ? ` (${err.data.job_reference})` : ""
+          }. Deactivating now locks them out of the app immediately — they will not be able to finish it — and removes them from the Live Map. Deactivate anyway?`,
+        });
+      } else {
+        message.error(
+          err?.data?.message || "Could not change this technician's activation. Nothing was changed."
+        );
+      }
+    } finally {
+      setActivationBusy((prev) => ({ ...prev, [id]: false }));
     }
+  };
+
+  // Drop an override once the list has caught up with it.
+  React.useEffect(() => {
+    if (!data?.technicians) return;
+    setActiveOverrides((prev) => {
+      let next = prev;
+      for (const t of data.technicians) {
+        if (prev[t._id] !== undefined && (t.isActive !== false) === prev[t._id]) {
+          if (next === prev) next = { ...prev };
+          delete next[t._id];
+        }
+      }
+      return next;
+    });
+  }, [data]);
+
+  const handleToggleActive = (tech) => {
+    if (activationBusy[tech._id]) return;
+    if (isTechActive(tech)) {
+      // Turning someone off is never a single stray click.
+      const name = `${tech.firstName || ""} ${tech.lastName || ""}`.trim() || "this technician";
+      setDeactivation({
+        tech,
+        force: false,
+        message: `Deactivate ${name}? They will be signed out of the technician app and will not receive jobs until reactivated.`,
+      });
+      return;
+    }
+    applyActivation(tech, true);
   };
 
   const handleEdit = (tech) => {
@@ -412,8 +485,9 @@ function Technicians() {
       width: "flex",
       render: (row) => (
         <TechnicianActivationToggle
-          active={row.isActive}
-          onToggle={() => handleToggleActive(row._id)}
+          active={isTechActive(row)}
+          busy={!!activationBusy[row._id]}
+          onToggle={() => handleToggleActive(row)}
         />
       )
     },
@@ -525,6 +599,15 @@ function Technicians() {
         onConfirm={handleConfirmReassignment}
         title="Reassign Vehicle"
         message={`This vehicle is currently assigned to ${confirmationData.assignedTo}. Are you sure you want to reassign it to this technician?`}
+      />
+      <ConfirmationModal
+        open={!!deactivation}
+        onClose={() => setDeactivation(null)}
+        onConfirm={() => {
+          if (deactivation) applyActivation(deactivation.tech, false, deactivation.force);
+        }}
+        title={deactivation?.force ? "Technician is on a job" : "Deactivate technician"}
+        message={deactivation?.message || ""}
       />
     </div>
   );

@@ -93,14 +93,26 @@ function Leads() {
       key: "actions",
       width: "14%",
       render: (row) => {
+        const id = row.lead_id || row._id;
         const open = ["new", "contacted", "qualified"].includes(row.status);
+        const canEdit = open || row.status === "lost";
         return (
-          <button
-            className="sos-action-btn"
-            onClick={() => navigate(`/leads/${row.lead_id || row._id}`)}
-          >
-            {open ? "Open" : "View"}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              className="sos-action-btn"
+              onClick={() => navigate(`/leads/${id}`)}
+            >
+              {open ? "Open" : "View"}
+            </button>
+            {canEdit && (
+              <button
+                className="sos-action-btn"
+                onClick={() => navigate(`/leads/${id}/edit`)}
+              >
+                Edit
+              </button>
+            )}
+          </div>
         );
       },
     },

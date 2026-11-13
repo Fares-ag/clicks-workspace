@@ -123,6 +123,8 @@ export const apiSlice = createApi({
     "Job",
     "Lead",
     "LiveMapTechnician",
+    "MembershipPlan",
+    "CustomerMembership",
     "NavBadges",
     "Notifications",
     "OutboxEvent",

@@ -110,12 +110,20 @@ function AddNewJob() {
     return filtered;
   }, [allTechnicians, formData.jobType]);
 
-  // Populate form with SOS data if available
+  // Populate form with SOS data if available. Do not put `sources` (a new
+  // [] each render) in the deps — that re-ran this effect and wiped `issue`.
   useEffect(() => {
-    if (sosData) {
-      const sosSource = sources.find(s => s.mainSourceName?.toLowerCase() === 'sos');
-      
-      setFormData(prev => ({
+    if (!sosData) return;
+    const sosSource = (sourcesData?.sources || []).find(
+      (s) => s.mainSourceName?.toLowerCase() === "sos"
+    );
+    const skipIssue = sosData.skip_vehicle
+      ? "SOS — vehicle not provided by customer"
+      : "";
+
+    setFormData((prev) => {
+      const sosChanged = prev.sos_id !== sosData.sos_id;
+      return {
         ...prev,
         customer_id: sosData.customer_id,
         customer_vehicle_id: sosData.customer_vehicle_id || "",
@@ -124,29 +132,37 @@ function AddNewJob() {
           sosData.customer?.phone || "",
           prev.countryCode || DEFAULT_COUNTRY_CODE
         ),
-        issue: sosData.skip_vehicle ? "SOS — vehicle not provided by customer" : "",
-        location: sosData.location?.coordinates || "",
-        source: sosSource?._id || "",
-        sos_id: sosData.sos_id
-      }));
-    }
-  }, [sosData, sources]);
+        issue: sosChanged ? skipIssue : (prev.issue.trim() ? prev.issue : skipIssue),
+        location: sosChanged
+          ? sosData.location?.coordinates || ""
+          : prev.location || sosData.location?.coordinates || "",
+        source: prev.source || sosSource?._id || "",
+        sos_id: sosData.sos_id,
+      };
+    });
+  }, [sosData, sourcesData]);
 
   // Populate form from Service Request (no claim step)
   useEffect(() => {
-    if (serviceRequestData) {
-      const appSource =
-        sources.find((s) => s.mainSourceName?.toLowerCase() === "app") ||
-        sources.find((s) => s.mainSourceName?.toLowerCase() === "mobile") ||
-        sources[0];
-      const vehicle = serviceRequestData.vehicle || {};
-      const scheduled =
-        serviceRequestData.timing === "scheduled" &&
-        serviceRequestData.scheduled_for
-          ? new Date(serviceRequestData.scheduled_for)
-          : null;
+    if (!serviceRequestData) return;
+    const sourceList = sourcesData?.sources || [];
+    const appSource =
+      sourceList.find((s) => s.mainSourceName?.toLowerCase() === "app") ||
+      sourceList.find((s) => s.mainSourceName?.toLowerCase() === "mobile") ||
+      sourceList[0];
+    const vehicle = serviceRequestData.vehicle || {};
+    const scheduled =
+      serviceRequestData.timing === "scheduled" &&
+      serviceRequestData.scheduled_for
+        ? new Date(serviceRequestData.scheduled_for)
+        : null;
+    const srId =
+      serviceRequestData.service_request_id || serviceRequestData._id || "";
 
-      setFormData((prev) => ({
+    setFormData((prev) => {
+      const srChanged = prev.service_request_id !== srId;
+      const catalogIssue = serviceRequestData.service_type || "";
+      return {
         ...prev,
         customer_id: serviceRequestData.customer_id || "",
         customer_vehicle_id: serviceRequestData.customer_vehicle_id || "",
@@ -162,19 +178,19 @@ function AddNewJob() {
           vehicle.year && vehicle.year !== "Unknown" ? String(vehicle.year) : "",
         licensePlate:
           vehicle.plate && vehicle.plate !== "Unknown" ? vehicle.plate : "",
-        issue: serviceRequestData.service_type || "",
-        location: serviceRequestData.location?.coordinates || "",
-        dateTime: scheduled && !Number.isNaN(scheduled.getTime())
-          ? scheduled.toISOString()
-          : prev.dateTime,
-        source: appSource?._id || prev.source,
-        service_request_id:
-          serviceRequestData.service_request_id ||
-          serviceRequestData._id ||
-          "",
-      }));
-    }
-  }, [serviceRequestData, sources]);
+        issue: srChanged ? catalogIssue : (prev.issue.trim() ? prev.issue : catalogIssue),
+        location: srChanged
+          ? serviceRequestData.location?.coordinates || ""
+          : prev.location || serviceRequestData.location?.coordinates || "",
+        dateTime:
+          scheduled && !Number.isNaN(scheduled.getTime())
+            ? scheduled.toISOString()
+            : prev.dateTime,
+        source: prev.source || appSource?._id || "",
+        service_request_id: srId,
+      };
+    });
+  }, [serviceRequestData, sourcesData]);
 
   const handlePhoneChange = (localDigits) => {
     setFormData((prev) => ({ ...prev, clientMobileNumber: localDigits }));

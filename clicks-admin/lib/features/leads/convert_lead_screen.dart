@@ -216,6 +216,17 @@ class _ConvertLeadScreenState extends State<ConvertLeadScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(lead['inquiry']?.toString() ?? ''),
+              const SizedBox(height: AppSpacing.sm),
+              PrimaryButton(
+                label: 'Edit lead details',
+                outlined: true,
+                onPressed: () async {
+                  await Navigator.of(context).pushNamed(
+                    Routes.leadEditPath(widget.leadId),
+                  );
+                  if (mounted) _load();
+                },
+              ),
             ],
           ),
         ),

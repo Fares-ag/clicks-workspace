@@ -7,12 +7,18 @@ const Vehicle = require("../../../clicks-shared/models/Vehicle");
 const { escapeRegex } = require("../../../clicks-shared/utils/escapeRegex");
 const { cachedCount } = require("../../../clicks-shared/utils/cachedCount");
 const { getCachedPayload } = require("../../../clicks-shared/utils/payloadCache");
-const { getSlimTechnicianRoster, invalidateTechnicianRoster } = require("../../../clicks-shared/utils/adminLookups");
+const {
+  getSlimTechnicianRoster,
+  invalidateTechnicianRoster,
+  refreshTechnicianRoster,
+} = require("../../../clicks-shared/utils/adminLookups");
 const { capAdminLimit } = require("../../../clicks-shared/utils/adminListLimit");
 const { buildPrefixSearchFilter } = require("../../../clicks-shared/utils/searchFields");
 const { num } = require("../../../clicks-shared/utils/coerce");
 const { uploadBufferToAzure } = require("../utils/azureStorage");
 const { addSASToTechnician, addSASToTechnicians } = require("../utils/sasHelper");
+const { recordAudit } = require("../utils/auditLog");
+const { OFFLINE_BLOCKING_STATUSES } = require("../../../clicks-shared/constants/jobStatuses");
 
 function looksHashed(password) {
   return typeof password === "string" && /^\$2[aby]?\$/.test(password);
@@ -68,45 +74,88 @@ function toLiveMapTechnician(t) {
   };
 }
 
+const LIVE_MAP_FIELDS =
+  "firstName lastName phone profilePicture currentStatus isActive assignedVehicle currentLocation lastLocationAt lastHeartbeatAt";
+/** Coalesces a burst of admin tabs into one read. Short enough to be invisible. */
+const LIVE_MAP_MEMO_MS = 2000;
+let liveMapMemo = { at: 0, technicians: null, pending: null };
+
+/** Drop the burst memo: after an admin edit, and between tests. */
+function clearLiveMapMemo() {
+  liveMapMemo = { at: 0, technicians: null, pending: null };
+}
+
+/**
+ * Who is Online / On Job right now, straight from MongoDB.
+ *
+ * This used to be filtered out of the in-process technician roster, which is
+ * kept for ten minutes and is only invalidated by admin edits in THIS process.
+ * Status, position and heartbeat are written every few seconds by the tech
+ * API — a different process — so the map was handed a snapshot up to ten
+ * minutes old: technicians who had just come Online were missing, ones who
+ * had gone Offline lingered as "disconnected", and pins sat at old positions.
+ * The roster is right for names and assignment lists; it is wrong for
+ * anything that moves.
+ *
+ * getCachedPayload is deliberately not used either: it serves a stale value
+ * for at least two minutes past its TTL.
+ */
+async function loadLiveMapTechnicians() {
+  const live = await Technician.find({
+    currentStatus: { $in: ["Online", "On Job"] },
+    isActive: { $ne: false },
+  })
+    .select(LIVE_MAP_FIELDS)
+    .lean();
+  const vehicleIds = [
+    ...new Set(
+      live
+        .map((t) => t.assignedVehicle)
+        .filter(Boolean)
+        .map((id) => String(id))
+    ),
+  ];
+  const vehicles = vehicleIds.length
+    ? await Vehicle.find({ _id: { $in: vehicleIds } })
+        .select("plateNumber make model")
+        .populate("make", "makeName")
+        .populate("model", "modelName")
+        .lean()
+    : [];
+  const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
+  return live.map((t) =>
+    toLiveMapTechnician({
+      ...t,
+      assignedVehicle: t.assignedVehicle
+        ? vehicleById.get(String(t.assignedVehicle)) || null
+        : null,
+    })
+  );
+}
+
+async function getFreshLiveMapTechnicians() {
+  if (liveMapMemo.technicians && Date.now() - liveMapMemo.at < LIVE_MAP_MEMO_MS) {
+    return liveMapMemo.technicians;
+  }
+  if (liveMapMemo.pending) return liveMapMemo.pending;
+  const pending = loadLiveMapTechnicians()
+    .then((technicians) => {
+      liveMapMemo = { at: Date.now(), technicians, pending: null };
+      return technicians;
+    })
+    .catch((err) => {
+      // Never serve the previous snapshot in place of a failed read.
+      liveMapMemo = { at: 0, technicians: null, pending: null };
+      throw err;
+    });
+  liveMapMemo.pending = pending;
+  return pending;
+}
+
 // GET /api/technicians/live-map
 async function getLiveMapTechnicians(req, res) {
   try {
-    const technicians = await getCachedPayload(
-      "clicks:admin:payload:live-map-techs",
-      15000,
-      async () => {
-        const roster = await getSlimTechnicianRoster();
-        const live = roster.filter(
-          (t) =>
-            t.isActive !== false &&
-            (t.currentStatus === "Online" || t.currentStatus === "On Job")
-        );
-        const vehicleIds = [
-          ...new Set(
-            live
-              .map((t) => t.assignedVehicle)
-              .filter(Boolean)
-              .map((id) => String(id))
-          ),
-        ];
-        const vehicles = vehicleIds.length
-          ? await Vehicle.find({ _id: { $in: vehicleIds } })
-              .select("plateNumber make model")
-              .populate("make", "makeName")
-              .populate("model", "modelName")
-              .lean()
-          : [];
-        const vehicleById = new Map(vehicles.map((v) => [String(v._id), v]));
-        return live.map((t) =>
-          toLiveMapTechnician({
-            ...t,
-            assignedVehicle: t.assignedVehicle
-              ? vehicleById.get(String(t.assignedVehicle)) || null
-              : null,
-          })
-        );
-      }
-    );
+    const technicians = await getFreshLiveMapTechnicians();
 
     res.json({ technicians });
   } catch (err) {
@@ -411,6 +460,10 @@ async function updateTechnician(req, res) {
     );
     
     if (!technician) return res.status(404).json({ message: "Technician not found" });
+    // The technician list is served from an in-process roster; without this an
+    // edit did not show in the table for up to ten minutes.
+    invalidateTechnicianRoster();
+    clearLiveMapMemo();
     res.json({ technician });
   } catch (err) {
     res.status(500).json({ message: "Failed to update technician", error: err.message });
@@ -422,6 +475,8 @@ async function deleteTechnician(req, res) {
   try {
     const technician = await Technician.findByIdAndDelete(req.params.id);
     if (!technician) return res.status(404).json({ message: "Technician not found" });
+    invalidateTechnicianRoster();
+    clearLiveMapMemo();
     res.json({ message: "Technician deleted" });
   } catch (err) {
     res.status(500).json({ message: "Failed to delete technician", error: err.message });
@@ -478,8 +533,61 @@ async function toggleActiveStatus(req, res) {
   try {
     const technician = await Technician.findById(req.params.id);
     if (!technician) return res.status(404).json({ message: "Technician not found" });
-    technician.isActive = !technician.isActive;
+
+    const wasActive = technician.isActive !== false;
+    // Callers should say which state they want. A bare flip is not safe to
+    // repeat: the technician list is cached, so the switch did not appear to
+    // move, the admin clicked again, and the account flipped straight back —
+    // or was left off without anyone meaning it. Old clients that send no
+    // body still get the flip.
+    const requested = req.body?.isActive;
+    const nextActive = typeof requested === "boolean" ? requested : !wasActive;
+
+    if (nextActive === wasActive) {
+      return res.json({ technician, unchanged: true });
+    }
+
+    // Deactivating locks the technician out of the app on their next request.
+    // Doing that to someone who is on a job strands them mid-job with a
+    // customer, and takes them off the Live Map. Make it a deliberate choice.
+    if (!nextActive && req.body?.force !== true) {
+      const openJob = await Job.findOne({
+        assignedTechnician: technician._id,
+        job_status: { $in: OFFLINE_BLOCKING_STATUSES },
+      })
+        .select("_id job_status job_reference")
+        .lean();
+      if (openJob) {
+        return res.status(409).json({
+          code: "TECHNICIAN_HAS_ACTIVE_JOB",
+          message:
+            "This technician has a job in progress. Deactivating now locks them out of the app immediately.",
+          job_id: String(openJob._id),
+          job_status: openJob.job_status,
+          job_reference: openJob.job_reference || "",
+        });
+      }
+    }
+
+    technician.isActive = nextActive;
     await technician.save();
+    invalidateTechnicianRoster();
+    clearLiveMapMemo();
+    await refreshTechnicianRoster();
+
+    // This switch decides whether someone can work. It used to leave no trace.
+    await recordAudit({
+      req,
+      action: nextActive ? "technician.activate" : "technician.deactivate",
+      entityType: "technician",
+      entityId: technician._id,
+      changes: {
+        isActive: { from: wasActive, to: nextActive },
+        currentStatus: technician.currentStatus,
+        forced: !nextActive && req.body?.force === true,
+      },
+    });
+
     res.json({ technician });
   } catch (err) {
     res.status(500).json({ message: "Failed to toggle active status", error: err.message });

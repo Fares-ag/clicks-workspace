@@ -4,6 +4,7 @@ import "./DataTable.css";
 const TableHeader = ({
   title,
   onSearch,
+  searchValue,
   onFilter,
   searchPlaceholder,
   filterOptions,
@@ -25,6 +26,7 @@ const TableHeader = ({
               type="text"
               className="search-input"
               placeholder={searchPlaceholder}
+              {...(searchValue !== undefined ? { value: searchValue } : {})}
               onChange={(e) => onSearch && onSearch(e.target.value)}
             />
           </div>

@@ -129,6 +129,21 @@ function ConvertLead() {
       <div className="add-new-job-card" style={{ marginBottom: 16 }}>
         <p><strong>{lead.clientName}</strong> — {lead.clientMobileNumber}</p>
         <p>{lead.inquiry}</p>
+        {(lead.vehicleMake || lead.vehicleModel || lead.licensePlate) && (
+          <p>
+            {[lead.vehicleYear, lead.vehicleMake, lead.vehicleModel, lead.licensePlate]
+              .filter(Boolean)
+              .join(" ")}
+          </p>
+        )}
+        <button
+          type="button"
+          className="add-new-job-cancel"
+          style={{ marginTop: 8 }}
+          onClick={() => navigate(`/leads/${id}/edit`)}
+        >
+          Edit lead details
+        </button>
       </div>
 
       {lead.status === "lost" && (

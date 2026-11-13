@@ -11,6 +11,10 @@ const {
   closeSosAsNotAJob,
 } = require("../../../clicks-shared/services/sosOutcomes");
 const { upcomingBookingsForCustomer } = require("../../../clicks-shared/utils/customerBookingGuard");
+const {
+  getOncallPhones,
+  getSupportPhone,
+} = require("../../../clicks-shared/services/opsSettings");
 
 // Cap on how many customer/vehicle ids a single search may expand into, so a
 // very broad term cannot build an unbounded $in list.
@@ -167,12 +171,77 @@ async function notifyClaim(body) {
   await postToTechApi("/api/sos/notify-claim", body);
 }
 
+function populateSos(id) {
+  return SOSRequest.findById(id)
+    .populate("customer_id", "first_name last_name phone_number email")
+    .populate({
+      path: "customer_vehicle_id",
+      populate: [
+        { path: "vehicle_make", select: "makeName" },
+        { path: "vehicle_model", select: "modelName" },
+      ],
+    })
+    .populate("claimed_by", "firstName lastName email")
+    .populate("job_id", "job_status");
+}
+
+function claimUpdate(claimerId, now) {
+  return [
+    {
+      $set: {
+        status: "in_call",
+        claimed_by: claimerId,
+        in_call_at: { $ifNull: ["$in_call_at", now] },
+        claimed_at: { $ifNull: ["$claimed_at", now] },
+      },
+    },
+  ];
+}
+
+async function finishClaim({ req, sos, claimerId, adminId, now }) {
+  const prior = {
+    status: sos.status,
+    claimed_by: sos.claimed_by,
+    claimed_at: sos.claimed_at,
+    in_call_at: sos.in_call_at,
+  };
+  const applied = {
+    status: "in_call",
+    claimed_by: claimerId,
+    claimed_at: sos.claimed_at || now,
+    in_call_at: sos.in_call_at || now,
+  };
+
+  await recordAudit({
+    req,
+    action: "sos.claim",
+    entityType: "sos",
+    entityId: sos._id,
+    changes: computeChanges(prior, applied, [
+      "status",
+      "claimed_by",
+      "claimed_at",
+      "in_call_at",
+    ]),
+  });
+
+  const populated = await populateSos(sos._id);
+  await notifyClaim({
+    sos_id: sos._id.toString(),
+    admin_id: String(adminId),
+    customer_id: String(sos.customer_id),
+  });
+  return populated;
+}
+
 const getSOSRequests = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20", 10)));
     const status = req.query.status;
     const search = (req.query.search || "").trim();
+    const sortOldest = String(req.query.sort || "").toLowerCase() === "oldest";
+    const listSort = sortOldest ? { createdAt: 1, _id: 1 } : { createdAt: -1 };
 
     const filter = {};
     if (status) {
@@ -200,14 +269,18 @@ const getSOSRequests = async (req, res) => {
       })
       .populate("claimed_by", "firstName lastName email")
       .populate("job_id", "job_status")
-      .sort({ createdAt: -1 })
+      .sort(listSort)
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, pending, inCall, oncallPhones, supportPhone] = await Promise.all([
       query.exec(),
       cachedCount(SOSRequest, filter, { ttlMs: 15000, key: `sos:${status || "all"}:${search}` }),
+      cachedCount(SOSRequest, { status: "pending" }, { ttlMs: 15000, key: "nav_sos_pending" }),
+      cachedCount(SOSRequest, { status: "in_call" }, { ttlMs: 15000, key: "nav_sos_in_call" }),
+      getOncallPhones().catch(() => []),
+      getSupportPhone().catch(() => null),
     ]);
 
     const requests = rows.map(mapSos);
@@ -220,6 +293,14 @@ const getSOSRequests = async (req, res) => {
         total,
         pages: Math.ceil(total / limit) || 1,
       },
+      queue: {
+        pending,
+        in_call: inCall,
+      },
+      ops: {
+        oncall_configured: Array.isArray(oncallPhones) && oncallPhones.length > 0,
+        support_configured: Boolean(supportPhone),
+      },
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to list SOS requests", details: err.message });
@@ -228,17 +309,7 @@ const getSOSRequests = async (req, res) => {
 
 const getSOSById = async (req, res) => {
   try {
-    const sos = await SOSRequest.findById(req.params.id)
-      .populate("customer_id", "first_name last_name phone_number email")
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-        ],
-      })
-      .populate("claimed_by", "firstName lastName email")
-      .populate("job_id", "job_status");
+    const sos = await populateSos(req.params.id);
 
     if (!sos) {
       return res.status(404).json({ error: "SOS not found" });
@@ -265,16 +336,7 @@ const claimSOS = async (req, res) => {
         status: { $in: ["pending", "in_call"] },
         $or: [{ claimed_by: null }, { claimed_by: claimerId }],
       },
-      [
-        {
-          $set: {
-            status: "in_call",
-            claimed_by: claimerId,
-            in_call_at: { $ifNull: ["$in_call_at", now] },
-            claimed_at: { $ifNull: ["$claimed_at", now] },
-          },
-        },
-      ],
+      claimUpdate(claimerId, now),
       { new: false }
     );
 
@@ -307,58 +369,45 @@ const claimSOS = async (req, res) => {
       });
     }
 
-    // `sos` is the pre-image returned by the atomic update, so it doubles as the
-    // "before" side of the audit diff; the "after" side is what was just written.
-    const prior = {
-      status: sos.status,
-      claimed_by: sos.claimed_by,
-      claimed_at: sos.claimed_at,
-      in_call_at: sos.in_call_at,
-    };
-    const applied = {
-      status: "in_call",
-      claimed_by: claimerId,
-      claimed_at: sos.claimed_at || now,
-      in_call_at: sos.in_call_at || now,
-    };
-
-    await recordAudit({
-      req,
-      action: "sos.claim",
-      entityType: "sos",
-      entityId: sos._id,
-      changes: computeChanges(prior, applied, [
-        "status",
-        "claimed_by",
-        "claimed_at",
-        "in_call_at",
-      ]),
-    });
-
-    const populated = await SOSRequest.findById(sos._id)
-      .populate("customer_id", "first_name last_name phone_number email")
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-        ],
-      })
-      .populate("claimed_by", "firstName lastName email")
-      .populate("job_id", "job_status");
-
-    await notifyClaim({
-      sos_id: sos._id.toString(),
-      admin_id: String(adminId),
-      customer_id: String(sos.customer_id),
-    });
-
+    const populated = await finishClaim({ req, sos, claimerId, adminId, now });
     res.json({
       message: "SOS claimed",
       request: mapSos(populated),
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to claim SOS", details: err.message });
+  }
+};
+
+const claimNextSOS = async (req, res) => {
+  try {
+    const adminId = req.user.id || req.user._id;
+    const claimerId = new mongoose.Types.ObjectId(String(adminId));
+    const now = new Date();
+
+    const sos = await SOSRequest.findOneAndUpdate(
+      {
+        status: "pending",
+        $or: [{ claimed_by: null }, { claimed_by: { $exists: false } }],
+      },
+      claimUpdate(claimerId, now),
+      { sort: { createdAt: 1, _id: 1 }, new: false }
+    );
+
+    if (!sos) {
+      return res.status(409).json({
+        error: "No unclaimed pending SOS",
+        code: "SOS_QUEUE_EMPTY",
+      });
+    }
+
+    const populated = await finishClaim({ req, sos, claimerId, adminId, now });
+    res.json({
+      message: "SOS claimed",
+      request: mapSos(populated),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to claim next SOS", details: err.message });
   }
 };
 
@@ -419,17 +468,7 @@ const takeoverSOS = async (req, res) => {
       customer_id: String(prior.customer_id),
     });
 
-    const populated = await SOSRequest.findById(prior._id)
-      .populate("customer_id", "first_name last_name phone_number email")
-      .populate({
-        path: "customer_vehicle_id",
-        populate: [
-          { path: "vehicle_make", select: "makeName" },
-          { path: "vehicle_model", select: "modelName" },
-        ],
-      })
-      .populate("claimed_by", "firstName lastName email")
-      .populate("job_id", "job_status");
+    const populated = await populateSos(prior._id);
 
     res.json({
       message: "SOS taken over",
@@ -527,6 +566,7 @@ module.exports = {
   getSOSRequests,
   getSOSById,
   claimSOS,
+  claimNextSOS,
   takeoverSOS,
   scheduleSOS,
   closeSOS,

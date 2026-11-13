@@ -95,7 +95,7 @@ describe("applyTechnicianLocationWrite", () => {
     assert.deepEqual(stored.currentLocation.coordinates, [BASE_LNG, BASE_LAT]);
   });
 
-  it(`rejects moves smaller than ${MIN_MOVE_METERS}m`, async () => {
+  it(`a move smaller than ${MIN_MOVE_METERS}m keeps the pin but still counts as a heartbeat`, async () => {
     const Technician = createMockTechnician({ lat: BASE_LAT, lng: BASE_LNG });
     Technician.seed("tech1", {
       currentLocation: { type: "Point", coordinates: [BASE_LNG, BASE_LAT] },
@@ -108,6 +108,8 @@ describe("applyTechnicianLocationWrite", () => {
       latitude: BASE_LAT,
       longitude: BASE_LNG,
     });
+    setLocationWriteStateForTests("tech1", { lastHeartbeatAt: 0 });
+    const before = Date.now();
 
     const broadcasts = [];
     const jitterLat = BASE_LAT + 0.00004; // ~4.4 m north
@@ -116,14 +118,76 @@ describe("applyTechnicianLocationWrite", () => {
       technicianId: "tech1",
       latitude: jitterLat,
       longitude: BASE_LNG,
+      onAdminBroadcast: (id, lat, lng) => broadcasts.push({ lat, lng }),
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.heartbeat, true);
+    assert.equal(result.coordsChanged, false);
+    // The pin does not move, in the database or on the admin map.
+    const stored = Technician.get("tech1");
+    assert.equal(stored.currentLocation.coordinates[1], BASE_LAT);
+    assert.deepEqual(broadcasts, [{ lat: BASE_LAT, lng: BASE_LNG }]);
+    assert.equal(result.lat, BASE_LAT);
+    // ...but the app has checked in.
+    assert.ok(new Date(stored.lastHeartbeatAt).getTime() >= before);
+  });
+
+  it("a technician who comes back Online a few metres from the stored pin keeps checking in", async () => {
+    // The database holds where the van was parked at the end of the last shift.
+    const yesterday = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const Technician = createMockTechnician();
+    Technician.seed("tech1", {
+      currentLocation: { type: "Point", coordinates: [BASE_LNG, BASE_LAT] },
+      lastLocationAt: yesterday,
+      lastHeartbeatAt: yesterday,
+    });
+
+    // The app's first fix of the new shift is ~11 m off (GPS noise); it then
+    // replays that same pin every 12 s while the van stays parked.
+    const appPinLat = BASE_LAT + 0.0001;
+    const broadcasts = [];
+    for (let beat = 0; beat < 5; beat++) {
+      setLocationWriteStateForTests("tech1", { lastHeartbeatAt: 0 });
+      const before = Date.now();
+      const result = await applyTechnicianLocationWrite({
+        Technician,
+        technicianId: "tech1",
+        latitude: appPinLat,
+        longitude: BASE_LNG,
+        fixTime: new Date().toISOString(),
+        onAdminBroadcast: () => broadcasts.push(1),
+      });
+      assert.equal(result.ok, true, `beat ${beat} must be accepted`);
+      assert.ok(
+        new Date(Technician.get("tech1").lastHeartbeatAt).getTime() >= before,
+        `beat ${beat} must refresh lastHeartbeatAt`
+      );
+    }
+    assert.equal(broadcasts.length, 5);
+  });
+
+  it("small-move heartbeats are still throttled", async () => {
+    const Technician = createMockTechnician();
+    await applyTechnicianLocationWrite({
+      Technician,
+      technicianId: "tech1",
+      latitude: BASE_LAT,
+      longitude: BASE_LNG,
+    });
+
+    const broadcasts = [];
+    const result = await applyTechnicianLocationWrite({
+      Technician,
+      technicianId: "tech1",
+      latitude: BASE_LAT + 0.00004,
+      longitude: BASE_LNG,
       onAdminBroadcast: () => broadcasts.push(1),
     });
 
     assert.equal(result.ok, false);
-    assert.equal(result.reason, "min_move");
+    assert.equal(result.reason, "heartbeat_throttle");
     assert.equal(broadcasts.length, 0);
-    const stored = Technician.get("tech1");
-    assert.equal(stored.currentLocation.coordinates[1], BASE_LAT);
   });
 
   it("accepts moves at or above minimum distance", async () => {

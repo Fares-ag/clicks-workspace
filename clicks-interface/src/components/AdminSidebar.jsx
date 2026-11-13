@@ -70,6 +70,16 @@ const navItems = [
     to: "/finance",
   },
   {
+    label: "Membership Packages",
+    icon: "/icons/li-heart-handshake.svg",
+    to: "/membership-plans",
+  },
+  {
+    label: "Customer Memberships",
+    icon: "/icons/users.svg",
+    to: "/customer-memberships",
+  },
+  {
     label: "Refunds",
     icon: "/icons/earnings-chart.svg",
     to: "/refunds",

@@ -58,13 +58,16 @@ function AddJobModal({ open, onClose, onSuccess, sosData }) {
     return filtered;
   }, [allTechnicians, formData.jobType]);
 
-  // Populate form with SOS data if available
+  // Prefill SOS fields once per SOS. Reloading sources must not wipe `issue`.
   useEffect(() => {
-    if (sosData && open) {
-      // Find the SOS source from sources list
-      const sosSource = sources.find(s => s.mainSourceName?.toLowerCase() === 'sos');
-      
-      setFormData(prev => ({
+    if (!sosData || !open) return;
+    const sosSource = (sourcesData?.sources || []).find(
+      (s) => s.mainSourceName?.toLowerCase() === "sos"
+    );
+
+    setFormData((prev) => {
+      const sosChanged = prev.sos_id !== sosData.sos_id;
+      return {
         ...prev,
         customer_id: sosData.customer_id,
         customer_vehicle_id: sosData.customer_vehicle_id,
@@ -73,13 +76,14 @@ function AddJobModal({ open, onClose, onSuccess, sosData }) {
           sosData.customer.phone,
           DEFAULT_COUNTRY_CODE
         ),
-        issue: "", // Optional - admin fills this
-        location: sosData.location.coordinates, // GPS coordinates as string
-        source: sosSource?._id || "",
-        sos_id: sosData.sos_id
-      }));
-    }
-  }, [sosData, open, sources]);
+        location: sosChanged
+          ? sosData.location.coordinates
+          : prev.location || sosData.location.coordinates,
+        source: prev.source || sosSource?._id || "",
+        sos_id: sosData.sos_id,
+      };
+    });
+  }, [sosData, open, sourcesData]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

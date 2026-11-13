@@ -54,6 +54,8 @@ const BusinessDetails = lazyPage(() => import("./pages/BusinessManagement/Busine
 const Finance = lazyPage(() => import("./pages/Finance/Finance.jsx"));
 const FinanceUsers = lazyPage(() => import("./pages/FinanceUsers/FinanceUsers.jsx"));
 const Refunds = lazyPage(() => import("./pages/Payments/Refunds.jsx"));
+const MembershipPlans = lazyPage(() => import("./pages/Memberships/MembershipPlans.jsx"));
+const CustomerMemberships = lazyPage(() => import("./pages/Memberships/CustomerMemberships.jsx"));
 const PaymentLedger = lazyPage(() => import("./pages/Payments/PaymentLedger.jsx"));
 const FailedEvents = lazyPage(() => import("./pages/Payments/FailedEvents.jsx"));
 const Partners = lazyPage(() => import("./pages/PartnerManagement/Partners.jsx"));
@@ -120,6 +122,8 @@ function App() {
         <Route path="/businesses/:id" element={<BusinessDetails />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/finance-users" element={<FinanceUsers />} />
+        <Route path="/membership-plans" element={<MembershipPlans />} />
+        <Route path="/customer-memberships" element={<CustomerMemberships />} />
         <Route path="/refunds" element={<Refunds />} />
         <Route path="/payment-ledger" element={<PaymentLedger />} />
         <Route path="/failed-events" element={<FailedEvents />} />
@@ -130,6 +134,7 @@ function App() {
         <Route path="/jobs/:id" element={<JobDetails />} />
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/new" element={<AddNewLead />} />
+        <Route path="/leads/:id/edit" element={<AddNewLead />} />
         <Route path="/leads/:id/convert" element={<ConvertLead />} />
         <Route path="/leads/:id" element={<LeadDetails />} />
         <Route path="/sos" element={<SOSInbox />} />

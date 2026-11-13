@@ -1,6 +1,7 @@
 import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useGetCustomerByIdQuery } from "../../store/customerApi";
+import ClientMemberships from "../Memberships/ClientMemberships.jsx";
 import "./ClientDetails.css";
 
 export default function ClientDetails() {
@@ -85,6 +86,8 @@ export default function ClientDetails() {
             </div>
           </div>
         </div>
+
+        <ClientMemberships customerId={id} />
 
         {/* Account Activity */}
         <div className="client-details-section">

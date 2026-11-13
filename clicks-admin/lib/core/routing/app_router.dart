@@ -241,6 +241,11 @@ class AppRouter {
       final id = leadConvertMatch.group(1)!;
       return _shell(ConvertLeadScreen(leadId: id), path, showTopBar: false);
     }
+    final leadEditMatch = RegExp(r'^/leads/([^/]+)/edit$').firstMatch(path);
+    if (leadEditMatch != null) {
+      final id = leadEditMatch.group(1)!;
+      return _shell(AddLeadScreen(leadId: id), path, showTopBar: false);
+    }
     final leadMatch = RegExp(r'^/leads/([^/]+)$').firstMatch(path);
     if (leadMatch != null) {
       final id = leadMatch.group(1)!;
