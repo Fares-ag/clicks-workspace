@@ -48,5 +48,8 @@ release-apks/
 
 # Machine-transfer secrets dump — NEVER commit or push
 SECRETS.TRANSFER.md
+
+# Local prod deploy clone (not a submodule)
+.prod-cli-deploy/
 **/SECRETS.TRANSFER.md
 
