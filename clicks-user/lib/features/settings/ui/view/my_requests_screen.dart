@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/content_repository.dart';
 import '../../../../core/theme/colors_manager.dart';
 import '../../../../core/theme/text_styles.dart';
@@ -71,14 +72,9 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ColorsManager.canvas,
-      appBar: AppBar(
-        title: Text(
-          'settings.my_requests'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      appBar: ClicksAppHeader(
+        title: 'settings.my_requests'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: _loading
           ? Center(child: CircularProgressIndicator(color: ColorsManager.mainColor))
@@ -120,7 +116,7 @@ class _RequestCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ColorsManager.washBorder),
+        border: Border.all(color: ColorsManager.cardBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

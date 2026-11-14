@@ -168,7 +168,7 @@ class MembershipStickyCta extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 12.h),
         decoration: BoxDecoration(
           color: Colors.white,
-          border: Border(top: BorderSide(color: ColorsManager.washBorder)),
+          border: Border(top: BorderSide(color: ColorsManager.cardBorder)),
         ),
         child: SizedBox(
           width: double.infinity,

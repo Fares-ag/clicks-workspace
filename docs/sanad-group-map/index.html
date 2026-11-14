@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0A2635" />
+<title>Sanad Group — Regional Footprint</title>
+<link rel="icon" type="image/png" href="SanadLogo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<style>
+  /* Sanad brand typeface */
+  @font-face {
+    font-family: "Helvetica Neue Sanad"; font-style: normal; font-weight: 400; font-display: swap;
+    src: url("fonts/HelveticaNeueRoman.otf") format("opentype");
+  }
+  @font-face {
+    font-family: "Helvetica Neue Sanad"; font-style: normal; font-weight: 500; font-display: swap;
+    src: url("fonts/HelveticaNeueMedium.otf") format("opentype");
+  }
+  @font-face {
+    font-family: "Helvetica Neue Sanad"; font-style: normal; font-weight: 700; font-display: swap;
+    src: url("fonts/HelveticaNeueBold.otf") format("opentype");
+  }
+
+  /* Sanad brand tokens — mirrors clicks-interface/src/styles/theme.css */
+  :root {
+    --navy: #0A2635;        /* --color-primary */
+    --navy-deep: #061820;   /* --color-primary-hover */
+    --panel: #0E3345;       /* logo navy */
+    --line: #1A4A63;        /* --color-primary-light */
+    --text: #FFFFFF;
+    --muted: #C5D4DC;       /* --color-primary-lighter */
+    --live: #12B76A;        /* --color-approved */
+    --launch: #F79009;      /* --color-pending */
+    --academy: #0BA5EC;     /* --color-accepted */
+    --planned: #C5D4DC;
+    --font: "Helvetica Neue Sanad", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    --header: 64px;
+  }
+  html[lang="ar"] { --font: "IBM Plex Sans Arabic", "Helvetica Neue Sanad", "Segoe UI", Tahoma, sans-serif; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--navy); color: var(--text); font-family: var(--font); }
+  body { min-height: 100dvh; }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--launch); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .pin-pulse { animation: none !important; } }
+
+  .topbar {
+    height: var(--header);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 0 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: rgba(10,38,53,0.92);
+    backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .brand img { height: 28px; filter: brightness(0) invert(1); }
+  .brand h1 { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand span { color: var(--muted); font-size: 13px; display: none; }
+  @media (min-width: 900px) { .brand span { display: inline; } }
+  .actions { display: flex; align-items: center; gap: 10px; flex: none; }
+  .lang {
+    display: flex; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px; padding: 3px;
+  }
+  .lang button {
+    border: 0; background: transparent; color: var(--muted);
+    padding: 7px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; min-width: 44px;
+  }
+  .lang button[aria-pressed="true"] { background: #fff; color: var(--navy); }
+  .hint { color: var(--muted); font-size: 13px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 380px) 1fr minmax(280px, 360px);
+    height: calc(100dvh - var(--header));
+  }
+  .rail {
+    overflow: auto; background: var(--panel);
+    border-inline-end: 1px solid rgba(255,255,255,0.08);
+    padding: 22px 20px 28px; display: flex; flex-direction: column; gap: 22px;
+  }
+  .section-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  html[lang="ar"] .section-label { letter-spacing: 0; font-size: 13px; }
+  .holding {
+    border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .holding .name { font-weight: 700; font-size: 15px; }
+  .holding .desc { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .holding .lead { margin-top: 8px; font-size: 13px; }
+
+  .opcos { list-style: none; display: grid; gap: 6px; }
+  .opcos button {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text); border-radius: 10px; padding: 10px 12px; text-align: start; font-size: 14px;
+  }
+  .opcos button:hover, .opcos button[aria-current="true"] {
+    background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.22);
+  }
+  .opcos .st { color: var(--muted); margin-inline-start: auto; font-size: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .dot.live { background: var(--live); }
+  .dot.launch { background: var(--launch); }
+  .dot.academy { background: var(--academy); }
+  .dot.planned { background: transparent; border: 1.8px dashed var(--planned); }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 10px 12px;
+  }
+  .tile b { display: block; font-size: 22px; font-weight: 800; }
+  html[lang="ar"] .tile b { font-weight: 700; font-size: 20px; }
+  .tile span { color: var(--muted); font-size: 12px; display: block; margin-top: 4px; line-height: 1.4; }
+  .tile.seed { grid-column: 1 / -1; border-color: rgba(247,144,9,0.5); background: rgba(247,144,9,0.09); }
+  .tile.seed b { color: var(--launch); }
+
+  .timeline { list-style: none; position: relative; padding-inline-start: 18px; display: grid; gap: 6px; }
+  .timeline::before {
+    content: ""; position: absolute; inset-inline-start: 4px; top: 8px; bottom: 8px; width: 1px;
+    background: rgba(255,255,255,0.16);
+  }
+  .timeline button {
+    width: 100%; position: relative; background: transparent; border: 0; color: inherit;
+    text-align: start; font-size: 13.5px; line-height: 1.4; padding: 6px 8px; border-radius: 8px;
+  }
+  .timeline button:hover, .timeline button[aria-current="true"] { background: rgba(255,255,255,0.06); }
+  .timeline button::before {
+    content: ""; position: absolute; inset-inline-start: -18px; top: 10px;
+    width: 9px; height: 9px; border-radius: 50%; background: var(--c);
+  }
+  .when { font-weight: 700; color: var(--c); margin-inline-end: 6px; }
+
+  .legend-block { margin-top: auto; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 12.5px; color: var(--muted); }
+  .legend div { display: flex; align-items: center; gap: 8px; }
+  .legend svg { flex: none; }
+  .legend-hint { margin-top: 12px; font-size: 12px; color: var(--muted); opacity: 0.75; }
+
+  /* ---------- MAP ---------- */
+  .map-wrap { position: relative; min-height: 420px; background: var(--navy-deep); overflow: hidden; }
+  #map { position: absolute; inset: 0; }
+  .maplibregl-ctrl-attrib { background: rgba(8,30,42,0.7) !important; }
+  .maplibregl-ctrl-attrib a { color: var(--muted) !important; }
+  .maplibregl-ctrl-logo { display: none !important; }
+
+  /* City pins (DOM markers) */
+  /* No position/transform here: MapLibre sets position:absolute + the centering
+     transform on the marker element itself. Overriding either one detaches the pin
+     from its coordinate. */
+  .pin { cursor: pointer; line-height: 1; }
+  .pin-dot {
+    width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #04141d; position: relative; z-index: 2;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 0 16px 3px currentColor;
+  }
+  .pin-dot::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: rgba(255,255,255,0.9); }
+  .pin-pulse {
+    position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; border-radius: 50%;
+    transform: translate(-50%, -50%); border: 2px solid currentColor; z-index: 1; animation: pulse 2.4s ease-out infinite;
+  }
+  @keyframes pulse { 0% { transform: translate(-50%,-50%) scale(1); opacity: 0.7; } 100% { transform: translate(-50%,-50%) scale(3.2); opacity: 0; } }
+  .pin-live { color: var(--live); } .pin-live .pin-dot { background: var(--live); }
+  .pin-launch { color: var(--launch); } .pin-launch .pin-dot { background: var(--launch); }
+  .pin-academy { color: var(--academy); } .pin-academy .pin-dot { background: var(--academy); }
+  .pin-planned { color: var(--planned); } .pin-planned .pin-dot { background: #0A2635; border-style: dashed; }
+  .pin-planned .pin-dot::after { display: none; }
+  .pin.sel .pin-dot { box-shadow: 0 0 0 3px rgba(255,255,255,0.4), 0 0 22px 5px currentColor; }
+
+  .pin-name {
+    position: absolute; inset-inline-start: 22px; top: -7px; white-space: nowrap;
+    font-weight: 700; font-size: 13px; color: #fff; text-shadow: 0 1px 4px #000, 0 0 4px #000; pointer-events: none;
+  }
+  .pin-badges { position: absolute; inset-inline-start: 22px; top: 11px; display: flex; gap: 4px; align-items: center; pointer-events: none; }
+  .b-t { background: var(--live); color: #04141d; font-weight: 800; font-size: 10px; border-radius: 7px; padding: 1px 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.45); }
+  .b-call { width: 12px; height: 12px; border: 2px solid var(--launch); border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.45); }
+  .b-hq { width: 11px; height: 11px; background: var(--launch); border-radius: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.45); }
+  .b-academy { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--academy); filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45)); }
+
+  .route-pill {
+    background: rgba(8,30,42,0.95); border: 1px solid rgba(247,144,9,0.7);
+    color: var(--launch); font-size: 12px; font-weight: 600; border-radius: 12px; padding: 5px 10px; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: none;
+  }
+
+  .loading { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; color: var(--muted); background: var(--navy-deep); }
+  .loading[hidden] { display: none; }
+
+  .detail {
+    overflow: auto; background: var(--panel);
+    border-inline-start: 1px solid rgba(255,255,255,0.08); padding: 22px 20px 28px;
+  }
+  .card {
+    border: 1px solid rgba(255,255,255,0.12); border-inline-start: 5px solid var(--c, var(--live));
+    border-radius: 14px; padding: 16px; background: rgba(8,30,42,0.65);
+  }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .code {
+    font-size: 12px; font-weight: 700; width: 34px; height: 25px; border-radius: 6px;
+    display: grid; place-items: center; background: rgba(255,255,255,0.1); flex: none;
+  }
+  .country-name { font-size: 22px; font-weight: 700; }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .pill {
+    margin-inline-start: auto; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    color: var(--c); border: 1.5px solid var(--c); border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+  }
+  html[lang="ar"] .pill { text-transform: none; font-size: 13px; }
+  .stats { display: flex; gap: 20px; margin-top: 14px; }
+  .stats b { display: block; font-size: 24px; font-weight: 800; }
+  .stats span { font-size: 12px; color: var(--muted); }
+  .card ul { list-style: none; margin-top: 14px; display: grid; gap: 8px; }
+  .card li { font-size: 15px; line-height: 1.45; padding-inline-start: 16px; position: relative; }
+  .card li::before {
+    content: ""; position: absolute; inset-inline-start: 0; top: 8px; width: 7px; height: 7px;
+    border-radius: 50%; background: var(--c);
+  }
+  .note { font-size: 13px; color: var(--muted); margin-top: 12px; line-height: 1.45; }
+  .empty { color: var(--muted); font-size: 14px; line-height: 1.5; padding: 8px 2px; }
+  .flows-note { margin-top: 16px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .meta div { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 8px 10px; }
+  .meta b { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .meta span { font-size: 14px; }
+
+  .zoom { position: absolute; bottom: 16px; inset-inline-end: 16px; z-index: 5; display: flex; flex-direction: column; gap: 6px; }
+  .zoom button {
+    width: 40px; height: 40px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(8,30,42,0.9); color: var(--text); font-size: 20px;
+  }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(52vh, 1fr) auto; height: auto; }
+    .rail, .detail { border: 0; max-height: none; }
+    .map-wrap { height: 60vh; }
+    .detail { border-top: 1px solid rgba(255,255,255,0.08); }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="SanadLogo.png" alt="Sanad" />
+      <h1 id="pageTitle"></h1>
+      <span id="pageHint"></span>
+    </div>
+    <div class="actions">
+      <p class="hint" id="clickHint"></p>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ar" aria-pressed="false">عربي</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="rail" id="rail"></aside>
+    <main class="map-wrap">
+      <div id="map"></div>
+      <div class="loading" id="loading">Loading map…</div>
+      <div class="zoom">
+        <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+        <button type="button" id="zoomReset" aria-label="Reset map">⌂</button>
+      </div>
+    </main>
+    <aside class="detail" id="detail"></aside>
+  </div>
+
+<script>
+const STRINGS = {
+  en: {
+    pageTitle: "Group footprint",
+    pageHint: "November 2026",
+    clickHint: "Click a market",
+    structure: "Structure",
+    holdingName: "ADGM SPV · Abu Dhabi",
+    holdingDesc: "Holding company that owns every Sanad entity",
+    leadership: "Group leadership: <b>CEO</b> · <b>CTO</b>",
+    opcos: [
+      ["doha", "live", "Qatar", "Live"],
+      ["egypt", "launch", "Egypt · New Cairo", "Opens Nov 2026"],
+      ["abuDhabi", "launch", "UAE · Abu Dhabi", "Opens Dec 2026"],
+      ["jordan", "academy", "Jordan · Sanad Academy", "OpCo + training"],
+      ["riyadh", "planned", "Saudi · North Riyadh", "Planned"],
+    ],
+    numbers: "Headline numbers",
+    tiles: [
+      ["", "QAR 500K", "revenue / month in Qatar"],
+      ["", "$25M", "valuation, Qatar alone"],
+      ["", "12", "technicians by Dec 2026"],
+      ["", "100+", "app sign-ups targeted in Dec"],
+      ["seed", "$3M", "seed round, announced at January demo day"],
+    ],
+    road: "Road to demo day",
+    timeline: [
+      ["doha", "live", "Now", "Qatar live with 5 active technicians"],
+      ["egypt", "launch", "Nov 2026", "Egypt opens in New Cairo with 2 technicians"],
+      ["abuDhabi", "launch", "Dec 2026", "Abu Dhabi opens with 3 technicians and a call center"],
+      ["", "live", "Dec 2026", "Customer app launches — targeting 100+ sign-ups"],
+      ["", "launch", "Jan 2027", "Demo day: $3M seed, new markets profitable"],
+      ["riyadh", "planned", "Next", "North Riyadh launch; Qatar grows to 10 technicians"],
+    ],
+    legend: { live: "Live market", launch: "Launching", academy: "Academy hub", planned: "Planned", trained: "Trained technicians", calls: "Call routing" },
+    mapKey: { title: "On the map", hq: "Group HQ (ADGM)", academy: "Sanad Academy", call: "Call center", techs: "Technicians", zoom: "Zoom in for streets & more cities" },
+    cities: { doha: "Doha", abuDhabi: "Abu Dhabi", egypt: "New Cairo", riyadh: "North Riyadh", jordan: "Amman" },
+    route: "Egypt calls answered in Abu Dhabi",
+    empty: "Click a country, a city, or a row on the left to see the details.",
+    academyFlow: "Sanad Academy in Jordan trains technicians and sends them to every market.",
+    callFlow: "One call-center person in Abu Dhabi will take calls from UAE and Egypt.",
+    loadError: "Could not load the map. Check your internet connection and refresh.",
+    loading: "Loading map…",
+    cards: {
+      doha: { code: "QA", name: "Qatar", sub: "Doha · flagship market", pill: "Live",
+        stats: [["QAR 500K", "revenue / month"], ["$25M", "valuation"]],
+        meta: [["City", "Doha"], ["Role", "Live operations"], ["Team now", "11 people"], ["Next", "10 technicians"]],
+        items: ["7 technicians on the roster — 5 on jobs today", "3 call-center agents in Doha", "1 accountant", "Coverage across Doha, Lusail, Al Wakrah and Al Khor"] },
+      abuDhabi: { code: "AE", name: "UAE", sub: "Abu Dhabi", pill: "Dec 2026",
+        meta: [["City", "Abu Dhabi"], ["Role", "HQ + launch market"], ["Team at launch", "4 people"], ["Opens", "December 2026"]],
+        items: ["3 technicians at launch", "1-person call center covering UAE and Egypt", "ADGM SPV — holding company for the group", "Also covers Dubai and Al Ain as the market grows"] },
+      egypt: { code: "EG", name: "Egypt", sub: "New Cairo", pill: "Nov 2026",
+        meta: [["City", "New Cairo"], ["Role", "Launch market"], ["Team at launch", "2 technicians"], ["Opens", "November 2026"]],
+        items: ["2 technicians based in New Cairo", "Customer calls go to the Abu Dhabi call center", "Nile corridor: New Cairo, Cairo, 6th of October"],
+        note: "Target: profitable before January demo day" },
+      jordan: { code: "JO", name: "Jordan", sub: "Amman · operating company", pill: "Academy",
+        meta: [["City", "Amman"], ["Role", "OpCo + training"], ["Focus", "Sanad Academy"], ["Exports to", "All markets"]],
+        items: ["Sanad Academy trains technicians in Amman", "Graduates are placed in Qatar, Egypt, UAE and later Saudi", "Operating company for the group in Jordan"] },
+      riyadh: { code: "SA", name: "Saudi Arabia", sub: "North Riyadh", pill: "Planned",
+        meta: [["City", "North Riyadh"], ["Role", "Next expansion"], ["After", "UAE and Egypt"]],
+        note: "Planned once Egypt and Abu Dhabi are running. Academy in Jordan will supply technicians." },
+    },
+  },
+  ar: {
+    pageTitle: "انتشار المجموعة",
+    pageHint: "نوفمبر 2026",
+    clickHint: "اضغط على سوق",
+    structure: "الهيكل",
+    holdingName: "شركة ذات غرض خاص في ADGM · أبوظبي",
+    holdingDesc: "الشركة القابضة المالكة لجميع كيانات سند",
+    leadership: "قيادة المجموعة: <b>الرئيس التنفيذي</b> · <b>المدير التقني</b>",
+    opcos: [
+      ["doha", "live", "قطر", "قائم"],
+      ["egypt", "launch", "مصر · القاهرة الجديدة", "الإطلاق نوفمبر 2026"],
+      ["abuDhabi", "launch", "الإمارات · أبوظبي", "الإطلاق ديسمبر 2026"],
+      ["jordan", "academy", "الأردن · أكاديمية سند", "تشغيل + تدريب"],
+      ["riyadh", "planned", "السعودية · شمال الرياض", "مخطط"],
+    ],
+    numbers: "أرقام رئيسية",
+    tiles: [
+      ["", "500 ألف ر.ق", "إيرادات شهرية في قطر"],
+      ["", "25 مليون $", "التقييم، قطر وحدها"],
+      ["", "12", "فنياً بحلول ديسمبر 2026"],
+      ["", "+100", "تسجيل مستهدف في ديسمبر"],
+      ["seed", "3 ملايين $", "جولة تمويل أولية تُعلن في يوم العرض في يناير"],
+    ],
+    road: "الطريق إلى يوم العرض",
+    timeline: [
+      ["doha", "live", "الآن", "قطر قائمة بـ 5 فنيين نشطين"],
+      ["egypt", "launch", "نوفمبر 2026", "إطلاق مصر في القاهرة الجديدة بفنيين اثنين"],
+      ["abuDhabi", "launch", "ديسمبر 2026", "إطلاق أبوظبي بـ 3 فنيين ومركز اتصال"],
+      ["", "live", "ديسمبر 2026", "إطلاق تطبيق العملاء — استهداف أكثر من 100 تسجيل"],
+      ["", "launch", "يناير 2027", "يوم العرض: تمويل أولي 3 ملايين $ وأسواق جديدة رابحة"],
+      ["riyadh", "planned", "التالي", "إطلاق شمال الرياض، ورفع فريق قطر إلى 10 فنيين"],
+    ],
+    legend: { live: "سوق قائم", launch: "قيد الإطلاق", academy: "مركز الأكاديمية", planned: "مخطط", trained: "فنيون مدرّبون", calls: "توجيه المكالمات" },
+    mapKey: { title: "على الخريطة", hq: "مقر المجموعة (ADGM)", academy: "أكاديمية سند", call: "مركز اتصال", techs: "فنيون", zoom: "قرّب لرؤية الشوارع والمزيد من المدن" },
+    cities: { doha: "الدوحة", abuDhabi: "أبوظبي", egypt: "القاهرة الجديدة", riyadh: "شمال الرياض", jordan: "عمّان" },
+    route: "مكالمات مصر تُستقبل في أبوظبي",
+    empty: "اضغط على دولة أو مدينة أو صف في القائمة لعرض التفاصيل.",
+    academyFlow: "أكاديمية سند في الأردن تدرّب الفنيين وترسلهم إلى كل الأسواق.",
+    callFlow: "موظف واحد في مركز اتصال أبوظبي سيستقبل مكالمات الإمارات ومصر.",
+    loadError: "تعذّر تحميل الخريطة. تحقق من الاتصال ثم حدّث الصفحة.",
+    loading: "جارٍ تحميل الخريطة…",
+    cards: {
+      doha: { code: "QA", name: "قطر", sub: "الدوحة · السوق الرئيسي", pill: "قائم",
+        stats: [["500 ألف ر.ق", "إيرادات شهرية"], ["25 مليون $", "التقييم"]],
+        meta: [["المدينة", "الدوحة"], ["الدور", "تشغيل قائم"], ["الفريق الآن", "11 شخصاً"], ["التالي", "10 فنيين"]],
+        items: ["7 فنيين في الفريق — 5 على مهام اليوم", "3 موظفي مركز اتصال في الدوحة", "محاسب واحد", "تغطية الدوحة ولوسيل والوكرة والخور"] },
+      abuDhabi: { code: "AE", name: "الإمارات", sub: "أبوظبي", pill: "ديسمبر 2026",
+        meta: [["المدينة", "أبوظبي"], ["الدور", "مقر + سوق إطلاق"], ["الفريق عند الإطلاق", "4 أشخاص"], ["الافتتاح", "ديسمبر 2026"]],
+        items: ["3 فنيين عند الإطلاق", "مركز اتصال بموظف واحد يغطي الإمارات ومصر", "الشركة القابضة في ADGM", "لاحقاً دبي والعين مع نمو السوق"] },
+      egypt: { code: "EG", name: "مصر", sub: "القاهرة الجديدة", pill: "نوفمبر 2026",
+        meta: [["المدينة", "القاهرة الجديدة"], ["الدور", "سوق إطلاق"], ["الفريق عند الإطلاق", "فنيان"], ["الافتتاح", "نوفمبر 2026"]],
+        items: ["فنيان مقرهما القاهرة الجديدة", "مكالمات العملاء إلى مركز اتصال أبوظبي", "محور النيل: القاهرة الجديدة والقاهرة و6 أكتوبر"],
+        note: "الهدف: تحقيق الربحية قبل يوم العرض في يناير" },
+      jordan: { code: "JO", name: "الأردن", sub: "عمّان · شركة تشغيل", pill: "الأكاديمية",
+        meta: [["المدينة", "عمّان"], ["الدور", "تشغيل + تدريب"], ["التركيز", "أكاديمية سند"], ["التصدير إلى", "كل الأسواق"]],
+        items: ["أكاديمية سند تدرّب الفنيين في عمّان", "يُوزَّع الخريجون على قطر ومصر والإمارات ثم السعودية", "شركة التشغيل للمجموعة في الأردن"] },
+      riyadh: { code: "SA", name: "السعودية", sub: "شمال الرياض", pill: "مخطط",
+        meta: [["المدينة", "شمال الرياض"], ["الدور", "التوسع التالي"], ["بعد", "الإمارات ومصر"]],
+        note: "مخطط بعد تشغيل مصر وأبوظبي. أكاديمية الأردن ستزوّد الفنيين." },
+    },
+  },
+};
+
+const CITIES = {
+  doha:     { at: [51.53, 25.29], iso: "634", status: "live",    techs: 7, call: 3, hq: false, academy: false, zoom: 10.5 },
+  abuDhabi: { at: [54.37, 24.45], iso: "784", status: "launch",  techs: 3, call: 1, hq: true,  academy: false, zoom: 10.5 },
+  egypt:    { at: [31.47, 30.03], iso: "818", status: "launch",  techs: 2, call: 0, hq: false, academy: false, zoom: 11 },
+  jordan:   { at: [35.93, 31.95], iso: "400", status: "academy", techs: 0, call: 0, hq: false, academy: true,  zoom: 10 },
+  riyadh:   { at: [46.66, 24.84], iso: "682", status: "planned", techs: 0, call: 0, hq: false, academy: false, zoom: 9.6 },
+};
+const ISO_TO_CITY = Object.fromEntries(Object.entries(CITIES).map(([k, v]) => [v.iso, k]));
+const COLORS = { live: "#12B76A", launch: "#F79009", academy: "#0BA5EC", planned: "#C5D4DC" };
+const BRAND = { navy: "#0A2635", deep: "#061820", line: "#1A4A63" };
+
+const PLACES = [
+  { market: "doha",     at: [51.50, 25.42], en: "Lusail", ar: "لوسيل" },
+  { market: "doha",     at: [51.61, 25.17], en: "Al Wakrah", ar: "الوكرة" },
+  { market: "doha",     at: [51.51, 25.68], en: "Al Khor", ar: "الخور" },
+  { market: "abuDhabi", at: [55.27, 25.20], en: "Dubai", ar: "دبي" },
+  { market: "abuDhabi", at: [55.76, 24.21], en: "Al Ain", ar: "العين" },
+  { market: "egypt",    at: [31.24, 30.04], en: "Cairo", ar: "القاهرة" },
+  { market: "egypt",    at: [30.98, 29.94], en: "6th of October", ar: "6 أكتوبر" },
+  { market: "jordan",   at: [35.85, 32.56], en: "Irbid", ar: "إربد" },
+  { market: "riyadh",   at: [46.68, 24.71], en: "Riyadh", ar: "الرياض" },
+];
+
+/* Coverage areas drawn as explicit outlines, so a market that means "part of a
+   city" (North Riyadh) reads unambiguously instead of as a dot in open desert. */
+const AREAS = [
+  { market: "riyadh", center: [46.66, 24.84], radiusKm: 15 },
+];
+
+const REGION = [[23, 12.5], [59, 35.8]];
+
+let lang = new URLSearchParams(location.search).get("lang") === "ar" ? "ar" : "en";
+let selected = new URLSearchParams(location.search).get("m") || "doha";
+let map = null, mapReady = false;
+const markerEls = {};
+
+const T = () => STRINGS[lang];
+const lineSwatch = (color, dash, width) =>
+  `<svg width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="${color}" stroke-width="${width}" stroke-dasharray="${dash}" stroke-linecap="round"/></svg>`;
+
+/* ---------------- UI panels ---------------- */
+function setLang(next) {
+  lang = next;
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  document.title = `Sanad — ${T().pageTitle}`;
+  document.getElementById("pageTitle").textContent = T().pageTitle;
+  document.getElementById("pageHint").textContent = T().pageHint;
+  document.getElementById("clickHint").textContent = T().clickHint;
+  document.getElementById("loading").textContent = T().loading;
+  document.querySelectorAll(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  renderRail();
+  renderDetail();
+  rebuildMarkers();
+  if (mapReady && map.getLayer("places-label")) {
+    map.setLayoutProperty("places-label", "text-field", ["get", lang === "ar" ? "ar" : "en"]);
+  }
+  const url = new URL(location.href);
+  url.searchParams.set("lang", lang);
+  if (selected) url.searchParams.set("m", selected);
+  history.replaceState(null, "", url);
+}
+
+function renderRail() {
+  const t = T();
+  document.getElementById("rail").innerHTML = `
+    <div>
+      <div class="section-label">${t.structure}</div>
+      <div class="holding">
+        <div class="name">${t.holdingName}</div>
+        <div class="desc">${t.holdingDesc}</div>
+        <div class="lead">${t.leadership}</div>
+      </div>
+    </div>
+    <div>
+      <ul class="opcos">
+        ${t.opcos.map(([id, s, name, st]) => `
+          <li><button type="button" data-market="${id}" ${selected === id ? 'aria-current="true"' : ""}>
+            <i class="dot ${s}"></i>${name}<span class="st">${st}</span>
+          </button></li>`).join("")}
+      </ul>
+    </div>
+    <div>
+      <div class="section-label">${t.numbers}</div>
+      <div class="tiles">
+        ${t.tiles.map(([cls, big, small]) => `<div class="tile ${cls}"><b>${big}</b><span>${small}</span></div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="section-label">${t.road}</div>
+      <ul class="timeline">
+        ${t.timeline.map(([id, s, when, what]) => `
+          <li><button type="button" ${id ? `data-market="${id}"` : ""} ${selected === id ? 'aria-current="true"' : ""} style="--c: var(--${s})">
+            <span class="when">${when}</span>${what}
+          </button></li>`).join("")}
+      </ul>
+    </div>
+    <div class="legend-block">
+      <div class="section-label">${t.mapKey.title}</div>
+      <div class="legend">
+        <div><i class="dot live"></i>${t.legend.live}</div>
+        <div><i class="dot launch"></i>${t.legend.launch}</div>
+        <div><i class="dot academy"></i>${t.legend.academy}</div>
+        <div><i class="dot planned"></i>${t.legend.planned}</div>
+        <div>${lineSwatch(COLORS.academy, "6 5", 2.4)}${t.legend.trained}</div>
+        <div>${lineSwatch(COLORS.launch, "2 6", 3)}${t.legend.calls}</div>
+        <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" rx="1" fill="${COLORS.launch}"/></svg>${t.mapKey.hq}</div>
+        <div><svg width="14" height="14"><polygon points="7,1 13,13 1,13" fill="${COLORS.academy}"/></svg>${t.mapKey.academy}</div>
+        <div><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="none" stroke="${COLORS.launch}" stroke-width="2"/></svg>${t.mapKey.call}</div>
+        <div><svg width="14" height="14"><rect x="0" y="3" width="14" height="8" rx="4" fill="${COLORS.live}"/></svg>${t.mapKey.techs}</div>
+      </div>
+      <p class="legend-hint">${t.mapKey.zoom}</p>
+    </div>`;
+}
+
+function cardHtml(c) {
+  return `
+    <div class="head"><span class="code">${c.code}</span>
+      <div><div class="country-name">${c.name}</div><div class="sub">${c.sub}</div></div>
+      <span class="pill">${c.pill}</span></div>
+    ${c.stats ? `<div class="stats">${c.stats.map(([b, s]) => `<div><b>${b}</b><span>${s}</span></div>`).join("")}</div>` : ""}
+    ${c.meta ? `<div class="meta">${c.meta.map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join("")}</div>` : ""}
+    ${c.items ? `<ul>${c.items.map((i) => `<li>${i}</li>`).join("")}</ul>` : ""}
+    ${c.note ? `<div class="note">${c.note}</div>` : ""}`;
+}
+
+function renderDetail() {
+  const t = T();
+  const el = document.getElementById("detail");
+  if (!selected || !t.cards[selected]) { el.innerHTML = `<p class="empty">${t.empty}</p>`; return; }
+  const status = CITIES[selected].status;
+  const extra = selected === "jordan" ? t.academyFlow
+    : (selected === "egypt" || selected === "abuDhabi") ? t.callFlow : "";
+  el.innerHTML = `<div class="card" style="--c: var(--${status})">${cardHtml(t.cards[selected])}</div>
+    ${extra ? `<p class="flows-note">${extra}</p>` : ""}`;
+}
+
+/* ---------------- Map markers ---------------- */
+function pinHtml(id, city) {
+  const name = T().cities[id];
+  const pulse = city.status !== "planned" ? '<span class="pin-pulse"></span>' : "";
+  let badges = "";
+  if (city.techs) badges += `<span class="b-t">${city.techs}</span>`;
+  if (city.call) badges += `<span class="b-call"></span>`;
+  if (city.hq) badges += `<span class="b-hq"></span>`;
+  if (city.academy) badges += `<span class="b-academy"></span>`;
+  return `${pulse}<span class="pin-dot"></span><span class="pin-name">${name}</span>${badges ? `<span class="pin-badges">${badges}</span>` : ""}`;
+}
+
+function rebuildMarkers() {
+  if (!mapReady) return;
+  Object.values(markerEls).forEach((m) => m.remove());
+  Object.keys(markerEls).forEach((k) => delete markerEls[k]);
+  Object.entries(CITIES).forEach(([id, city]) => {
+    const el = document.createElement("div");
+    el.className = `pin pin-${city.status}${id === selected ? " sel" : ""}`;
+    el.innerHTML = pinHtml(id, city);
+    el.addEventListener("click", (e) => { e.stopPropagation(); selectMarket(id, { fly: true }); });
+    markerEls[id] = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(city.at).addTo(map);
+  });
+}
+
+function selectMarket(id, { fly = false } = {}) {
+  if (!CITIES[id] && id !== "") return;
+  const prev = selected;
+  selected = id;
+  renderRail();
+  renderDetail();
+  Object.entries(markerEls).forEach(([k, m]) => m.getElement().classList.toggle("sel", k === selected));
+  if (mapReady) {
+    [prev, id].forEach((k) => { if (CITIES[k]) map.setFeatureState({ source: "markets", id: k }, { sel: k === selected }); });
+    updateFlows();
+  }
+  const url = new URL(location.href);
+  url.searchParams.set("m", selected);
+  url.searchParams.set("lang", lang);
+  history.replaceState(null, "", url);
+  if (fly && mapReady && CITIES[id]) map.flyTo({ center: CITIES[id].at, zoom: CITIES[id].zoom, speed: 0.9, curve: 1.5 });
+}
+
+function updateFlows() {
+  if (!mapReady) return;
+  const academyOn = !selected || selected === "jordan" || selected === "egypt" || selected === "abuDhabi" || selected === "riyadh" || selected === "doha";
+  const callsOn = !selected || selected === "egypt" || selected === "abuDhabi";
+  if (map.getLayer("academy-line")) map.setPaintProperty("academy-line", "line-opacity", selected === "jordan" ? 0.95 : 0.5);
+  if (map.getLayer("calls-line")) map.setPaintProperty("calls-line", "line-opacity", callsOn ? 0.9 : 0.4);
+}
+
+/* geometry helpers */
+function circlePoly(center, radiusKm, steps = 72) {
+  const [lon, lat] = center;
+  const dLat = radiusKm / 110.574;
+  const dLon = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
+  const ring = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * 2 * Math.PI;
+    ring.push([lon + dLon * Math.cos(t), lat + dLat * Math.sin(t)]);
+  }
+  return { type: "Polygon", coordinates: [ring] };
+}
+
+function arc(a, b, bend, n = 64) {
+  const [x0, y0] = a, [x1, y1] = b;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  const cx = mx + (-dy / len) * bend * len;
+  const cy = my + (dx / len) * bend * len;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    pts.push([u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1]);
+  }
+  return pts;
+}
+
+/* ---------------- Build map ---------------- */
+function addMapData(world) {
+  const feats = topojson.feature(world, world.objects.countries).features;
+  const marketFeatures = [];
+  feats.forEach((f) => {
+    const cid = ISO_TO_CITY[String(f.id)];
+    if (cid) { f.properties = { city: cid, status: CITIES[cid].status }; f.id = cid; marketFeatures.push(f); }
+  });
+
+  map.addSource("markets", { type: "geojson", data: { type: "FeatureCollection", features: marketFeatures }, promoteId: "city" });
+  map.addLayer({
+    id: "markets-fill", type: "fill", source: "markets",
+    paint: {
+      "fill-color": ["match", ["get", "status"], "live", COLORS.live, "launch", COLORS.launch, "academy", COLORS.academy, COLORS.planned],
+      // Country tint is only meaningful at regional zoom; inside the country it
+      // just washes the whole viewport, so hand over to the coverage areas.
+      "fill-opacity": ["interpolate", ["linear"], ["zoom"],
+        5, ["case", ["boolean", ["feature-state", "sel"], false], 0.24, 0.10],
+        7.5, 0,
+      ],
+    },
+  });
+  map.addLayer({
+    id: "markets-line", type: "line", source: "markets",
+    paint: {
+      "line-color": ["match", ["get", "status"], "live", COLORS.live, "launch", COLORS.launch, "academy", COLORS.academy, COLORS.planned],
+      "line-width": ["case", ["boolean", ["feature-state", "sel"], false], 2.6, 1.2],
+      "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.9, 7.5, 0],
+    },
+  });
+  // Coverage-area outlines (fade in once the country fill stops being useful)
+  map.addSource("areas", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: AREAS.map((a) => ({
+        type: "Feature",
+        geometry: circlePoly(a.center, a.radiusKm),
+        properties: { market: a.market, status: CITIES[a.market].status },
+      })),
+    },
+  });
+  const areaColor = ["match", ["get", "status"], "live", COLORS.live, "launch", COLORS.launch, "academy", COLORS.academy, COLORS.planned];
+  map.addLayer({
+    id: "areas-fill", type: "fill", source: "areas", minzoom: 5,
+    paint: { "fill-color": areaColor, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0, 7, 0.16] },
+  });
+  map.addLayer({
+    id: "areas-line", type: "line", source: "areas", minzoom: 5,
+    layout: { "line-cap": "round" },
+    paint: {
+      "line-color": areaColor, "line-width": 2, "line-dasharray": [3, 2],
+      "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0, 7, 0.95],
+    },
+  });
+  map.on("click", "areas-fill", (e) => { const m = e.features[0].properties.market; if (m) selectMarket(m, { fly: true }); });
+
+  map.on("click", "markets-fill", (e) => { const c = e.features[0].properties.city; if (c) selectMarket(c, { fly: true }); });
+  map.on("mouseenter", "markets-fill", () => { map.getCanvas().style.cursor = "pointer"; });
+  map.on("mouseleave", "markets-fill", () => { map.getCanvas().style.cursor = ""; });
+
+  // Flow lines
+  const academyLines = [["doha", -0.18], ["abuDhabi", -0.16], ["riyadh", -0.14], ["egypt", 0.26]]
+    .map(([to, bend]) => ({ type: "Feature", geometry: { type: "LineString", coordinates: arc(CITIES.jordan.at, CITIES[to].at, bend) } }));
+  map.addSource("academy", { type: "geojson", data: { type: "FeatureCollection", features: academyLines } });
+  map.addLayer({
+    id: "academy-line", type: "line", source: "academy",
+    layout: { "line-cap": "round" },
+    paint: { "line-color": COLORS.academy, "line-width": 2, "line-opacity": 0.55, "line-dasharray": [2, 2.5] },
+  });
+
+  const callArc = arc(CITIES.egypt.at, CITIES.abuDhabi.at, 0.28);
+  map.addSource("calls", { type: "geojson", data: { type: "Feature", geometry: { type: "LineString", coordinates: callArc } } });
+  map.addLayer({
+    id: "calls-line", type: "line", source: "calls",
+    layout: { "line-cap": "round" },
+    paint: { "line-color": COLORS.launch, "line-width": 2.4, "line-opacity": 0.9, "line-dasharray": [0.6, 2.4] },
+  });
+  // route label at apex
+  const apex = callArc[Math.floor(callArc.length / 2)];
+  const rp = document.createElement("div");
+  rp.className = "route-pill";
+  rp.id = "routePill";
+  rp.textContent = T().route;
+  new maplibregl.Marker({ element: rp, anchor: "center" }).setLngLat(apex).addTo(map);
+
+  // Secondary coverage cities (appear on zoom-in)
+  map.addSource("places", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: PLACES.map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: p.at }, properties: { en: p.en, ar: p.ar, market: p.market } })) },
+  });
+  map.addLayer({
+    id: "places-dot", type: "circle", source: "places", minzoom: 6.5,
+    paint: { "circle-radius": 3, "circle-color": "#dCeAF2", "circle-stroke-color": "#04141d", "circle-stroke-width": 1 },
+  });
+  map.addLayer({
+    id: "places-label", type: "symbol", source: "places", minzoom: 6.5,
+    layout: { "text-field": ["get", lang === "ar" ? "ar" : "en"], "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"], "text-size": 11, "text-offset": [0, 1.1], "text-anchor": "top" },
+    paint: { "text-color": "#cfe3ec", "text-halo-color": "#04141d", "text-halo-width": 1.4 },
+  });
+  map.on("click", "places-dot", (e) => { const m = e.features[0].properties.market; if (m) selectMarket(m, { fly: true }); });
+
+  // Animate academy dashes (flow direction)
+  const seq = [[0,4,3],[0.5,4,2.5],[1,4,2],[1.5,4,1.5],[2,4,1],[2.5,4,0.5],[3,4,0],[0,0.5,3,3.5],[0,1,3,3],[0,1.5,3,2.5],[0,2,3,2],[0,2.5,3,1.5],[0,3,3,1],[0,3.5,3,0.5]];
+  let step = -1;
+  (function animate(ts) {
+    const s = parseInt((ts / 70) % seq.length);
+    if (s !== step && map.getLayer("academy-line")) { map.setPaintProperty("academy-line", "line-dasharray", seq[s]); step = s; }
+    requestAnimationFrame(animate);
+  })(0);
+
+  updateFlows();
+}
+
+/* Country labels omitted from the basemap, by Wikidata id so the rule holds
+   whatever language the tiles serve. Q801 = Israel. */
+const HIDDEN_COUNTRIES = ["Q801"];
+function hideCountryLabels() {
+  const exclude = ["!", ["in", ["coalesce", ["get", "wikidata"], ""], ["literal", HIDDEN_COUNTRIES]]];
+  map.getStyle().layers
+    .filter((l) => l.type === "symbol" && /^place_country/.test(l.id))
+    .forEach((l) => {
+      try {
+        const base = map.getFilter(l.id);
+        map.setFilter(l.id, base ? ["all", base, exclude] : exclude);
+      } catch (e) { /* layer absent in style */ }
+    });
+}
+
+/* Re-tint the stock dark basemap into Sanad navy */
+function brandBasemap() {
+  const set = (id, prop, val) => { try { map.setPaintProperty(id, prop, val); } catch (e) { /* layer absent in style */ } };
+  map.getStyle().layers.forEach((layer) => {
+    const id = layer.id;
+    if (layer.type === "background") set(id, "background-color", BRAND.navy);
+    else if (layer.type === "fill" && /water|ocean|sea/i.test(id)) set(id, "fill-color", BRAND.deep);
+    else if (layer.type === "line" && /water|river|boundary|admin/i.test(id)) set(id, "line-color", BRAND.line);
+    else if (layer.type === "fill" && /land|earth/i.test(id)) set(id, "fill-color", BRAND.navy);
+    else if (layer.type === "symbol") {
+      set(id, "text-color", "#D7E3EA");
+      set(id, "text-halo-color", BRAND.deep);
+    }
+  });
+}
+
+function initMap() {
+  map = new maplibregl.Map({
+    container: "map",
+    style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    bounds: REGION,
+    fitBoundsOptions: { padding: 40 },
+    attributionControl: { compact: true },
+    dragRotate: false,
+    pitchWithRotate: false,
+    maxZoom: 15,
+    minZoom: 2.5,
+  });
+  map.touchZoomRotate.disableRotation();
+  map.keyboard.disable();
+
+  map.on("load", () => {
+    brandBasemap();
+    hideCountryLabels();
+    topojson && fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-10m.json")
+      .then((r) => r.json())
+      .then((world) => {
+        addMapData(world);
+        mapReady = true;
+        rebuildMarkers();
+        selectMarket(selected);
+        document.getElementById("loading").hidden = true;
+      })
+      .catch(() => { document.getElementById("loading").textContent = T().loadError; });
+  });
+  map.on("error", (e) => { console.warn("map error", e && e.error); });
+}
+
+/* ---------------- Wire up ---------------- */
+document.querySelector(".lang").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-lang]");
+  if (btn) {
+    setLang(btn.dataset.lang);
+    const rp = document.getElementById("routePill");
+    if (rp) rp.textContent = T().route;
+  }
+});
+document.getElementById("rail").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-market]");
+  if (btn) selectMarket(btn.dataset.market, { fly: true });
+});
+document.getElementById("zoomIn").onclick = () => map && map.zoomIn();
+document.getElementById("zoomOut").onclick = () => map && map.zoomOut();
+document.getElementById("zoomReset").onclick = () => map && map.fitBounds(REGION, { padding: 40, duration: 700 });
+
+setLang(lang);
+initMap();
+</script>
+</body>
+</html>

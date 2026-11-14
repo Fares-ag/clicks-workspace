@@ -77,30 +77,184 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     return _clientRequestId!;
   }
 
-  Future<void> _pickSchedule() async {
+  static const _slotMinutes = 30;
+  static const _dayStartHour = 7;
+  static const _dayEndHour = 21;
+
+  DateTime _snapSlot(DateTime t) {
+    var d = DateTime(t.year, t.month, t.day, t.hour, t.minute);
+    final extra = d.minute % _slotMinutes;
+    if (extra != 0) {
+      d = d.add(Duration(minutes: _slotMinutes - extra));
+    }
+    return DateTime(d.year, d.month, d.day, d.hour, d.minute);
+  }
+
+  DateTime get _earliestSlot =>
+      _snapSlot(DateTime.now().add(const Duration(hours: 1)));
+
+  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  bool _sameSlot(DateTime a, DateTime b) =>
+      _sameDay(a, b) && a.hour == b.hour && a.minute == b.minute;
+
+  List<DateTime> _slotsFor(DateTime day) {
+    final earliest = _earliestSlot;
+    final start = DateTime(day.year, day.month, day.day, _dayStartHour);
+    final end = DateTime(day.year, day.month, day.day, _dayEndHour);
+    final slots = <DateTime>[];
+    var t = start;
+    while (!t.isAfter(end)) {
+      if (!t.isBefore(earliest)) slots.add(t);
+      t = t.add(const Duration(minutes: _slotMinutes));
+    }
+    return slots;
+  }
+
+  bool get _todayHasSlots => _slotsFor(DateTime.now()).isNotEmpty;
+
+  void _startSchedule() {
+    if (_timing == 'scheduled' && _scheduledFor != null) return;
+    final day = _todayHasSlots
+        ? DateTime.now()
+        : DateTime.now().add(const Duration(days: 1));
+    _setScheduleDate(day);
+  }
+
+  void _setScheduleDate(DateTime day) {
+    final slots = _slotsFor(day);
+    if (slots.isEmpty) {
+      AppSnackBars.errorSnackBar('services.no_slots_today'.tr());
+      return;
+    }
+    var chosen = slots.first;
+    if (_scheduledFor != null) {
+      final keep = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        _scheduledFor!.hour,
+        _scheduledFor!.minute,
+      );
+      if (slots.any((s) => _sameSlot(s, keep))) chosen = keep;
+    }
+    setState(() {
+      _timing = 'scheduled';
+      _scheduledFor = chosen;
+    });
+  }
+
+  Future<void> _pickOtherDate() async {
     final now = DateTime.now();
+    final initial = _scheduledFor ?? (_todayHasSlots ? now : now.add(const Duration(days: 1)));
     final date = await showDatePicker(
       context: context,
-      initialDate: now.add(const Duration(hours: 1)),
-      firstDate: now,
+      initialDate: _dateOnly(initial).isBefore(_dateOnly(now))
+          ? _dateOnly(now)
+          : _dateOnly(initial),
+      firstDate: _dateOnly(now),
       lastDate: now.add(const Duration(days: 60)),
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    _setScheduleDate(date);
+  }
+
+  String _timeLabel(BuildContext context, DateTime t) {
+    final locale = context.locale.toString();
+    try {
+      return DateFormat.jm(locale).format(t);
+    } catch (_) {
+      return DateFormat.jm().format(t);
+    }
+  }
+
+  String _dateChipLabel(BuildContext context, DateTime day) {
+    final locale = context.locale.toString();
+    try {
+      return DateFormat('EEE d MMM', locale).format(day);
+    } catch (_) {
+      return DateFormat('EEE d MMM').format(day);
+    }
+  }
+
+  Widget _buildDateChips(BuildContext context) {
+    final now = DateTime.now();
+    final today = _dateOnly(now);
+    final tomorrow = today.add(const Duration(days: 1));
+    final selectedDay =
+        _scheduledFor == null ? null : _dateOnly(_scheduledFor!);
+    final isPreset = selectedDay != null &&
+        (_sameDay(selectedDay, today) || _sameDay(selectedDay, tomorrow));
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        if (_todayHasSlots)
+          _TimingChip(
+            label: 'services.today'.tr(),
+            selected: selectedDay != null && _sameDay(selectedDay, today),
+            onTap: () => _setScheduleDate(today),
+          ),
+        _TimingChip(
+          label: 'services.tomorrow'.tr(),
+          selected: selectedDay != null && _sameDay(selectedDay, tomorrow),
+          onTap: () => _setScheduleDate(tomorrow),
+        ),
+        _TimingChip(
+          label: selectedDay != null && !isPreset
+              ? _dateChipLabel(context, selectedDay)
+              : 'services.other_date'.tr(),
+          selected: selectedDay != null && !isPreset,
+          onTap: _pickOtherDate,
+        ),
+      ],
     );
-    if (time == null || !mounted) return;
-    setState(() {
-      _scheduledFor = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
+  }
+
+  Widget _buildTimeSlots(BuildContext context) {
+    final day = _scheduledFor ?? DateTime.now();
+    final slots = _slotsFor(day);
+    if (slots.isEmpty) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Text(
+          'services.no_slots_today'.tr(),
+          style: TextStyles.font12RegularGrey,
+        ),
       );
-      _timing = 'scheduled';
-    });
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 16.0;
+        const columns = 3;
+        final itemWidth =
+            (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final slot in slots)
+              SizedBox(
+                width: itemWidth,
+                child: _TimingChip(
+                  label: _timeLabel(context, slot),
+                  selected: _scheduledFor != null &&
+                      _sameSlot(_scheduledFor!, slot),
+                  fill: true,
+                  onTap: () => setState(() {
+                    _timing = 'scheduled';
+                    _scheduledFor = slot;
+                  }),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _submit({required bool skipVehicle}) async {
@@ -117,13 +271,14 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
     }
 
     String? vehicleId;
+    CarResponseModel? selectedCar;
     if (!skipVehicle) {
-      final selected = context.read<MyCarsCubit>().selectedCar;
-      if (selected == null) {
+      selectedCar = context.read<MyCarsCubit>().selectedCar;
+      if (selectedCar == null) {
         AppSnackBars.errorSnackBar('home.select_vehicle'.tr());
         return;
       }
-      vehicleId = selected.sId;
+      vehicleId = selectedCar.sId;
     }
 
     setState(() => _submitting = true);
@@ -167,6 +322,16 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
         throw Exception('Invalid service request response');
       }
 
+      final srMap = sr is Map ? Map<String, dynamic>.from(sr) : null;
+      String? vehicleName = srMap == null ? null : vehicleNameFromBooking(srMap);
+      String? vehiclePlate = srMap == null ? null : vehiclePlateFromBooking(srMap);
+      if (selectedCar != null) {
+        vehicleName ??=
+            '${selectedCar.vehicleMake?.makeName ?? ''} ${selectedCar.vehicleModel?.modelName ?? ''}'
+                .trim();
+        vehiclePlate ??= selectedCar.plateNumber;
+      }
+
       if (!mounted) return;
       Navigator.pop(context);
       context.toNamed(
@@ -177,6 +342,8 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
           serviceLabel: widget.serviceLabel,
           timing: _timing,
           scheduledFor: _scheduledFor,
+          vehicleName: vehicleName?.isEmpty == true ? null : vehicleName,
+          vehiclePlate: vehiclePlate?.isEmpty == true ? null : vehiclePlate,
         ),
       );
     } catch (e) {
@@ -277,6 +444,7 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
                     child: _TimingChip(
                       label: 'services.timing_now'.tr(),
                       selected: _timing == 'immediate',
+                      fill: true,
                       onTap: () => setState(() {
                         _timing = 'immediate';
                         _scheduledFor = null;
@@ -286,16 +454,42 @@ class _ServiceRequestSheetState extends State<_ServiceRequestSheet> {
                   SizedBox(width: 10.w),
                   Expanded(
                     child: _TimingChip(
-                      label: _scheduledFor == null
-                          ? 'services.timing_schedule'.tr()
-                          : DateFormat('MMM d, h:mm a')
-                              .format(_scheduledFor!),
+                      label: 'services.timing_schedule'.tr(),
                       selected: _timing == 'scheduled',
-                      onTap: _pickSchedule,
+                      fill: true,
+                      onTap: _startSchedule,
                     ),
                   ),
                 ],
               ),
+              if (_timing == 'scheduled') ...[
+                SizedBox(height: 16.h),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    'services.pick_date'.tr(),
+                    style: TextStyles.font14RegularGrey.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                _buildDateChips(context),
+                SizedBox(height: 16.h),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    'services.pick_time'.tr(),
+                    style: TextStyles.font14RegularGrey.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                _buildTimeSlots(context),
+              ],
               SizedBox(height: 14.h),
               Row(
                 children: [
@@ -433,11 +627,13 @@ class _TimingChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool fill;
 
   const _TimingChip({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.fill = false,
   });
 
   @override
@@ -446,7 +642,9 @@ class _TimingChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10.r),
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 10.w),
+        width: fill ? double.infinity : null,
+        alignment: fill ? Alignment.center : null,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFEF2F2) : Colors.white,
           borderRadius: BorderRadius.circular(10.r),
@@ -458,6 +656,8 @@ class _TimingChip extends StatelessWidget {
         child: Text(
           label,
           textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyles.font12RegularGrey.copyWith(
             color: selected ? ColorsManager.mainColor : Colors.black87,
             fontWeight: FontWeight.w600,

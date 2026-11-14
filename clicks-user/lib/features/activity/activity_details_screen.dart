@@ -1,9 +1,11 @@
 import '../../core/config/public_config.dart';
+import 'package:clicks_user/core/components/clicks_app_header.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
 import 'package:clicks_user/core/theme/text_styles.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -21,26 +23,21 @@ class ActivityDetailsPage extends StatelessWidget {
 
   // ──────── Formatters ────────
 
-  String _formatDate(DateTime dt) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final h12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    final min = dt.minute.toString().padLeft(2, '0');
-    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} - $h12:$min $ampm';
+  String _formatDate(BuildContext context, DateTime dt) {
+    final locale = context.locale.toString();
+    try {
+      return DateFormat('MMM d, yyyy - h:mm a', locale).format(dt.toLocal());
+    } catch (_) {
+      return DateFormat('MMM d, yyyy - h:mm a').format(dt.toLocal());
+    }
   }
 
-  String get _shortJobId {
+  String? get _jobRef {
     final ref = (job.jobReference ?? '').trim();
-    if (ref.isNotEmpty) return ref;
-    if (job.id.isEmpty) return '\u2014';
-    if (job.id.length > 6) {
-      return '#${job.id.substring(job.id.length - 6)}';
-    }
-    return '#${job.id}';
+    return ref.isEmpty ? null : ref;
   }
+
+  String get _shortJobId => _jobRef ?? 'job';
 
   String get _vehicleDisplay {
     final parts = <String>[];
@@ -69,11 +66,40 @@ class ActivityDetailsPage extends StatelessWidget {
     return parts.join(' ');
   }
 
-  String _receiptAmount(BuildContext context, dynamic data) {
-    final amount = data is Map ? data['total_amount'] : null;
-    final value = amount is num ? amount : job.price;
+  String _qarAmount(BuildContext context, num? value) {
     if (value == null) return 'activity.price_tbd'.tr();
-    return '${NumberFormat.decimalPattern(Localizations.localeOf(context).languageCode).format(value)} ${'common.qar'.tr()}';
+    final n = NumberFormat.decimalPattern(context.locale.languageCode)
+        .format(value);
+    return '${'common.qar'.tr()} $n';
+  }
+
+  String _receiptAmount(BuildContext context, Map<String, dynamic> data) {
+    final amount = data['total_amount'];
+    final value = amount is num ? amount : job.price;
+    return _qarAmount(context, value);
+  }
+
+  String _paymentLabel(Map<String, dynamic> data) {
+    final raw = (data['payment_method'] ?? job.paymentMethod ?? '')
+        .toString()
+        .toLowerCase();
+    return switch (raw) {
+      'cash' => 'activity_details.payment_cash'.tr(),
+      'card' => 'activity_details.payment_card'.tr(),
+      '' => '',
+      _ => raw,
+    };
+  }
+
+  String _formatPhone(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('974') && digits.length >= 11) {
+      return '+974 ${digits.substring(3, 7)} ${digits.substring(7, 11)}';
+    }
+    if (digits.length == 8) {
+      return '+974 ${digits.substring(0, 4)} ${digits.substring(4)}';
+    }
+    return raw;
   }
 
   // ──────── Helpers ────────
@@ -102,68 +128,164 @@ class ActivityDetailsPage extends StatelessWidget {
       nav.pop();
     }
 
+    List<int>? pdfBytes;
+    var data = <String, dynamic>{};
+
     try {
       final pdf = await DioHelper.getBytes(
         url: EndPoints.jobReceiptDownload(job.id),
       );
       if (pdf.statusCode == 200 && pdf.data != null && pdf.data!.isNotEmpty) {
         final header = String.fromCharCodes(pdf.data!.take(5));
-        if (header == '%PDF-') {
-          dismissLoading();
-          final opened = await openReceiptPdf(
-            pdf.data!,
-            'sanadcom-receipt-$_shortJobId.pdf',
-          );
-          if (opened) return;
-        }
+        if (header == '%PDF-') pdfBytes = pdf.data;
       }
 
       final response = await DioHelper.getData(
         url: '/api/receipts/job/${job.id}',
       );
-      dismissLoading();
-
-      if (response.statusCode == 200) {
-        final body = response.data;
-        final data = body is Map && body['receipt'] is Map
-            ? Map<String, dynamic>.from(body['receipt'] as Map)
-            : (body is Map ? Map<String, dynamic>.from(body) : <String, dynamic>{});
-        if (context.mounted) _showReceiptDialog(context, data);
-      } else {
-        final msg = response.data is Map
-            ? (response.data['error'] ?? 'activity_details.failed_get_receipt'.tr())
-            : 'activity_details.failed_get_receipt'.tr();
-        messenger.showSnackBar(SnackBar(content: Text(msg)));
+      if (response.statusCode == 200 && response.data is Map) {
+        final body = Map<String, dynamic>.from(response.data as Map);
+        if (body['receipt'] is Map) {
+          data = Map<String, dynamic>.from(body['receipt'] as Map);
+        } else {
+          data = body;
+        }
       }
-    } catch (e) {
-      dismissLoading();
-      messenger.showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
-      );
+    } catch (_) {
+      // Sheet still opens from job fields.
     }
+
+    dismissLoading();
+    if (!context.mounted) return;
+    if (data.isEmpty && pdfBytes == null && job.price == null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('activity_details.failed_get_receipt'.tr())),
+      );
+      return;
+    }
+    await _showReceiptSheet(context, data, pdfBytes);
   }
 
-  void _showReceiptDialog(BuildContext context, dynamic data) {
-    showDialog(
+  Future<void> _showReceiptSheet(
+    BuildContext context,
+    Map<String, dynamic> data,
+    List<int>? pdfBytes,
+  ) {
+    final issued = DateTime.tryParse(
+          data['issued_at']?.toString() ?? '',
+        )?.toLocal() ??
+        job.dateTime;
+    final payment = _paymentLabel(data);
+    final filename = 'clicks-receipt-$_shortJobId.pdf';
+
+    return showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('activity_details.receipt'.tr()),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${'activity_details.job_id_label'.tr()}: $_shortJobId'),
-            Text('${'activity_details.amount_label'.tr()}: ${_receiptAmount(context, data)}'),
-            if (data['issued_at'] != null) Text('${'activity_details.issued_label'.tr()}: ${data['issued_at']}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('common.close'.tr()),
-          ),
-        ],
+      useSafeArea: true,
+      backgroundColor: ColorsManager.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
       ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 24.h),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40.w,
+                height: 4.h,
+                decoration: BoxDecoration(
+                  color: ColorsManager.cardBorder,
+                  borderRadius: BorderRadius.circular(2.r),
+                ),
+              ),
+              SizedBox(height: 16.h),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'activity_details.receipt'.tr(),
+                  style: TextStyles.font18Bold,
+                ),
+              ),
+              SizedBox(height: 12.h),
+              _ReceiptRow(
+                label: 'activity_details.service_label'.tr(),
+                value: job.jobType.isNotEmpty ? job.jobType : '—',
+              ),
+              if (_jobRef != null)
+                _ReceiptRow(
+                  label: 'activity_details.job_id_label'.tr(),
+                  value: _jobRef!,
+                ),
+              _ReceiptRow(
+                label: 'activity.vehicle'.tr(),
+                value: _vehicleDisplay,
+              ),
+              _ReceiptRow(
+                label: 'activity_details.amount_label'.tr(),
+                value: _receiptAmount(context, data),
+              ),
+              if (payment.isNotEmpty)
+                _ReceiptRow(
+                  label: 'activity_details.payment_label'.tr(),
+                  value: payment,
+                ),
+              _ReceiptRow(
+                label: 'activity_details.issued_label'.tr(),
+                value: _formatDate(context, issued),
+                last: true,
+              ),
+              SizedBox(height: 20.h),
+              if (pdfBytes != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 48.h,
+                  child: FilledButton(
+                    onPressed: () async {
+                      final opened = await openReceiptPdf(pdfBytes, filename);
+                      if (!opened && ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'activity_details.cannot_open_receipt'.tr(),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ColorsManager.mainColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                    ),
+                    child: Text(
+                      kIsWeb
+                          ? 'activity_details.download_pdf'.tr()
+                          : 'activity_details.open_pdf'.tr(),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 8.h),
+              ],
+              SizedBox(
+                width: double.infinity,
+                height: 48.h,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(
+                    'common.close'.tr(),
+                    style: TextStyles.font14Medium.copyWith(
+                      color: ColorsManager.greyColor,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -194,7 +316,7 @@ class ActivityDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateText = _formatDate(job.dateTime);
+    final dateText = _formatDate(context, job.dateTime);
 
     final statusText = switch (job.status) {
       JobStatus.completed => 'activity.completed_jobs'.tr(),
@@ -209,18 +331,10 @@ class ActivityDetailsPage extends StatelessWidget {
     };
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: const Border(bottom: BorderSide(color: Color(0xFFD0D5DD), width: 1.0)),
-        title: Text(
-          'activity_details.title'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.w700,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'activity_details.title'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -267,35 +381,30 @@ class ActivityDetailsPage extends StatelessWidget {
               _buildHelpSection(context),
               const Divider(height: 1, color: Color(0xFFE4E7EC)),
 
-              // ─── View Receipt ───
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 20.h),
-                child: SizedBox(
-                  width: 120,
-                  height: 36,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: ColorsManager.mainColor,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+              if (job.status == JobStatus.completed)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20.h),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 48.h,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ColorsManager.mainColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10.r),
+                        ),
                       ),
-                      elevation: 1,
-                    ),
-                    onPressed: () => _viewReceipt(context),
-                    child: Text(
-                      'activity_details.view_receipt'.tr(),
-                      style: TextStyle(
-                        fontFamily: 'HelveticaNeue',
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -0.14,
+                      onPressed: () => _viewReceipt(context),
+                      child: Text(
+                        'activity_details.view_receipt'.tr(),
+                        style: TextStyles.font14Medium.copyWith(
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
               SizedBox(height: 20.h),
             ],
           ),
@@ -322,7 +431,7 @@ class ActivityDetailsPage extends StatelessWidget {
             child: Image.asset(
               AssetsManager.carExample2Image,
               width: 58,
-              height: 93,
+              height: 58,
               fit: BoxFit.contain,
             ),
           ),
@@ -333,6 +442,8 @@ class ActivityDetailsPage extends StatelessWidget {
               children: [
                 Text(
                   job.jobType.isNotEmpty ? job.jobType : 'activity_details.service_details'.tr(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'HelveticaNeue',
                     fontSize: 16.sp,
@@ -342,16 +453,17 @@ class ActivityDetailsPage extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: 5.h),
-                Text(
-                  '${'activity_details.job_id_label'.tr()}: $_shortJobId',
-                  style: TextStyle(
-                    fontFamily: 'HelveticaNeue',
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w400,
-                    color: const Color(0xFF667085),
-                    height: 18 / 12,
+                if (_jobRef != null)
+                  Text(
+                    '${'activity_details.job_id_label'.tr()}: $_jobRef',
+                    style: TextStyle(
+                      fontFamily: 'HelveticaNeue',
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w400,
+                      color: const Color(0xFF667085),
+                      height: 18 / 12,
+                    ),
                   ),
-                ),
                 SizedBox(height: 5.h),
                 Text(
                   dateText,
@@ -466,7 +578,7 @@ class ActivityDetailsPage extends StatelessWidget {
                     if (await canLaunchUrl(uri)) await launchUrl(uri);
                   },
                   child: Text(
-                    job.technicianPhone!,
+                    _formatPhone(job.technicianPhone!),
                     style: TextStyle(
                       fontFamily: 'HelveticaNeue',
                       fontSize: 14.sp,
@@ -487,6 +599,17 @@ class ActivityDetailsPage extends StatelessWidget {
 
   Widget _buildRatingRow(BuildContext context) {
     final rating = job.rating ?? 0;
+    if (rating <= 0) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: 16.h),
+        child: Text(
+          'activity_details.not_rated'.tr(),
+          style: TextStyles.font12RegularBlack.copyWith(
+            color: ColorsManager.greyColor,
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 16.h),
       child: Row(
@@ -494,12 +617,8 @@ class ActivityDetailsPage extends StatelessWidget {
           Expanded(
             child: Text(
               'activity_details.rate_technician'.tr(),
-              style: TextStyle(
-                fontFamily: 'HelveticaNeue',
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w400,
-                color: const Color(0xFF667085),
-                height: 18 / 12,
+              style: TextStyles.font12RegularBlack.copyWith(
+                color: ColorsManager.greyColor,
               ),
             ),
           ),
@@ -578,7 +697,7 @@ class ActivityDetailsPage extends StatelessWidget {
               GestureDetector(
                 onTap: _callSupport,
                 child: Text(
-                  PublicConfig.supportPhone,
+                  _formatPhone(PublicConfig.supportPhone),
                   style: TextStyle(
                     fontFamily: 'HelveticaNeue',
                     fontSize: 14.sp,
@@ -593,6 +712,56 @@ class ActivityDetailsPage extends StatelessWidget {
         ),
         const Divider(height: 1, color: Color(0xFFE4E7EC)),
       ],
+    );
+  }
+}
+
+class _ReceiptRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool last;
+
+  const _ReceiptRow({
+    required this.label,
+    required this.value,
+    this.last = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 10.h),
+      decoration: last
+          ? null
+          : const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: ColorsManager.cardBorder),
+              ),
+            ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96.w,
+            child: Text(
+              label,
+              style: TextStyles.font12RegularBlack.copyWith(
+                color: ColorsManager.greyColor,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyles.font14Medium.copyWith(
+                fontWeight: FontWeight.w600,
+                color: ColorsManager.blackColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

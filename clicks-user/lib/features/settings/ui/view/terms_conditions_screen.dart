@@ -1,11 +1,11 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
-import '../../../../core/helper/content_models.dart';
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/content_repository.dart';
-import '../../../../core/theme/text_styles.dart';
+import '../../../../core/theme/colors_manager.dart';
 
 class TermsAndConditionsScreen extends StatefulWidget {
   const TermsAndConditionsScreen({super.key});
@@ -17,27 +17,54 @@ class TermsAndConditionsScreen extends StatefulWidget {
 
 class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
   final ContentRepository _repository = ContentRepository();
-  TermsConditionsModel? _terms;
+  String _html = '';
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadTerms();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadTerms();
+    });
+  }
+
+  bool _tooThin(String html) {
+    final text = html
+        .replaceAll(RegExp(r'<[^>]*>'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return text.length < 400;
+  }
+
+  Future<String> _bundledTerms() {
+    final ar = context.locale.languageCode.toLowerCase().startsWith('ar');
+    final path = ar
+        ? 'assets/legal/terms-and-conditions.ar.html'
+        : 'assets/legal/terms-and-conditions.en.html';
+    return rootBundle.loadString(path);
   }
 
   Future<void> _loadTerms() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
-      final response = await _repository.getTermsConditions();
+    try {
+      String html = '';
+      try {
+        final response = await _repository.getTermsConditions();
+        html = response.terms.content;
+      } catch (_) {
+        html = '';
+      }
+      if (_tooThin(html)) {
+        html = await _bundledTerms();
+      }
       if (!mounted) return;
       setState(() {
-        _terms = response.terms;
+        _html = html;
         _isLoading = false;
       });
     } catch (e) {
@@ -52,17 +79,10 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        shape: Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.terms_conditions'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.terms_conditions'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SafeArea(child: _buildBody()),
     );
@@ -78,27 +98,30 @@ class _TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red),
-            SizedBox(height: 16),
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 16),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(_error!, textAlign: TextAlign.center),
             ),
-            SizedBox(height: 16),
-            ElevatedButton(onPressed: _loadTerms, child: Text('common.retry'.tr())),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadTerms,
+              child: Text('common.retry'.tr()),
+            ),
           ],
         ),
       );
     }
 
-    if (_terms == null || _terms!.content.isEmpty) {
+    if (_html.isEmpty) {
       return Center(child: Text('settings.no_content'.tr()));
     }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       child: HtmlWidget(
-        _terms!.content,
+        _html,
         textStyle: TextStyle(
           fontSize: 14,
           color: Colors.black.withValues(alpha: 0.9),

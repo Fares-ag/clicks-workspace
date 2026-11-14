@@ -126,7 +126,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         border: Border(
-                          top: BorderSide(color: ColorsManager.washBorder),
+                          top: BorderSide(color: ColorsManager.cardBorder),
                         ),
                         boxShadow: [
                           BoxShadow(

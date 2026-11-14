@@ -1,9 +1,9 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/content_repository.dart';
-import '../../../../core/theme/text_styles.dart';
+import '../../../../core/theme/colors_manager.dart';
 
 class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
@@ -78,7 +78,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
     InputBorder outline([Color? c]) => OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
-      borderSide: BorderSide(color: c ?? const Color(0xFFE5E5E5)),
+      borderSide: BorderSide(color: c ?? ColorsManager.cardBorder),
     );
 
     final canSubmit =
@@ -87,17 +87,10 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
         !_submitting;
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        shape: Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.contact_us'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.contact_us'.tr(),
+        automaticallyImplyLeading: true,
       ),
 
       body: SafeArea(
@@ -147,8 +140,9 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
 
               Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFE5E5E5)),
-                  borderRadius: BorderRadius.circular(8),
+                  color: ColorsManager.card,
+                  border: Border.all(color: ColorsManager.cardBorder),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: ExpansionTile(
                   controller: _issueController,
@@ -204,7 +198,7 @@ class _ContactUsScreenState extends State<ContactUsScreen> {
                 height: 48,
                 child: FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF982B2B),
+                    backgroundColor: ColorsManager.mainColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),

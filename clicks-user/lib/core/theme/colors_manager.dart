@@ -9,9 +9,11 @@ class ColorsManager {
   static const Color wash = Color(0xFFFEF2F2);
   static const Color washBorder = Color(0xFFFECDCA);
 
-  /// App canvas behind tab screens (not stark white).
-  static const Color canvas = Color(0xFFF8F5F5);
+  /// App canvas behind tab screens. Neutral grey so white cards read clearly;
+  /// brand pink (`wash` / `washBorder`) is for selected / unread only.
+  static const Color canvas = Color(0xFFF5F5F5);
   static const Color card = Color(0xFFFFFFFF);
+  static const Color cardBorder = Color(0xFFE4E4E7);
 
   /// The secondary color used in the application.
   static const Color secondColor = Color(0xff00d8b4);

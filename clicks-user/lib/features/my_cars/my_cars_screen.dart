@@ -1,3 +1,4 @@
+import 'package:clicks_user/core/components/clicks_app_header.dart';
 import 'package:clicks_user/core/helper/app_snack_bars.dart';
 import 'package:clicks_user/core/helper/extensions.dart';
 import 'package:clicks_user/core/theme/colors_manager.dart';
@@ -26,41 +27,18 @@ class MyCarsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     context.read<MyCarsCubit>().getCars();
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'my_cars.my_cars'.tr(),
         automaticallyImplyLeading: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, size: 18.sp, color: Colors.black87),
-          onPressed: () => Navigator.of(context).maybePop(),
-        ),
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: const Border(
-          bottom: BorderSide(color: Color(0xFFD0D5DD), width: 1.0),
-        ),
-        title: Text(
-          'my_cars.my_cars'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.w700,
-            fontSize: 20.sp,
-          ),
-        ),
         actions: [
-          InkWell(
-            onTap: () => _showAddCarBottomSheet(context),
-            child: Container(
-              padding: EdgeInsets.only(bottom: 2.h),
-              margin: EdgeInsetsDirectional.only(end: 16.w),
-              decoration: const BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: ColorsManager.mainColor),
-                ),
-              ),
-              child: Text(
-                'my_cars.add_new_car'.tr(),
-                style: TextStyles.font14Medium.copyWith(
-                  color: ColorsManager.mainColor,
-                ),
+          TextButton(
+            onPressed: () => _showAddCarBottomSheet(context),
+            child: Text(
+              'my_cars.add_new_car'.tr(),
+              style: TextStyles.font14Medium.copyWith(
+                color: ColorsManager.mainColor,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -131,7 +109,11 @@ class MyCarsScreen extends StatelessWidget {
         SizedBox(height: 12.h),
         Row(
           children: [
-            SvgPicture.asset(AssetsManager.carSvg, width: 22.w, height: 22.w),
+            Icon(
+              Icons.directions_car_outlined,
+              size: 22.sp,
+              color: ColorsManager.mainColor,
+            ),
             SizedBox(width: 10.w),
             Text(
               'my_cars.vehicle_details'.tr(),
@@ -177,7 +159,7 @@ class _CarCardState extends State<_CarCard> {
           border: Border.all(
             color: _expanded
                 ? ColorsManager.mainColor.withValues(alpha: 0.35)
-                : ColorsManager.border,
+                : ColorsManager.cardBorder,
           ),
           borderRadius: BorderRadius.circular(12.r),
         ),

@@ -23,52 +23,52 @@ class _ServicesScreenState extends State<ServicesScreen> {
     _ServiceOption(
       serviceType: 'Battery Change',
       titleKey: 'services.battery_change',
-      icon: Icons.battery_charging_full,
+      icon: Icons.battery_charging_full_outlined,
     ),
     _ServiceOption(
       serviceType: 'Oil Change',
       titleKey: 'services.oil_change',
-      icon: Icons.opacity,
+      icon: Icons.water_drop_outlined,
     ),
     _ServiceOption(
       serviceType: 'Full Service',
       titleKey: 'services.full_service',
-      icon: Icons.build,
+      icon: Icons.build_outlined,
     ),
     _ServiceOption(
       serviceType: 'Car Wash - Interior',
       titleKey: 'services.car_wash_interior',
-      icon: Icons.event_seat,
+      icon: Icons.airline_seat_recline_normal_outlined,
     ),
     _ServiceOption(
       serviceType: 'Car Wash - Exterior',
       titleKey: 'services.car_wash_exterior',
-      icon: Icons.local_car_wash,
+      icon: Icons.local_car_wash_outlined,
     ),
     _ServiceOption(
       serviceType: 'Car Wash - Full',
       titleKey: 'services.car_wash_full',
-      icon: Icons.directions_car,
+      icon: Icons.directions_car_outlined,
     ),
     _ServiceOption(
       serviceType: 'Tyre Change',
       titleKey: 'services.tire_change',
-      icon: Icons.donut_large,
+      icon: Icons.tire_repair,
     ),
     _ServiceOption(
       serviceType: 'Car Wash - Full Polish',
       titleKey: 'services.car_wash_full_polish',
-      icon: Icons.star,
+      icon: Icons.auto_awesome_outlined,
     ),
     _ServiceOption(
       serviceType: 'Car Tinting',
       titleKey: 'services.car_tinting',
-      icon: Icons.gradient,
+      icon: Icons.layers_outlined,
     ),
     _ServiceOption(
       serviceType: 'Breakdown Vehicle',
       titleKey: 'services.breakdown_vehicle',
-      icon: Icons.report_problem,
+      icon: Icons.car_crash_outlined,
     ),
   ];
 
@@ -224,18 +224,9 @@ class _ServiceCard extends StatelessWidget {
             border: Border.all(
               color: isSelected
                   ? ColorsManager.mainColor
-                  : ColorsManager.washBorder.withValues(alpha: 0.85),
-              width: isSelected ? 2 : 1,
+                  : ColorsManager.cardBorder,
+              width: isSelected ? 1.5 : 1,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: isSelected ? 0.08 : 0.04,
-                ),
-                blurRadius: isSelected ? 12 : 8,
-                offset: Offset(0, isSelected ? 4 : 2),
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,9 +240,10 @@ class _ServiceCard extends StatelessWidget {
                     height: 40.w,
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? ColorsManager.mainColor.withValues(alpha: 0.12)
-                          : const Color(0xFFF4F5F7),
+                          ? ColorsManager.mainColor.withValues(alpha: 0.10)
+                          : Colors.white,
                       borderRadius: BorderRadius.circular(11.r),
+                      border: Border.all(color: ColorsManager.cardBorder),
                     ),
                     child: Icon(
                       service.icon,

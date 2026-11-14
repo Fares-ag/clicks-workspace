@@ -19,9 +19,9 @@ class HeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? ColorsManager.mainColor : ColorsManager.wash;
+    final bg = selected ? ColorsManager.mainColor : ColorsManager.card;
     final fg = selected ? Colors.white : ColorsManager.mainColor;
-    final border = selected ? ColorsManager.mainColor : ColorsManager.washBorder;
+    final border = selected ? ColorsManager.mainColor : ColorsManager.cardBorder;
 
     return Semantics(
       button: true,

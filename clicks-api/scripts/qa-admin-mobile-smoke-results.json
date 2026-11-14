@@ -1,0 +1,415 @@
+{
+  "passed": 81,
+  "failed": 0,
+  "skipped": 0,
+  "firstFailure": null,
+  "results": [
+    {
+      "id": "Admin API reachable",
+      "ok": true,
+      "detail": "https://clicks-admin-api-production.up.railway.app"
+    },
+    {
+      "id": "Super Admin login",
+      "ok": true,
+      "detail": "Super Admin"
+    },
+    {
+      "id": "Job Dispatcher login",
+      "ok": true,
+      "detail": "Job Dispatcher"
+    },
+    {
+      "id": "auth/me Super Admin",
+      "ok": true,
+      "detail": "200 {\"user\":{\"id\":\"6a5e836b815eede607f60576\",\"firstName\":\"Clicks\",\"lastName\":\"Admin\",\"role\":\"Super Admin\",\"email\":\"admin@clicks.local\",\"phone\":\"+97400000000\"}}"
+    },
+    {
+      "id": "auth/login invalid → 401",
+      "ok": true,
+      "detail": "401 Invalid credentials"
+    },
+    {
+      "id": "auth/refresh-token",
+      "ok": true,
+      "detail": "200 {\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhNWU4MzZiODE1ZWVkZTYwN2Y2MDU3NiIsInJvbGUiOiJTdXBlciBBZG1pbiIsImVtYWlsIjoiYWRtaW5AY2xpY2tzLmxvY2FsIiwiYXV0aFRva2VuVmV"
+    },
+    {
+      "id": "Super Admin GET dashboard/summary",
+      "ok": true,
+      "detail": "200 {\"generatedAt\":\"2026-10-15T05:23:38.394Z\",\"stats_computed_at\":\"2026-10-15T05:22:25.648Z\",\"jobs\":{\"total\":13045,\"completed\":11165,\"ongoing\":544,\"onHold\":10,\"pending\":52,\"cancelled\":"
+    },
+    {
+      "id": "Job Dispatcher allow GET dashboard/summary",
+      "ok": true,
+      "detail": "200 {\"generatedAt\":\"2026-10-15T05:24:38.120Z\",\"stats_computed_at\":\"2026-10-15T05:24:25.652Z\",\"jobs\":{\"total\":13045,\"completed\":11165,\"ongoing\":544,\"onHold\":10,\"pending\":52,\"cancelled\":"
+    },
+    {
+      "id": "Super Admin GET dashboard/job-completion",
+      "ok": true,
+      "detail": "200 {\"timeframe\":\"12months\",\"data\":[{\"date\":\"2025-10\",\"jobs\":1200},{\"date\":\"2025-11\",\"jobs\":2045},{\"date\":\"2025-12\",\"jobs\":707},{\"date\":\"2026-07\",\"jobs\":5},{\"date\":\"2026-08\",\"jobs\":7},"
+    },
+    {
+      "id": "Job Dispatcher allow GET dashboard/job-completion",
+      "ok": true,
+      "detail": "200 {\"timeframe\":\"12months\",\"data\":[{\"date\":\"2025-10\",\"jobs\":1200},{\"date\":\"2025-11\",\"jobs\":2045},{\"date\":\"2025-12\",\"jobs\":707},{\"date\":\"2026-07\",\"jobs\":5},{\"date\":\"2026-08\",\"jobs\":7},"
+    },
+    {
+      "id": "Super Admin GET dashboard/earnings",
+      "ok": true,
+      "detail": "200 {\"timeframe\":\"12months\",\"data\":[{\"date\":\"2025-10\",\"earnings\":714401,\"jobs\":1200},{\"date\":\"2025-11\",\"earnings\":1317904,\"jobs\":2045},{\"date\":\"2025-12\",\"earnings\":466024,\"jobs\":707},{"
+    },
+    {
+      "id": "Job Dispatcher deny GET dashboard/earnings",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET dashboard/technician-performance",
+      "ok": true,
+      "detail": "200 {\"data\":[{\"technicianId\":\"6a95f7c38173809eeb5bfac3\",\"name\":\"Ossman\",\"completed\":109,\"inProgress\":131,\"cancelled\":15,\"total\":255},{\"technicianId\":\"6a85e931be4e89d220c86795\",\"name\":\""
+    },
+    {
+      "id": "Job Dispatcher deny GET dashboard/technician-performance",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET dashboard/earnings-by-date",
+      "ok": true,
+      "detail": "200 {\"date\":\"2026-10-15\",\"totalEarnings\":0,\"jobCount\":0,\"currency\":\"QAR\"}"
+    },
+    {
+      "id": "Job Dispatcher deny GET dashboard/earnings-by-date",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET sos",
+      "ok": true,
+      "detail": "200 {\"requests\":[{\"sos_id\":\"6acaa3a6804881addefe0436\",\"_id\":\"6acaa3a6804881addefe0436\",\"status\":\"accepted\",\"job_status\":\"completed\",\"display_status\":\"completed\",\"customer_id\":\"6a5ea167"
+    },
+    {
+      "id": "Job Dispatcher allow GET sos",
+      "ok": true,
+      "detail": "200 {\"requests\":[{\"sos_id\":\"6acaa3a6804881addefe0436\",\"_id\":\"6acaa3a6804881addefe0436\",\"status\":\"accepted\",\"job_status\":\"completed\",\"display_status\":\"completed\",\"customer_id\":\"6a5ea167"
+    },
+    {
+      "id": "Super Admin GET service-requests",
+      "ok": true,
+      "detail": "200 {\"requests\":[{\"service_request_id\":\"6a820d94eeb734972147a69d\",\"_id\":\"6a820d94eeb734972147a69d\",\"status\":\"assigned\",\"service_type\":\"Car Wash - Full\",\"timing\":\"immediate\",\"scheduled_"
+    },
+    {
+      "id": "Job Dispatcher allow GET service-requests",
+      "ok": true,
+      "detail": "200 {\"requests\":[{\"service_request_id\":\"6a820d94eeb734972147a69d\",\"_id\":\"6a820d94eeb734972147a69d\",\"status\":\"assigned\",\"service_type\":\"Car Wash - Full\",\"timing\":\"immediate\",\"scheduled_"
+    },
+    {
+      "id": "Super Admin GET jobs",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6ad05ab20ed0284222d09659\",\"job_reference\":\"\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"vehicleMake\":\"\",\"vehicleModel\":\"\",\"vehicleYear\":null,\"lice"
+    },
+    {
+      "id": "Job Dispatcher allow GET jobs",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6ad05ab20ed0284222d09659\",\"job_reference\":\"\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"vehicleMake\":\"\",\"vehicleModel\":\"\",\"vehicleYear\":null,\"lice"
+    },
+    {
+      "id": "Super Admin GET leads",
+      "ok": true,
+      "detail": "200 {\"leads\":[{\"lead_id\":\"6ad05a9b0ed0284222d0962b\",\"_id\":\"6ad05a9b0ed0284222d0962b\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"clientEmail\":\"\",\"inquiry\":\"tire flat\",\""
+    },
+    {
+      "id": "Job Dispatcher allow GET leads",
+      "ok": true,
+      "detail": "200 {\"leads\":[{\"lead_id\":\"6ad05a9b0ed0284222d0962b\",\"_id\":\"6ad05a9b0ed0284222d0962b\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"clientEmail\":\"\",\"inquiry\":\"tire flat\",\""
+    },
+    {
+      "id": "Super Admin GET technicians",
+      "ok": true,
+      "detail": "200 {\"technicians\":[{\"_id\":\"6a5e836d5140d18123842f90\",\"firstName\":\"Sara\",\"lastName\":\"Hassan\",\"phone\":\"+97422222222\",\"currentStatus\":\"Offline\",\"applicationStatus\":\"Approved\",\"isActive\":"
+    },
+    {
+      "id": "Job Dispatcher allow GET technicians",
+      "ok": true,
+      "detail": "200 {\"technicians\":[{\"_id\":\"6a5e836d5140d18123842f90\",\"firstName\":\"Sara\",\"lastName\":\"Hassan\",\"phone\":\"+97422222222\",\"currentStatus\":\"Offline\",\"applicationStatus\":\"Approved\",\"isActive\":"
+    },
+    {
+      "id": "Super Admin GET technicians/live-map",
+      "ok": true,
+      "detail": "200 {\"technicians\":[{\"_id\":\"6a5ffa2e7b3991b4d85bd2d0\",\"firstName\":\"Fares\",\"lastName\":\"M\",\"phone\":\"+97412345678\",\"currentStatus\":\"On Job\",\"location\":{\"latitude\":25.32692,\"longitude\":51."
+    },
+    {
+      "id": "Job Dispatcher allow GET technicians/live-map",
+      "ok": true,
+      "detail": "200 {\"technicians\":[{\"_id\":\"6a5ffa2e7b3991b4d85bd2d0\",\"firstName\":\"Fares\",\"lastName\":\"M\",\"phone\":\"+97412345678\",\"currentStatus\":\"On Job\",\"location\":{\"latitude\":25.32692,\"longitude\":51."
+    },
+    {
+      "id": "Super Admin GET jobs/heatmap",
+      "ok": true,
+      "detail": "200 {\"points\":[{\"lat\":25.2729433,\"lng\":51.4746745,\"weight\":1},{\"lat\":25.362742583333333,\"lng\":51.561569383333335,\"weight\":6},{\"lat\":25.29386825,\"lng\":51.474472475,\"weight\":4},{\"lat\":25"
+    },
+    {
+      "id": "Job Dispatcher deny GET jobs/heatmap",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET jobs/nearby",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6acf2cce98d1f90808c86616\",\"clientName\":\"hajar\",\"clientMobileNumber\":\"+97471053342\",\"issue\":\"change betarry\",\"location\":\"25.2871875, 51.5403281\",\"dateTime\":\"2026-10"
+    },
+    {
+      "id": "Job Dispatcher deny GET jobs/nearby",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET finance-overview/summary",
+      "ok": true,
+      "detail": "200 {\"audited\":{\"count\":3,\"revenue\":450,\"costTotal\":80,\"netProfit\":370},\"pending\":{\"count\":11162,\"revenue\":6607987,\"costTotal\":90,\"netProfit\":6607897},\"totalCompleted\":11165,\"pendingCo"
+    },
+    {
+      "id": "Job Dispatcher deny GET finance-overview/summary",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET finance-overview/jobs",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6acf96c10ed0284222d0463d\",\"job_reference\":\"4877\",\"clientName\":\"saad\",\"clientMobileNumber\":\"+97455244888\",\"clientEmail\":\"\",\"customer_id\":null,\"customer_vehicle_id\":"
+    },
+    {
+      "id": "Job Dispatcher deny GET finance-overview/jobs",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET technician-activity",
+      "ok": true,
+      "detail": "200 {\"logs\":[{\"id\":\"6ad0634105cb073e7897beb6\",\"at\":\"2026-10-15T05:23:13.837Z\",\"event\":\"location.updated\",\"event_label\":\"Location ping\",\"severity\":\"info\",\"category\":\"location\",\"category"
+    },
+    {
+      "id": "Job Dispatcher deny GET technician-activity",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET technician-activity/filters",
+      "ok": true,
+      "detail": "200 {\"categories\":[{\"value\":\"auth\",\"label\":\"Authentication\"},{\"value\":\"account\",\"label\":\"Account\"},{\"value\":\"session\",\"label\":\"Availability\"},{\"value\":\"device\",\"label\":\"Device\"},{\"valu"
+    },
+    {
+      "id": "Job Dispatcher deny GET technician-activity/filters",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET performance",
+      "ok": true,
+      "detail": "200 {\"performance\":[{\"_id\":\"6a5ffa2e7b3991b4d85bd2d0\",\"firstName\":\"Fares\",\"lastName\":\"M\",\"email\":\"faroos4848@gmail.com\",\"totalEarnings\":7000,\"completedJobs\":5,\"totalOnlineHours\":0,\"ong"
+    },
+    {
+      "id": "Job Dispatcher deny GET performance",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET admins",
+      "ok": true,
+      "detail": "200 {\"admins\":[{\"authTokenVersion\":0,\"fcm_token\":null,\"_id\":\"6a5e836b815eede607f60576\",\"firstName\":\"Clicks\",\"lastName\":\"Admin\",\"role\":\"Super Admin\",\"email\":\"admin@clicks.local\",\"phone\""
+    },
+    {
+      "id": "Job Dispatcher deny GET admins",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET businesses",
+      "ok": true,
+      "detail": "200 {\"businesses\":[{\"_id\":\"6a8f00b23e5e1b778d4c4792\",\"name\":\"Carage App\",\"phone\":\"55149492\",\"email\":\"info@carage.qa\",\"address\":\"Doha, Qatar\",\"cutType\":\"revenue\",\"cutPercent\":100,\"isAct"
+    },
+    {
+      "id": "Job Dispatcher deny GET businesses",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET partners",
+      "ok": true,
+      "detail": "200 {\"partners\":[{\"_id\":\"6a80b19dba7b167e8f46cd4b\",\"name\":\"Didi\",\"phone\":\"123451526\",\"email\":\"admin@clicks.local\",\"isActive\":true,\"investmentAmount\":20000,\"profitPerPeriod\":2000,\"curre"
+    },
+    {
+      "id": "Job Dispatcher deny GET partners",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET finance-users",
+      "ok": true,
+      "detail": "200 {\"users\":[{\"_id\":\"6a9aca140cc22960e014dcb2\",\"name\":\"Finance Operator\",\"email\":\"finance@clicks.local\",\"phone\":\"+97444440002\",\"role\":\"operator\",\"isActive\":true,\"createdAt\":\"2026-09-0"
+    },
+    {
+      "id": "Job Dispatcher deny GET finance-users",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET sources GET",
+      "ok": true,
+      "detail": "200 {\"sources\":[{\"_id\":\"6a5ea166a67c3d98fc2e69fe\",\"mainSourceName\":\"Direct\",\"subSources\":[{\"name\":\"App SOS\",\"notes\":\"\",\"_id\":\"6a5ea3f6e8757aaf611e0fb2\"},{\"name\":\"Old Customer\",\"notes\":"
+    },
+    {
+      "id": "Job Dispatcher allow GET sources GET",
+      "ok": true,
+      "detail": "200 {\"sources\":[{\"_id\":\"6a5ea166a67c3d98fc2e69fe\",\"mainSourceName\":\"Direct\",\"subSources\":[{\"name\":\"App SOS\",\"notes\":\"\",\"_id\":\"6a5ea3f6e8757aaf611e0fb2\"},{\"name\":\"Old Customer\",\"notes\":"
+    },
+    {
+      "id": "Super Admin GET vehicle-makes GET",
+      "ok": true,
+      "detail": "200 {\"makes\":[{\"_id\":\"6a6cdfafabc96cdf1a639b43\",\"makeName\":\"Abarth\",\"isActive\":true,\"createdAt\":\"2026-07-31T17:47:27.733Z\",\"updatedAt\":\"2026-07-31T17:47:27.733Z\",\"__v\":0},{\"_id\":\"6a6cd"
+    },
+    {
+      "id": "Job Dispatcher allow GET vehicle-makes GET",
+      "ok": true,
+      "detail": "200 {\"makes\":[{\"_id\":\"6a6cdfafabc96cdf1a639b43\",\"makeName\":\"Abarth\",\"isActive\":true,\"createdAt\":\"2026-07-31T17:47:27.733Z\",\"updatedAt\":\"2026-07-31T17:47:27.733Z\",\"__v\":0},{\"_id\":\"6a6cd"
+    },
+    {
+      "id": "Super Admin GET vehicle-models GET",
+      "ok": true,
+      "detail": "200 {\"models\":[{\"_id\":\"6a6ce1c0abc96cdf1a63b929\",\"makeId\":\"6a6ce1c0abc96cdf1a63b926\",\"modelName\":\"001\",\"isActive\":true,\"createdAt\":\"2026-07-31T17:56:16.408Z\",\"updatedAt\":\"2026-07-31T17"
+    },
+    {
+      "id": "Job Dispatcher allow GET vehicle-models GET",
+      "ok": true,
+      "detail": "200 {\"models\":[{\"_id\":\"6a6ce1c0abc96cdf1a63b929\",\"makeId\":\"6a6ce1c0abc96cdf1a63b926\",\"modelName\":\"001\",\"isActive\":true,\"createdAt\":\"2026-07-31T17:56:16.408Z\",\"updatedAt\":\"2026-07-31T17"
+    },
+    {
+      "id": "Super Admin GET customers",
+      "ok": true,
+      "detail": "200 {\"customers\":[{\"_id\":\"6a7a22e30abf8a5be1c296ee\",\"phone_number\":\"+97431622541\",\"first_name\":\"Salam\",\"last_name\":\"Jebreel\",\"email\":\"sjebreel@qtree.com\",\"status\":\"Active\",\"createdAt\":"
+    },
+    {
+      "id": "Job Dispatcher allow GET customers",
+      "ok": true,
+      "detail": "200 {\"customers\":[{\"_id\":\"6a7a22e30abf8a5be1c296ee\",\"phone_number\":\"+97431622541\",\"first_name\":\"Salam\",\"last_name\":\"Jebreel\",\"email\":\"sjebreel@qtree.com\",\"status\":\"Active\",\"createdAt\":"
+    },
+    {
+      "id": "Super Admin GET vehicles",
+      "ok": true,
+      "detail": "200 {\"vehicles\":[],\"total\":0}"
+    },
+    {
+      "id": "Job Dispatcher allow GET vehicles",
+      "ok": true,
+      "detail": "200 {\"vehicles\":[],\"total\":0}"
+    },
+    {
+      "id": "Super Admin POST sources POST",
+      "ok": true,
+      "detail": "400 Main source name is required"
+    },
+    {
+      "id": "Job Dispatcher deny POST sources POST",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin POST jobs/import",
+      "ok": true,
+      "detail": "400 No Excel file uploaded. Use form field 'file'."
+    },
+    {
+      "id": "Job Dispatcher deny POST jobs/import",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin DELETE jobs DELETE fake",
+      "ok": true,
+      "detail": "404 Job not found"
+    },
+    {
+      "id": "Job Dispatcher deny DELETE jobs DELETE fake",
+      "ok": true,
+      "detail": "expected 403, got 403 Forbidden for this role"
+    },
+    {
+      "id": "Super Admin GET jobs/:id",
+      "ok": true,
+      "detail": "200 {\"job\":{\"_id\":\"6ad05ab20ed0284222d09659\",\"job_reference\":\"\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"clientEmail\":\"\",\"customer_id\":null,\"customer_vehicle_id\":nul"
+    },
+    {
+      "id": "Job Dispatcher allow GET jobs/:id",
+      "ok": true,
+      "detail": "200 {\"job\":{\"_id\":\"6ad05ab20ed0284222d09659\",\"job_reference\":\"\",\"clientName\":\"meshale\",\"clientMobileNumber\":\"+97433688817\",\"clientEmail\":\"\",\"customer_id\":null,\"customer_vehicle_id\":nul"
+    },
+    {
+      "id": "Super Admin GET jobs/:id/repairs",
+      "ok": true,
+      "detail": "200 {\"repairs\":[]}"
+    },
+    {
+      "id": "Job Dispatcher allow GET jobs/:id/repairs",
+      "ok": true,
+      "detail": "200 {\"repairs\":[]}"
+    },
+    {
+      "id": "Super Admin GET receipts/job/:id",
+      "ok": true,
+      "detail": "404 Receipt not found for job"
+    },
+    {
+      "id": "Job Dispatcher allow GET receipts/job/:id",
+      "ok": true,
+      "detail": "404 Receipt not found for job"
+    },
+    {
+      "id": "feature create tagged job",
+      "ok": true,
+      "detail": "6ad063a30ed0284222d0a073"
+    },
+    {
+      "id": "feature jobs filter includes QA job",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6ad063650ed0284222d09eb6\",\"job_reference\":\"\",\"clientName\":\"QA Admin Mobile Smoke\",\"clientMobileNumber\":\"41828365\",\"vehicleMake\":\"\",\"vehicleModel\":\"\",\"vehicleYear\":"
+    },
+    {
+      "id": "feature reassign",
+      "ok": true,
+      "detail": "200 Job reassigned successfully"
+    },
+    {
+      "id": "feature on_hold filter list",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6acfa54b0ed0284222d050d5\",\"job_reference\":\"\",\"clientName\":\"rashid al ali\",\"clientMobileNumber\":\"+97455333908\",\"vehicleMake\":\"Jetour\",\"vehicleModel\":\"T2\",\"vehicleYe"
+    },
+    {
+      "id": "feature hold",
+      "ok": true,
+      "detail": "200 Job put on hold"
+    },
+    {
+      "id": "feature on_hold filter",
+      "ok": true,
+      "detail": "200 {\"jobs\":[{\"_id\":\"6acfa54b0ed0284222d050d5\",\"job_reference\":\"\",\"clientName\":\"rashid al ali\",\"clientMobileNumber\":\"+97455333908\",\"vehicleMake\":\"Jetour\",\"vehicleModel\":\"T2\",\"vehicleYe"
+    },
+    {
+      "id": "feature resume",
+      "ok": true,
+      "detail": "200 Job resumed"
+    },
+    {
+      "id": "feature finance summary",
+      "ok": true,
+      "detail": "200 {\"audited\":{\"count\":3,\"revenue\":450,\"costTotal\":80,\"netProfit\":370},\"pending\":{\"count\":11162,\"revenue\":6607987,\"costTotal\":90,\"netProfit\":6607897},\"totalCompleted\":11165,\"pendingCo"
+    },
+    {
+      "id": "feature cleanup delete QA job",
+      "ok": true,
+      "detail": "200 Job deleted"
+    }
+  ],
+  "adminUrl": "https://clicks-admin-api-production.up.railway.app",
+  "at": "2026-10-15T05:24:52.563Z"
+}

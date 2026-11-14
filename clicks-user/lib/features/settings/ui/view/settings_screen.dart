@@ -15,6 +15,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/components/app_button.dart';
 import '../../../../core/components/clicks_app_header.dart';
+import '../../../../core/components/clicks_card.dart';
 import '../../../../core/helper/assets_manager.dart';
 import '../../../../core/helper/extensions.dart';
 import '../../../../core/routing/routes.dart';
@@ -24,8 +25,6 @@ import '../../../../features/settings/ui/view/privacy_policy_screen.dart';
 import '../../../../features/settings/ui/view/terms_conditions_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-
 import '../../../../core/theme/text_styles.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
@@ -71,72 +70,99 @@ class SettingsScreen extends StatelessWidget {
                         "${context.read<SettingsCubit>().profile?.firstName} ${context.read<SettingsCubit>().profile?.lastName}",
                     phone:
                         "${context.read<SettingsCubit>().profile?.phoneNumber}",
-                    avatarUrl: AssetsManager.profileSettingsSvg,
                   ),
 
                   SizedBox(height: 12.h),
 
                   /// Vehicle Information
                   SectionTitle(title: 'settings.vehicle_information'.tr()),
-                  SettingsTile(
-                    icon: AssetsManager.vehicleInfoSvg,
-                    title: 'settings.my_cars'.tr(),
-                    onTap: () {
-                      context.pushSmooth(MyCarsScreen());
+                  BlocBuilder<MembershipCubit, MembershipState>(
+                    builder: (context, membership) {
+                      return SettingsGroup(
+                        children: [
+                          SettingsTile(
+                            icon: Icons.directions_car_outlined,
+                            title: 'settings.my_cars'.tr(),
+                            onTap: () {
+                              context.pushSmooth(MyCarsScreen());
+                            },
+                          ),
+                          if (membership.enabled)
+                            SettingsTile(
+                              icon: Icons.workspace_premium_outlined,
+                              title: 'settings.membership'.tr(),
+                              subtitle: membership.active == null
+                                  ? 'membership.status_none'.tr()
+                                  : 'membership.status_active'.tr(namedArgs: {
+                                      'plan': membership.active!.planName,
+                                    }),
+                              onTap: () =>
+                                  context.toNamed(Routes.membershipHub),
+                            ),
+                        ],
+                      );
                     },
                   ),
-                  const _MembershipSettingsTile(),
-                  const SizedBox(height: 16),
 
                   /// General
                   SectionTitle(title: 'settings.general'.tr()),
-                  SettingsTile(
-                    onTap: () {
-                      context.toNamed(Routes.changeLanguage);
-                    },
-                    icon: AssetsManager.languageSvg,
-                    title: 'settings.language'.tr(),
+                  SettingsGroup(
+                    children: [
+                      SettingsTile(
+                        onTap: () {
+                          context.toNamed(Routes.changeLanguage);
+                        },
+                        icon: Icons.translate_outlined,
+                        title: 'settings.language'.tr(),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
 
                   /// Help & Support
                   SectionTitle(title: 'settings.help_support'.tr()),
-                  SettingsTile(
-                    icon: AssetsManager.contactUsSvg,
-                    title: 'settings.contact_us'.tr(),
-                    onTap: () {
-                      context.pushSmooth(ContactUsScreen());
-                    },
+                  SettingsGroup(
+                    children: [
+                      SettingsTile(
+                        icon: Icons.chat_bubble_outline,
+                        title: 'settings.contact_us'.tr(),
+                        onTap: () {
+                          context.pushSmooth(ContactUsScreen());
+                        },
+                      ),
+                      SettingsTile(
+                        icon: Icons.assignment_outlined,
+                        title: 'settings.my_requests'.tr(),
+                        onTap: () => context.toNamed(Routes.myRequests),
+                      ),
+                      SettingsTile(
+                        icon: Icons.help_outline,
+                        title: 'settings.faqs'.tr(),
+                        onTap: () {
+                          context.pushSmooth(FaqScreen());
+                        },
+                      ),
+                    ],
                   ),
-                  SettingsTile(
-                    icon: AssetsManager.contactUsSvg,
-                    title: 'settings.my_requests'.tr(),
-                    onTap: () => context.toNamed(Routes.myRequests),
-                  ),
-                  SettingsTile(
-                    icon: AssetsManager.faqsSvg,
-                    title: 'settings.faqs'.tr(),
-                    onTap: () {
-                      context.pushSmooth(FaqScreen());
-                    },
-                  ),
-                  const SizedBox(height: 16),
 
                   /// Legal
                   SectionTitle(title: 'settings.legal'.tr()),
-                  SettingsTile(
-                    icon: AssetsManager.privacyPolicySvg,
-                    title: 'settings.privacy_policy'.tr(),
-                    onTap: () {
-                      context.pushSmooth(PrivacyPolicyScreen());
-                    },
-                  ),
-                  SettingsTile(
-                    icon: AssetsManager.termsConditionsSvg,
-                    title: 'settings.terms_conditions'.tr(),
-                    onTap: () {
-                      context.pushSmooth(TermsAndConditionsScreen());
-                    },
+                  SettingsGroup(
+                    children: [
+                      SettingsTile(
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'settings.privacy_policy'.tr(),
+                        onTap: () {
+                          context.pushSmooth(PrivacyPolicyScreen());
+                        },
+                      ),
+                      SettingsTile(
+                        icon: Icons.description_outlined,
+                        title: 'settings.terms_conditions'.tr(),
+                        onTap: () {
+                          context.pushSmooth(TermsAndConditionsScreen());
+                        },
+                      ),
+                    ],
                   ),
 
                   SizedBox(height: 24.h),
@@ -207,13 +233,11 @@ class SettingsScreen extends StatelessWidget {
 class ProfileCard extends StatelessWidget {
   final String name;
   final String phone;
-  final String avatarUrl;
 
   const ProfileCard({
     super.key,
     required this.name,
     required this.phone,
-    required this.avatarUrl,
   });
 
   @override
@@ -222,9 +246,9 @@ class ProfileCard extends StatelessWidget {
       margin: EdgeInsets.symmetric(horizontal: 16.w),
       padding: EdgeInsets.all(12.w),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: ColorsManager.card,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: ColorsManager.washBorder),
+        border: Border.all(color: ColorsManager.cardBorder),
       ),
       child: Row(
         children: [
@@ -249,11 +273,8 @@ class ProfileCard extends StatelessWidget {
           ),
           InkWell(
             onTap: () => showProfileDialog(context),
-            borderRadius: BorderRadius.circular(8.r),
-            child: Padding(
-              padding: EdgeInsets.all(4.w),
-              child: SvgPicture.asset(avatarUrl),
-            ),
+            borderRadius: BorderRadius.circular(10.r),
+            child: const ClicksIconWell(icon: Icons.manage_accounts_outlined),
           ),
         ],
       ),
@@ -281,45 +302,44 @@ class SectionTitle extends StatelessWidget {
   }
 }
 
-class _MembershipSettingsTile extends StatefulWidget {
-  const _MembershipSettingsTile();
-
-  @override
-  State<_MembershipSettingsTile> createState() => _MembershipSettingsTileState();
-}
-
-class _MembershipSettingsTileState extends State<_MembershipSettingsTile> {
-  @override
-  void initState() {
-    super.initState();
-    context.read<MembershipCubit>().load();
-  }
+class SettingsGroup extends StatelessWidget {
+  final List<Widget> children;
+  const SettingsGroup({super.key, required this.children});
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<MembershipCubit, MembershipState>(
-      builder: (context, membership) {
-        if (!membership.enabled) {
-          return const SizedBox.shrink();
-        }
-        final active = membership.active;
-        return SettingsTile(
-          icon: AssetsManager.earningsSvg,
-          title: 'settings.membership'.tr(),
-          subtitle: active == null
-              ? 'membership.status_none'.tr()
-              : 'membership.status_active'.tr(namedArgs: {
-                  'plan': active.planName,
-                }),
-          onTap: () => context.toNamed(Routes.membershipHub),
-        );
-      },
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 4.h),
+      child: Container(
+        decoration: BoxDecoration(
+          color: ColorsManager.card,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: ColorsManager.cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: ColorsManager.divider,
+                  indent: 48.w,
+                ),
+              children[i],
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
 
 class SettingsTile extends StatelessWidget {
-  final String icon;
+  final IconData icon;
   final String title;
   final String? subtitle;
 
@@ -334,38 +354,32 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 8.h),
-      child: Material(
-        color: ColorsManager.card,
-        borderRadius: BorderRadius.circular(12.r),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12.r),
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 2.h),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: ColorsManager.washBorder),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 4.h),
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: ClicksIconWell(icon: icon),
+            title: Text(
+              title,
+              style: TextStyles.font14RegularGrey.copyWith(
+                color: ColorsManager.blackColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: SvgPicture.asset(icon),
-              title: Text(
-                title,
-                style: TextStyles.font14RegularGrey.copyWith(color: Colors.black87),
-              ),
-              subtitle: subtitle == null
-                  ? null
-                  : Text(
-                      subtitle!,
-                      style: TextStyles.font14RegularGrey.copyWith(fontSize: 12.sp),
-                    ),
-              trailing: Icon(
-                Icons.chevron_right,
-                size: 22.sp,
-                color: ColorsManager.listTileArrowForward,
-              ),
+            subtitle: subtitle == null
+                ? null
+                : Text(
+                    subtitle!,
+                    style: TextStyles.font14RegularGrey.copyWith(fontSize: 12.sp),
+                  ),
+            trailing: Icon(
+              Icons.chevron_right,
+              size: 22.sp,
+              color: ColorsManager.listTileArrowForward,
             ),
           ),
         ),

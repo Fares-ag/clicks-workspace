@@ -1,0 +1,26 @@
+{
+  "name": "clicks-customer-demo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Motion package and capture tooling for the Clicks customer product demo video",
+  "dependencies": {
+    "@remotion/bundler": "^4.0.258",
+    "@remotion/cli": "^4.0.258",
+    "@remotion/renderer": "^4.0.258",
+    "ffmpeg-static": "^5.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.258"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.49.1"
+  },
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.jsx",
+    "render": "remotion render src/index.jsx ClicksCustomerDemo deliverables/clicks-customer-demo.mp4 --browser-executable=\"C:/Users/TS/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe\" --concurrency=4 --crf=12 --image-format=png",
+    "preview": "remotion render src/index.jsx ClicksCustomerDemo deliverables/preview-40s.mp4 --frames=1131-2330 --browser-executable=\"C:/Users/TS/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe\" --concurrency=4 --crf=12 --image-format=png",
+    "still": "remotion still src/index.jsx ClicksCustomerDemo",
+    "styleframes": "node tools/styleframes.mjs"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+build/
+tools/.tokens.json
+footage/stills/_*.png
+public/

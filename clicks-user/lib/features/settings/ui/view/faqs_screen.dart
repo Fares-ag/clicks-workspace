@@ -2,9 +2,10 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/content_models.dart';
 import '../../../../core/helper/content_repository.dart';
-import '../../../../core/theme/text_styles.dart';
+import '../../../../core/theme/colors_manager.dart';
 
 class FaqScreen extends StatefulWidget {
   const FaqScreen({super.key});
@@ -55,17 +56,10 @@ class _FaqScreenState extends State<FaqScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        shape: Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.faqs'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.faqs'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SafeArea(child: _buildBody()),
     );
@@ -97,8 +91,8 @@ class _FaqScreenState extends State<FaqScreen> {
         // Need Assistance card
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF9D2626),
-            borderRadius: BorderRadius.circular(8),
+            color: ColorsManager.mainColor,
+            borderRadius: BorderRadius.circular(12.r),
           ),
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           child: Column(
@@ -174,14 +168,13 @@ class _FaqTileState extends State<_FaqTile> {
 
   @override
   Widget build(BuildContext context) {
-    final border = Border.all(color: const Color(0xFFE9E9E9));
-    final radius = BorderRadius.circular(12);
+    final radius = BorderRadius.circular(12.r);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: border,
+        color: ColorsManager.card,
+        border: Border.all(color: ColorsManager.cardBorder),
         borderRadius: radius,
       ),
       child: Theme(

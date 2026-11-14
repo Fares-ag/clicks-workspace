@@ -77,7 +77,7 @@ class ClicksAppHeader extends StatelessWidget implements PreferredSizeWidget {
               const Divider(
                 height: 1,
                 thickness: 1,
-                color: ColorsManager.washBorder,
+                color: ColorsManager.cardBorder,
               ),
           ],
         ),

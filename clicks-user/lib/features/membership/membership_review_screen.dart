@@ -143,7 +143,7 @@ class _MembershipReviewScreenState extends State<MembershipReviewScreen> {
   Widget build(BuildContext context) {
     final arabic = context.locale.languageCode == 'ar';
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: ColorsManager.canvas,
       appBar: ClicksAppHeader(
         title: 'membership.review_title'.tr(),
         automaticallyImplyLeading: true,

@@ -64,6 +64,7 @@ flutter:
     - assets/icons/
     - assets/fonts/
     - assets/translations/
+    - assets/legal/
 
   fonts:
     - family: HelveticaNeue

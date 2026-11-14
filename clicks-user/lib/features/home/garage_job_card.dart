@@ -54,7 +54,7 @@ class GarageJobCard extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 4.h),
       child: Material(
-        color: ColorsManager.wash,
+        color: ColorsManager.card,
         borderRadius: BorderRadius.circular(14.r),
         child: InkWell(
           onTap: () => SessionResume.go(
@@ -66,7 +66,7 @@ class GarageJobCard extends StatelessWidget {
           child: Ink(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14.r),
-              border: Border.all(color: ColorsManager.washBorder),
+              border: Border.all(color: ColorsManager.cardBorder),
             ),
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
             child: Row(
@@ -78,10 +78,8 @@ class GarageJobCard extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: ColorsManager.mainColor.withValues(alpha: 0.25),
-                    ),
+                    borderRadius: BorderRadius.circular(10.r),
+                    border: Border.all(color: ColorsManager.cardBorder),
                   ),
                   child: Icon(
                     returning

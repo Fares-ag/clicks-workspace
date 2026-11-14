@@ -34,7 +34,7 @@ class HomeScreen extends StatelessWidget {
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(
-                bottom: BorderSide(color: ColorsManager.washBorder),
+                bottom: BorderSide(color: ColorsManager.cardBorder),
               ),
             ),
             child: SafeArea(
@@ -142,7 +142,7 @@ class _SosUnavailableCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(color: ColorsManager.washBorder),
+          border: Border.all(color: ColorsManager.cardBorder),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

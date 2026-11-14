@@ -1,5 +1,6 @@
 import '../../core/config/public_config.dart';
 import 'package:clicks_user/core/components/clicks_app_header.dart';
+import 'package:clicks_user/core/components/clicks_card.dart';
 import 'package:clicks_user/core/components/header_icon_button.dart';
 import 'package:clicks_user/core/constants/job_status_labels.dart';
 import 'package:clicks_user/core/helper/assets_manager.dart';
@@ -37,8 +38,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
       currentDate: DateTime.now(),
-      helpText: 'SELECT DATE RANGE',
-      saveText: 'DONE',
+      helpText: 'activity.select_date_range'.tr(),
+      saveText: 'common.done'.tr(),
     );
 
     if (picked != null && picked != selectedDateRange) {
@@ -77,7 +78,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
           HeaderIconButton(
             icon: Icons.calendar_month_outlined,
             selected: selectedDateRange != null,
-            semanticsLabel: 'SELECT DATE RANGE',
+            semanticsLabel: 'activity.select_date_range'.tr(),
             onTap: () => _pickDateRange(context),
           ),
           if (selectedDateRange != null)
@@ -85,7 +86,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
               padding: EdgeInsetsDirectional.only(start: 8.w),
               child: HeaderIconButton(
                 icon: Icons.close,
-                semanticsLabel: 'Clear date filter',
+                semanticsLabel: 'activity.clear_date_filter'.tr(),
                 onTap: () => setState(() => selectedDateRange = null),
               ),
             ),
@@ -103,10 +104,21 @@ class _ActivityScreenState extends State<ActivityScreen> {
             return Center(
               child: Padding(
                 padding: EdgeInsets.all(24.w),
-                child: Text(
-                  state.message,
-                  style: TextStyles.font16RegularBlack,
-                  textAlign: TextAlign.center,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      state.message,
+                      style: TextStyles.font16RegularBlack,
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: 16.h),
+                    TextButton(
+                      onPressed: () =>
+                          context.read<ActivityCubit>().loadHistory(),
+                      child: Text('common.retry'.tr()),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -133,13 +145,22 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
             final items =
                 filteredJobs.map((j) {
+                  final vehicle = [
+                    j.vehicleMake,
+                    j.vehicleModel,
+                  ]
+                      .map((e) => e?.trim() ?? '')
+                      .where((e) => e.isNotEmpty)
+                      .join(' ');
                   return JobCardData(
                     dateTime: j.dateTime,
                     title: j.jobType,
                     jobId: _displayJobId(j),
                     priceQar: j.price,
                     status: j.status,
-                    technician: j.technicianName ?? '—',
+                    paid: _isPaid(j.paymentStatus),
+                    technician: j.technicianName ?? '',
+                    vehicle: vehicle,
                     location: j.location,
                     imageAsset: AssetsManager.carExample2Image,
                   );
@@ -191,8 +212,6 @@ class JobsExactScreenFromApi extends StatefulWidget {
 }
 
 class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
-  final expanded = <int, bool>{};
-
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
@@ -210,14 +229,13 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
         }
         final data = widget.items[i];
         final job = widget.jobs[i];
-        final isExpanded = expanded[i] ?? false;
         final isOngoing = data.status == JobStatus.ongoing;
 
         return _ExactJobCard(
           data: data,
-          isExpanded: isExpanded,
-          onExpand: (v) => setState(() => expanded[i] = v),
-          buttonLabel: isOngoing ? 'activity.continue_btn'.tr() : 'activity.view_details'.tr(),
+          buttonLabel: isOngoing
+              ? 'activity.continue_btn'.tr()
+              : 'activity.view_details'.tr(),
           onViewDetails: () {
             if (isOngoing) {
               _continueJob(context, job.id);
@@ -405,10 +423,12 @@ class _JobsExactScreenFromApiState extends State<JobsExactScreenFromApi> {
 class JobCardData {
   final DateTime dateTime;
   final String title;
-  final String jobId;
+  final String? jobId;
   final int? priceQar;
   final JobStatus status;
+  final bool paid;
   final String technician;
+  final String vehicle;
   final String location;
   final String imageAsset;
 
@@ -418,7 +438,9 @@ class JobCardData {
     required this.jobId,
     required this.priceQar,
     required this.status,
+    required this.paid,
     required this.technician,
+    required this.vehicle,
     required this.location,
     required this.imageAsset,
   });
@@ -489,22 +511,38 @@ class JobCardData {
 
 class _ExactJobCard extends StatelessWidget {
   final JobCardData data;
-  final bool isExpanded;
-  final ValueChanged<bool> onExpand;
   final VoidCallback onViewDetails;
   final String buttonLabel;
 
   const _ExactJobCard({
     required this.data,
-    required this.isExpanded,
-    required this.onExpand,
     required this.onViewDetails,
-    this.buttonLabel = 'view details',
+    required this.buttonLabel,
   });
+
+  bool get _ongoing => data.status == JobStatus.ongoing;
+
+  String _subtitle() {
+    if (data.vehicle.isNotEmpty) return data.vehicle;
+    if (data.technician.isNotEmpty) return data.technician;
+    if (data.jobId != null) {
+      return '${'activity.job_id'.tr()}: ${data.jobId}';
+    }
+    return '';
+  }
+
+  String _amountText(BuildContext context) {
+    if (data.status == JobStatus.cancelled && !data.paid) {
+      return 'activity.no_charge'.tr();
+    }
+    if (data.priceQar == null) return 'activity.price_tbd'.tr();
+    final n = NumberFormat.decimalPattern(context.locale.languageCode)
+        .format(data.priceQar);
+    return '${'common.qar'.tr()} $n';
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Status chip colors matching Figma
     final chipBg = switch (data.status) {
       JobStatus.ongoing => const Color(0xFFFFFAEB),
       JobStatus.completed => const Color(0xFFECFDF3),
@@ -515,27 +553,26 @@ class _ExactJobCard extends StatelessWidget {
       JobStatus.completed => const Color(0xFF039855),
       JobStatus.cancelled => const Color(0xFFD92D20),
     };
+    final subtitle = _subtitle();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: ColorsManager.washBorder),
-      ),
+    return ClicksCard(
+      onTap: onViewDetails,
       padding: EdgeInsets.all(16.w),
+      radius: 14,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Date row + status badge
           Row(
             children: [
               Icon(Icons.calendar_today_outlined,
-                  size: 14.sp, color: const Color(0xFF667085)),
+                  size: 14.sp, color: ColorsManager.greyColor),
               SizedBox(width: 6.w),
               Expanded(
                 child: Text(
-                  _formatDate(data.dateTime),
-                  style: TextStyles.font12RegularGrey,
+                  _formatDate(context, data.dateTime),
+                  style: TextStyles.font12RegularBlack.copyWith(
+                    color: ColorsManager.greyColor,
+                  ),
                 ),
               ),
               Container(
@@ -547,7 +584,7 @@ class _ExactJobCard extends StatelessWidget {
                 ),
                 child: Text(
                   _statusText(data.status),
-                  style: TextStyles.font12RegularGrey.copyWith(
+                  style: TextStyles.font12RegularBlack.copyWith(
                     color: chipFg,
                     fontWeight: FontWeight.w600,
                     fontSize: 11.sp,
@@ -558,141 +595,90 @@ class _ExactJobCard extends StatelessWidget {
           ),
           Padding(
             padding: EdgeInsets.symmetric(vertical: 12.h),
-            child: Divider(height: 1.h, color: ColorsManager.border),
+            child: Divider(height: 1.h, color: ColorsManager.cardBorder),
           ),
-
-          // Car image + title + job id + chevron
-          GestureDetector(
-            onTap: () => onExpand(!isExpanded),
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Image.asset(
-                    data.imageAsset,
-                    width: 58,
-                    height: 58,
-                    fit: BoxFit.contain,
-                  ),
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4.r),
+                child: Image.asset(
+                  data.imageAsset,
+                  width: 48.w,
+                  height: 48.w,
+                  fit: BoxFit.contain,
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        data.title,
-                        style: TextStyle(
-                          fontFamily: 'HelveticaNeue',
-                          fontSize: 16.sp,
-                          fontWeight: FontWeight.w500,
-                          color: const Color(0xFF252525),
-                          height: 24 / 16,
-                        ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data.title.isEmpty ? '—' : data.title,
+                      style: TextStyles.font16Medium.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: ColorsManager.blackColor,
                       ),
+                    ),
+                    if (subtitle.isNotEmpty) ...[
+                      SizedBox(height: 2.h),
                       Text(
-                        '${'activity.job_id'.tr()}: ${data.jobId}',
-                        style: TextStyle(
-                          fontFamily: 'HelveticaNeue',
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w400,
-                          color: const Color(0xFF667085),
-                          height: 18 / 12,
+                        subtitle,
+                        style: TextStyles.font12RegularBlack.copyWith(
+                          color: ColorsManager.greyColor,
                         ),
                       ),
                     ],
-                  ),
-                ),
-                Icon(
-                  isExpanded
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
-                  color: const Color(0xFF252525),
-                  size: 20,
-                ),
-              ],
-            ),
-          ),
-
-          // Expanded info
-          if (isExpanded)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${'activity_details.technician'.tr()}: ${data.technician}',
-                    style: TextStyle(
-                      fontFamily: 'HelveticaNeue',
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w400,
-                      color: const Color(0xFF252525),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${'activity.location'.tr()}: ${data.location}',
-                    style: TextStyle(
-                      fontFamily: 'HelveticaNeue',
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w400,
-                      color: const Color(0xFF252525),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          const SizedBox(height: 20),
-
-          // Price row + button
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  data.priceQar == null
-                      ? 'activity.price_tbd'.tr()
-                      : data.status == JobStatus.cancelled
-                          ? '${'activity.cost'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}'
-                          : '${'activity.price'.tr()}: ${NumberFormat.decimalPattern(context.locale.languageCode).format(data.priceQar)} ${'common.qar'.tr()}',
-                  style: TextStyle(
-                    fontFamily: 'HelveticaNeue',
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF252525),
-                    height: 24 / 16,
-                  ),
+                    if (data.jobId != null &&
+                        subtitle !=
+                            '${'activity.job_id'.tr()}: ${data.jobId}') ...[
+                      SizedBox(height: 2.h),
+                      Text(
+                        '${'activity.job_id'.tr()}: ${data.jobId}',
+                        style: TextStyles.font12RegularBlack.copyWith(
+                          color: ColorsManager.greyColor,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              SizedBox(
-                width: 100,
-                height: 36,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: ColorsManager.mainColor,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 1,
-                  ),
-                  onPressed: onViewDetails,
-                  child: Text(
-                    buttonLabel,
-                    style: TextStyle(
-                      fontFamily: 'HelveticaNeue',
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -0.14,
-                    ),
-                  ),
-                ),
+              Icon(
+                Icons.chevron_right,
+                color: ColorsManager.listTileArrowForward,
+                size: 22.sp,
               ),
             ],
           ),
+          SizedBox(height: 16.h),
+          Text(
+            _amountText(context),
+            style: TextStyles.font16Medium.copyWith(
+              fontWeight: FontWeight.w600,
+              color: ColorsManager.blackColor,
+            ),
+          ),
+          if (_ongoing) ...[
+            SizedBox(height: 12.h),
+            SizedBox(
+              width: double.infinity,
+              height: 48.h,
+              child: FilledButton(
+                onPressed: onViewDetails,
+                style: FilledButton.styleFrom(
+                  backgroundColor: ColorsManager.mainColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.r),
+                  ),
+                ),
+                child: Text(
+                  buttonLabel,
+                  style: TextStyles.font14Medium.copyWith(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -710,35 +696,30 @@ class _ExactJobCard extends StatelessWidget {
   }
 }
 
-/// Technician-entered Job ID, falling back to the tail of the mongo id for
-/// legacy jobs that were completed before the field existed.
-String _displayJobId(JobDto job) {
+/// Customer-facing job number. Only a real `job_reference` — never a
+/// truncated Mongo id that looks like a ticket number.
+String? _displayJobId(JobDto job) {
   final ref = (job.jobReference ?? '').trim();
-  if (ref.isNotEmpty) return ref;
-  if (job.id.isEmpty) return '—';
-  if (job.id.length > 6) {
-    return '#${job.id.substring(job.id.length - 6)}';
-  }
-  return '#${job.id}';
+  if (ref.isEmpty) return null;
+  return ref;
 }
 
-String _formatDate(DateTime dt) {
-  final months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-  final min = dt.minute.toString().padLeft(2, '0');
-  return '${months[dt.month - 1]} ${dt.day}, ${dt.year} - $h:$min $ampm';
+bool _isPaid(String? status) {
+  switch ((status ?? '').toLowerCase()) {
+    case 'paid':
+    case 'partially_refunded':
+    case 'refunded':
+      return true;
+    default:
+      return false;
+  }
+}
+
+String _formatDate(BuildContext context, DateTime dt) {
+  final locale = context.locale.toString();
+  try {
+    return DateFormat('MMM d, yyyy - h:mm a', locale).format(dt);
+  } catch (_) {
+    return DateFormat('MMM d, yyyy - h:mm a').format(dt);
+  }
 }

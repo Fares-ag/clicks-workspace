@@ -29,7 +29,7 @@ class UpcomingBookingCard extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 4.h),
       child: Material(
-        color: ColorsManager.wash,
+        color: ColorsManager.card,
         borderRadius: BorderRadius.circular(14.r),
         child: InkWell(
           borderRadius: BorderRadius.circular(14.r),
@@ -39,14 +39,25 @@ class UpcomingBookingCard extends StatelessWidget {
           ),
           child: Ink(
             decoration: BoxDecoration(
+              color: ColorsManager.card,
               borderRadius: BorderRadius.circular(14.r),
-              border: Border.all(color: ColorsManager.washBorder),
+              border: Border.all(color: ColorsManager.cardBorder),
             ),
             padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
             child: Row(
               children: [
-                Icon(Icons.event_available_outlined,
-                    color: ColorsManager.mainColor, size: 26.sp),
+                Container(
+                  width: 40.w,
+                  height: 40.w,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10.r),
+                    border: Border.all(color: ColorsManager.cardBorder),
+                  ),
+                  child: Icon(Icons.event_available_outlined,
+                      color: ColorsManager.mainColor, size: 22.sp),
+                ),
                 SizedBox(width: 12.w),
                 Expanded(
                   child: Column(

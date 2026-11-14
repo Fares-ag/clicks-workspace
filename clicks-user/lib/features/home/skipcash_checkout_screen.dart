@@ -169,7 +169,7 @@ class _SkipcashCheckoutScreenState extends State<SkipcashCheckoutScreen> {
       decoration: BoxDecoration(
         color: ColorsManager.card,
         borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: ColorsManager.washBorder),
+        border: Border.all(color: ColorsManager.cardBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -278,7 +278,7 @@ class _SkipcashCheckoutScreenState extends State<SkipcashCheckoutScreen> {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: ColorsManager.mainColor,
-          side: const BorderSide(color: ColorsManager.washBorder),
+          side: const BorderSide(color: ColorsManager.cardBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12.r),
           ),
@@ -321,7 +321,7 @@ class _SkipcashCheckoutScreenState extends State<SkipcashCheckoutScreen> {
             padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 12.h),
             decoration: BoxDecoration(
               color: ColorsManager.card,
-              border: Border(top: BorderSide(color: ColorsManager.washBorder)),
+              border: Border(top: BorderSide(color: ColorsManager.cardBorder)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -362,7 +362,7 @@ class _SkipcashCheckoutScreenState extends State<SkipcashCheckoutScreen> {
           LinearProgressIndicator(
             minHeight: 2,
             color: ColorsManager.mainColor,
-            backgroundColor: ColorsManager.washBorder,
+            backgroundColor: ColorsManager.progressBackgroundColor,
           ),
         Expanded(
           child: WebViewWidget(controller: _controller!),

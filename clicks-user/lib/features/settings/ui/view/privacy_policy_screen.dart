@@ -1,11 +1,11 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/content_models.dart';
 import '../../../../core/helper/content_repository.dart';
-import '../../../../core/theme/text_styles.dart';
+import '../../../../core/theme/colors_manager.dart';
 
 class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
@@ -51,17 +51,10 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        shape: Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.privacy_policy'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.privacy_policy'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SafeArea(
         child: _buildBody(),

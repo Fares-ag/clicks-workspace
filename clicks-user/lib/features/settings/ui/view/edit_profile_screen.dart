@@ -4,12 +4,12 @@ import 'package:clicks_user/features/settings/ui/cubit/settings_cubit.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/assets_manager.dart';
 import '../../../../core/helper/validation_helper.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-import '../../../../core/theme/text_styles.dart';
+import '../../../../core/theme/colors_manager.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -113,17 +113,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final red = const Color(0xFF9A2A2A);
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        shape: Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.my_profile'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.my_profile'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SafeArea(
         child: Form(

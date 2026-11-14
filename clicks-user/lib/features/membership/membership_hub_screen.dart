@@ -76,7 +76,7 @@ class _MembershipHubScreenState extends State<MembershipHubScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: ColorsManager.canvas,
       appBar: ClicksAppHeader(
         title: 'membership.title'.tr(),
         automaticallyImplyLeading: true,

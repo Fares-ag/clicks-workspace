@@ -6,6 +6,7 @@ import '../../../../core/api/dio_helper.dart';
 import '../../../../core/api/end_points.dart';
 import '../../../../core/components/app_button.dart';
 import '../../../../core/components/app_text_field.dart';
+import '../../../../core/components/clicks_app_header.dart';
 import '../../../../core/helper/booking_errors.dart';
 import '../../../../core/helper/cache_helper.dart';
 import '../../../../core/theme/colors_manager.dart';
@@ -92,19 +93,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        shape: const Border(bottom: BorderSide(color: Colors.grey, width: 1.0)),
-        centerTitle: false,
-        title: Text(
-          'settings.change_password'.tr(),
-          style: TextStyles.font16RegularBlack.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 20.sp,
-          ),
-        ),
+      backgroundColor: ColorsManager.canvas,
+      appBar: ClicksAppHeader(
+        title: 'settings.change_password'.tr(),
+        automaticallyImplyLeading: true,
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16.w),

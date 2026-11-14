@@ -582,7 +582,7 @@ function buildContentStream({ receipt, job, repairs, photos = [] }) {
 
   fill(0.32, 0.36, 0.4);
   textAt("F1", 8, LAYOUT.left, y, clip(`Amount in words: ${moneyWords(total)}`, 92));
-  y -= 18;
+  y -= 32;
 
   const paid = isPaid(receipt, job);
   const payH = 24;
